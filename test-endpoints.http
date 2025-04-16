@@ -1,0 +1,47 @@
+### Test Email Verification First Flow
+
+### Step 1: Request Email Verification
+POST http://localhost:8000/api/users/request-verification
+Content-Type: application/json
+
+{
+  "email": "bsouvik986@gmail.com"
+}
+
+### Step 2: Verify Email with OTP
+# Replace YOUR_OTP with the actual OTP received in email
+POST http://localhost:8000/api/users/verify-email
+Content-Type: application/json
+
+{
+  "email": "bsouvik986@gmail.com",
+  "otp": "506074"
+}
+
+### Step 3: Complete Registration after Email Verification
+POST http://localhost:8000/api/users/register
+Content-Type: application/json
+
+{
+  "name": "Test User",
+  "designation": "Developer",
+  "email": "bsouvik986@gmail.com",
+  "password": "password123",
+  "phone": "1234567890",
+  "accountName": "Test Account",
+  "accountNumber": "123456789012",
+  "ifscCode": "ABCD0001234",
+  "gstNumber": "22AAAAA0000A1Z5",
+  "companyAddress": "123 Test Street, Test City, 123456",
+  "companyType": "Private Limited",
+  "international": false,
+  "terms": true
+}
+
+### Resend OTP if needed
+POST http://localhost:8000/api/users/resend-otp
+Content-Type: application/json
+
+{
+  "email": "bsouvik986@gmail.com"
+}
