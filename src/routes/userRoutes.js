@@ -28,6 +28,7 @@ router.post('/request-verification', async (req, res) => {
 
         // Generate OTP for email verification
         const otp = generateOTP();
+        
         const otpExpiry = new Date(Date.now() + 30 * 60 * 1000); // OTP valid for 30 minutes
 
         // Store the pre-registration verification data
