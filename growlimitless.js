@@ -20,7 +20,12 @@ const prisma = require('./src/config/db');
 
 // Middleware
 app.use(cors({
-    origin: "*" // In production, specify actual origins
+    origin: "*",                    // Allow all origins
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    credentials: false,             // Set to false since we're allowing all origins
+    maxAge: 600                     // Cache preflight request for 10 minutes
 }));
 app.use(express.json());
 
