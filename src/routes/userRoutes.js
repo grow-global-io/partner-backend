@@ -28,7 +28,7 @@ router.post('/request-verification', async (req, res) => {
 
         // Generate OTP for email verification
         const otp = generateOTP();
-        
+
         const otpExpiry = new Date(Date.now() + 30 * 60 * 1000); // OTP valid for 30 minutes
 
         // Store the pre-registration verification data
@@ -123,37 +123,41 @@ router.post('/personal-details', async (req, res) => {
     const tempUser = await prisma.user.findUnique({
         where: { email }
     });
+    try{
+        if (!tempUser) {
+            const user = await prisma.user.create({
+                data: {
+                    "name": name, 
+                    "email": email, 
+                    "designation": designation, 
+                    "phone": phone, 
+                    "international": international, 
+                    "reward": 20.0
+                }
+            })
+            res.status(200).json({
+                message: "Email added successfully"
+            })
 
-    if (!tempUser) {
-        const user = await prisma.user.create({
-            data: {
-                "name": name, 
-                "email": email, 
-                "designation": designation, 
-                "phone": phone, 
-                "international": international, 
-                "reward": 20.0
-            }
-        })
-        res.status(200).json({
-            message: "Email added successfully"
-        })
-
-    }else{
-        const updatedUser = await prisma.user.update({
-            where: { id: tempUser.id },
-            data: {
-                "name": name, 
-                "email": email, 
-                "designation": designation, 
-                "phone": phone, 
-                "international": international, 
-                "reward": 20.0
-            }
-        });
-        res.status(200).json({
-            message: "Details updated successfully"
-        })
+        }else{
+            const updatedUser = await prisma.user.update({
+                where: { id: tempUser.id },
+                data: {
+                    "name": name, 
+                    "email": email, 
+                    "designation": designation, 
+                    "phone": phone, 
+                    "international": international, 
+                    "reward": 20.0
+                }
+            });
+            res.status(200).json({
+                message: "Details updated successfully"
+            })
+        }
+    }catch (error) {
+        console.log("Error completing registration:", error);
+        res.status(500).json({ error: error });
     }
 })
 
@@ -234,9 +238,10 @@ router.post('/register', async (req, res) => {
             ...userWithoutPassword,
             message: "Registration completed successfully."
         });
+        console.log("Registration completed successfully.")
     } catch (error) {
-        console.error("Error completing registration:", error);
-        res.status(500).json({ error: "Something went wrong." });
+        console.log("Error completing registration:", error);
+        res.status(500).json({ error: error });
     }
 });
 
