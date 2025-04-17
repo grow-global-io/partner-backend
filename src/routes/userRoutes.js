@@ -116,6 +116,48 @@ router.post('/verify-email', async (req, res) => {
     }
 });
 
+router.post('/personal-details', async (req, res) => {
+    const { name, email, designation, phone, international } = req.body;
+
+    const tempUser = await prisma.user.findUnique({
+        where: { email }
+    });
+
+    if (!tempUser) {
+        const user = await prisma.user.create({
+            data: {
+                "name": name, 
+                "email": email, 
+                "designation": designation, 
+                "phone": phone, 
+                "international": international, 
+                "reward": 20.0
+            }
+        })
+        res.status(200).json({
+            message: "Email added successfully"
+        })
+
+    }else{
+        const updatedUser = await prisma.user.update({
+            where: { id: tempUser.id },
+            data: {
+                "name": name, 
+                "email": email, 
+                "designation": designation, 
+                "phone": phone, 
+                "international": international, 
+                "reward": 20.0
+            }
+        });
+        res.status(200).json({
+            message: "Details updated successfully"
+        })
+    }
+})
+
+
+
 // Step 3: Complete registration after email verification
 router.post('/register', async (req, res) => {
     try {
@@ -123,17 +165,22 @@ router.post('/register', async (req, res) => {
             name,
             designation,
             email,
-            password,
             phone,
             accountName,
             accountNumber,
             ifscCode,
             gstNumber,
+            companyName,
             companyAddress,
             companyType,
             international,
-            terms
+            terms,
+            msmeCertificate,
+            oemCertificate ,
+            fy2324Data     ,
+            fy2425Data 
         } = req.body;
+        
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
@@ -144,33 +191,38 @@ router.post('/register', async (req, res) => {
             where: { email }
         });
 
+        console.log("tempUser", tempUser)
+
         // Check if the email exists and is verified
         if (!tempUser) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
         }
 
-        if (!tempUser.isVerified) {
-            return res.status(400).json({ error: "Email not verified. Please verify your email before registration." });
-        }
+        
 
         // Update the temporary user with complete registration information
         const updatedUser = await prisma.user.update({
             where: { id: tempUser.id },
             data: {
-                name,
-                designation,
-                password,
-                phone,
-                accountName,
-                accountNumber,
-                ifscCode,
-                gstNumber,
-                companyAddress,
-                companyType,
-                international,
-                terms,
-                verificationOTP: null,
-                otpExpiry: null
+                "name": name,
+                "designation": designation,
+                "phone": phone,
+                "accountName": accountName,
+                "accountNumber": accountNumber,
+                "ifscCode": ifscCode,
+                "gstNumber": gstNumber,
+                "companyAddress": companyAddress,
+                "companyType": companyType,
+                "international": international,
+                "terms": terms,
+                "verificationOTP": null,
+                "otpExpiry": null,
+                "reward": 100.0,
+                "msmeCertificate": msmeCertificate,
+                "oemCertificate": oemCertificate,
+                "fy2324Data": fy2324Data,
+                "fy2425Data": fy2425Data,
+                "companyName": companyName
             }
         });
 
@@ -237,6 +289,7 @@ router.post('/resend-otp', async (req, res) => {
         res.status(500).json({ error: "Something went wrong." });
     }
 });
+
 
 
 module.exports = router;

@@ -7,6 +7,7 @@ const cors = require('cors');
 // Import routes
 const userRoutes = require('./src/routes/userRoutes');
 const errorHandler = require('./src/middleware/errorHandler');
+const { MongoClient } = require('mongodb');
 
 // Create Express app
 const app = express();
@@ -23,8 +24,21 @@ app.use(cors({
 }));
 app.use(express.json());
 
+async function testConnection() {
+    const client = new MongoClient('mongodb+srv://operations:nIzoFig3d47La9Cz@cluster0.zz7u5.mongodb.net/Partners?retryWrites=true&w=majority&appName=Cluster0');
+    try {
+      await client.connect();
+      console.log("✅ Connected successfully to server");
+    } catch (err) {
+      console.error("❌ Connection failed:", err);
+    } finally {
+      await client.close();
+    }
+  }
 // Routes
 app.get("/", (req, res) => {
+    console.log("Welcome to GrowLimitless API");
+    testConnection()
     res.send("Welcome to GrowLimitless API");
 });
 

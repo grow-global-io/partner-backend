@@ -12,22 +12,27 @@ model User {
   name        String
   designation String
   email       String @unique
-  password    String
   phone       String
 
-  accountName    String
-  accountNumber  String
-  ifscCode       String
-  gstNumber      String
-  companyAddress String
-  companyType    String
+  accountName    String @default("")
+  accountNumber  String @default("")
+  ifscCode       String @default("")
+  gstNumber      String @default("")
+  companyAddress String @default("")
+  companyType    String @default("")
+  companyName    String @default("")
+  msmeCertificate String?
+  oemCertificate String?
+  fy2324Data     String?
+  fy2425Data     String?
 
-  international Boolean
-  terms         Boolean
-  
+  international Boolean @default(false)
+  terms         Boolean @default(true)
+
   isVerified    Boolean @default(false)
   verificationOTP String?
   otpExpiry     DateTime?
+  reward        Float   @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
