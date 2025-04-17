@@ -9,68 +9,7 @@ const router = express.Router();
  */
 
 // Step 1: Request email verification before registration
-router.post('/request-verification', async (req, res) => {
-    try {
-        const { email } = req.body;
 
-        if (!email) {
-            return res.status(400).json({ error: "Email is required" });
-        }
-
-        // Check if user with this email already exists
-        const existingUser = await prisma.user.findUnique({
-            where: { email }
-        });
-
-        if (existingUser) {
-            return res.status(400).json({ error: "Email already exists" });
-        }
-
-        // Generate OTP for email verification
-        const otp = generateOTP();
-
-        const otpExpiry = new Date(Date.now() + 30 * 60 * 1000); // OTP valid for 30 minutes
-
-        // Store the pre-registration verification data
-        // We'll use a temporary record in the User model with minimal data
-        const tempUser = await prisma.user.create({
-            data: {
-                name: "Temporary",
-                designation: "Temporary",
-                email,
-                password: "temporary", // Will be replaced during actual registration
-                phone: "temporary",
-                accountName: "temporary",
-                accountNumber: "temporary",
-                ifscCode: "temporary",
-                gstNumber: "temporary",
-                companyAddress: "temporary",
-                companyType: "temporary",
-                companyName: "temporary",
-                international: false,
-                terms: false,
-                verificationOTP: otp,
-                otpExpiry
-            }
-        });
-
-        // Send verification email with OTP
-        await sendVerificationEmail(email, otp);
-
-        res.status(200).json({
-            message: "Verification OTP has been sent to your email. Please verify before completing registration."
-        });
-    } catch (error) {
-        console.error("Error requesting verification:", error);
-
-        // Handle duplicate email error
-        if (error.code === 'P2002' && error.meta?.target?.includes('email')) {
-            return res.status(400).json({ error: "Email already exists" });
-        }
-
-        res.status(500).json({ error: "Something went wrong." });
-    }
-});
 
 // Step 2: Verify email with OTP
 router.post('/verify-email', async (req, res) => {
@@ -231,11 +170,10 @@ router.post('/register', async (req, res) => {
             }
         });
 
-        // Remove password from response
-        const { password: _, ...userWithoutPassword } = updatedUser;
+        
 
         res.status(201).json({
-            ...userWithoutPassword,
+            
             message: "Registration completed successfully."
         });
         console.log("Registration completed successfully.")
