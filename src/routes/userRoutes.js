@@ -66,39 +66,46 @@ router.post('/personal-details', async (req, res) => {
         if (!tempUser) {
             const user = await prisma.user.create({
                 data: {
-                    "name": name, 
-                    "email": email, 
-                    "designation": designation, 
-                    "phone": phone, 
-                    "international": international, 
-                    "reward": 20.0
+                    name: name,
+                    email: email,
+                    designation: designation,
+                    phone: phone,
+                    international: international,
+                    reward: 20.0,
+                    accountName: "",
+                    accountNumber: "",
+                    ifscCode: "",
+                    gstNumber: "",
+                    companyAddress: "",
+                    companyType: "",
+                    companyName: "",
+                    terms: true
                 }
             })
             res.status(200).json({
                 message: "Email added successfully"
             })
-
-        }else{
+        } else {
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
                 data: {
-                    "name": name, 
-                    "email": email, 
-                    "designation": designation, 
-                    "phone": phone, 
-                    "international": international, 
-                    "reward": 20.0
+                    name: name,
+                    email: email,
+                    designation: designation,
+                    phone: phone,
+                    international: international,
+                    reward: 20.0
                 }
             });
             res.status(200).json({
                 message: "Details updated successfully"
             })
         }
-    }catch (error) {
+    } catch (error) {
         console.log("Error completing registration:", error);
-        res.status(500).json({ error: error });
+        res.status(500).json({ error: error.message });
     }
-})
+});
 
 
 
@@ -234,6 +241,25 @@ router.post('/resend-otp', async (req, res) => {
     }
 });
 
+// Endpoint to delete all users (Use with extreme caution!)
+router.delete('/all-users', async (req, res) => {
+    try {
+        // Verify a specific query parameter or header for safety
+        // Example: require a specific header like 'X-Confirm-Delete: YES'
+        // if (req.headers['x-confirm-delete'] !== 'YES') {
+        //     return res.status(403).json({ error: "Deletion not confirmed. Missing or invalid confirmation header." });
+        // }
 
+        const deleteResult = await prisma.user.deleteMany({});
+        
+        res.status(200).json({
+            message: `Successfully deleted ${deleteResult.count} users.`,
+            count: deleteResult.count
+        });
+    } catch (error) {
+        console.error("Error deleting all users:", error);
+        res.status(500).json({ error: "Something went wrong while deleting users.", details: error.message });
+    }
+});
 
 module.exports = router;
