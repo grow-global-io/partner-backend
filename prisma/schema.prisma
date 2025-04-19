@@ -25,7 +25,7 @@ model User {
   oemCertificate String?
   fy2324Data     String?
   fy2425Data     String?
-
+  glltag  String?
   international Boolean @default(false)
   terms         Boolean @default(true)
 

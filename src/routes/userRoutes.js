@@ -57,7 +57,7 @@ router.post('/verify-email', async (req, res) => {
 });
 
 router.post('/save-connect-wallet', async (req, res) => {
-    const { name, email, walletAddress } = req.body;
+    const { name, email, walletAddress, glltag } = req.body;
 
     const tempUser = await prisma.user.findUnique({
         where: { email }
@@ -68,7 +68,8 @@ router.post('/save-connect-wallet', async (req, res) => {
                 data: {
                     // name: name,
                     email: email,
-                    walletAddress: walletAddress
+                    walletAddress: walletAddress,
+                    glltag: glltag
                 }
             })
             res.status(200).json({
@@ -80,7 +81,8 @@ router.post('/save-connect-wallet', async (req, res) => {
                 data: {
                     // name: name,
                     email: email,
-                    walletAddress: walletAddress
+                    walletAddress: walletAddress,
+                    glltag: glltag
                 }
             });
             res.status(200).json({
