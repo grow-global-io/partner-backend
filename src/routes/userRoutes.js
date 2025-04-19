@@ -56,6 +56,44 @@ router.post('/verify-email', async (req, res) => {
     }
 });
 
+router.post('/save-connect-wallet', async (req, res) => {
+    const { name, email, walletAddress } = req.body;
+
+    const tempUser = await prisma.user.findUnique({
+        where: { email }
+    });
+    try{
+        if (!tempUser) {
+            const user = await prisma.user.create({
+                data: {
+                    name: name,
+                    email: email,
+                    walletAddress: walletAddress
+                }
+            })
+            res.status(200).json({
+                message: "User added successfully"
+            })
+        } else {
+            const updatedUser = await prisma.user.update({
+                where: { id: tempUser.id },
+                data: {
+                    name: name,
+                    email: email,
+                    walletAddress: walletAddress
+                }
+            });
+            res.status(200).json({
+                message: "Details updated successfully"
+            })
+        }
+    } catch (error) {
+        console.log("Error completing registration:", error);
+        res.status(500).json({ error: error.message });
+    }
+    
+});
+
 router.post('/personal-details', async (req, res) => {
     const { name, email, designation, phone, international } = req.body;
 

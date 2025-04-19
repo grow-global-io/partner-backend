@@ -13,7 +13,7 @@ model User {
   designation String
   email       String @unique
   phone       String
-
+  walletAddress String?
   accountName    String @default("")
   accountNumber  String @default("")
   ifscCode       String @default("")
