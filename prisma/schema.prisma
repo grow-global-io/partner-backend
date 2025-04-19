@@ -32,7 +32,7 @@ model User {
   isVerified    Boolean @default(false)
   verificationOTP String?
   otpExpiry     DateTime?
-  reward        Float   @default(0)
+  gllBalance        Float   @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

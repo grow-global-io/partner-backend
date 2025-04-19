@@ -1,60 +1,7 @@
 const express = require('express');
 const prisma = require('../config/db');
-const { sendVerificationEmail, generateOTP } = require('../utils/emailService');
 
 const router = express.Router();
-
-/**
- * User routes
- */
-
-// Step 1: Request email verification before registration
-
-
-// Step 2: Verify email with OTP
-router.post('/verify-email', async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-
-        if (!email || !otp) {
-            return res.status(400).json({ error: "Email and OTP are required" });
-        }
-
-        // Find temporary user by email
-        const tempUser = await prisma.user.findUnique({
-            where: { email }
-        });
-
-        if (!tempUser) {
-            return res.status(404).json({ error: "No verification request found for this email" });
-        }
-
-        // Check if OTP is valid
-        if (tempUser.verificationOTP !== otp) {
-            return res.status(400).json({ error: "Invalid OTP" });
-        }
-
-        // Check if OTP is expired
-        if (tempUser.otpExpiry && new Date() > new Date(tempUser.otpExpiry)) {
-            return res.status(400).json({ error: "OTP has expired" });
-        }
-
-        // Update temporary user as verified
-        await prisma.user.update({
-            where: { id: tempUser.id },
-            data: {
-                isVerified: true
-            }
-        });
-
-        res.status(200).json({
-            message: "Email verified successfully. You can now complete your registration."
-        });
-    } catch (error) {
-        console.error("Error verifying email:", error);
-        res.status(500).json({ error: "Something went wrong." });
-    }
-});
 
 router.post('/save-connect-wallet', async (req, res) => {
     const { name, email, walletAddress, glltag } = req.body;
@@ -111,7 +58,7 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
-                    reward: 20.0,
+                    gllBalance: 20.0,
                     accountName: "",
                     accountNumber: "",
                     ifscCode: "",
@@ -146,8 +93,6 @@ router.post('/personal-details', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-
 
 // Step 3: Complete registration after email verification
 router.post('/register', async (req, res) => {
@@ -208,7 +153,7 @@ router.post('/register', async (req, res) => {
                 "terms": terms,
                 "verificationOTP": null,
                 "otpExpiry": null,
-                "reward": 100.0,
+                "gllBalance": 100.0,
                 "msmeCertificate": msmeCertificate,
                 "oemCertificate": oemCertificate,
                 "fy2324Data": fy2324Data,
@@ -230,56 +175,6 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// This endpoint is deprecated - use /verify-email instead
-router.post('/verify', async (req, res) => {
-    return res.status(400).json({ error: "This endpoint is deprecated. Please use /verify-email for pre-registration verification." });
-});
-
-// Resend OTP for pre-registration verification
-router.post('/resend-otp', async (req, res) => {
-    try {
-        const { email } = req.body;
-
-        if (!email) {
-            return res.status(400).json({ error: "Email is required" });
-        }
-
-        // Find temporary user by email
-        const tempUser = await prisma.user.findUnique({
-            where: { email }
-        });
-
-        if (!tempUser) {
-            return res.status(404).json({ error: "No verification request found for this email" });
-        }
-
-        // Check if user is already verified
-        if (tempUser.isVerified) {
-            return res.status(400).json({ error: "Email is already verified. You can proceed with registration." });
-        }
-
-        // Generate new OTP
-        const otp = generateOTP();
-        const otpExpiry = new Date(Date.now() + 30 * 60 * 1000); // OTP valid for 30 minutes
-
-        // Update temporary user with new OTP
-        await prisma.user.update({
-            where: { id: tempUser.id },
-            data: {
-                verificationOTP: otp,
-                otpExpiry
-            }
-        });
-
-        // Send verification email with new OTP
-        await sendVerificationEmail(email, otp);
-
-        res.status(200).json({ message: "Verification OTP has been resent to your email" });
-    } catch (error) {
-        console.error("Error resending OTP:", error);
-        res.status(500).json({ error: "Something went wrong." });
-    }
-});
 
 // Endpoint to delete all users (Use with extreme caution!)
 router.delete('/all-users', async (req, res) => {
