@@ -302,4 +302,36 @@ router.delete('/all-users', async (req, res) => {
     }
 });
 
+// Get user data by email
+router.get('/user-by-email', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: "Email is required" });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { email }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        
+        res.status(200).json({
+            success: true,
+            user: user
+        });
+    } catch (error) {
+        console.error("Error fetching user data:", error);
+        res.status(500).json({ 
+            success: false, 
+            error: "Something went wrong while fetching user data",
+            details: error.message 
+        });
+    }
+});
+
 module.exports = router;
