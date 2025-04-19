@@ -66,7 +66,7 @@ router.post('/save-connect-wallet', async (req, res) => {
         if (!tempUser) {
             const user = await prisma.user.create({
                 data: {
-                    name: name,
+                    // name: name,
                     email: email,
                     walletAddress: walletAddress
                 }
@@ -78,7 +78,7 @@ router.post('/save-connect-wallet', async (req, res) => {
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
                 data: {
-                    name: name,
+                    // name: name,
                     email: email,
                     walletAddress: walletAddress
                 }
