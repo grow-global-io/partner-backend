@@ -198,7 +198,7 @@ router.delete('/all-users', async (req, res) => {
 });
 
 // Get user data by email
-router.get('/user-by-email', async (req, res) => {
+router.post('/user-by-email', async (req, res) => {
     try {
         const { email } = req.body;
 
