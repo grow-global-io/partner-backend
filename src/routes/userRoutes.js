@@ -13,7 +13,7 @@ router.post('/save-connect-wallet', async (req, res) => {
         if (!tempUser) {
             const user = await prisma.user.create({
                 data: {
-                    // name: name,
+                    name: name,
                     email: email,
                     walletAddress: walletAddress,
                     glltag: glltag
@@ -26,7 +26,7 @@ router.post('/save-connect-wallet', async (req, res) => {
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
                 data: {
-                    // name: name,
+                    name: name,
                     email: email,
                     walletAddress: walletAddress,
                     glltag: glltag
@@ -214,11 +214,8 @@ router.post('/user-by-email', async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
-        
-        res.status(200).json({
-            success: true,
-            user: user
-        });
+        console.log("user", user)
+        res.send(user);
     } catch (error) {
         console.error("Error fetching user data:", error);
         res.status(500).json({ 
