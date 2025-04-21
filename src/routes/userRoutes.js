@@ -81,7 +81,7 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
-                    reward: 20.0
+                    gllBalance: 20.0
                 }
             });
             res.status(200).json({
