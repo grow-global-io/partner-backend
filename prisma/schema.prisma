@@ -14,6 +14,9 @@ model User {
   email           String    @unique
   phone           String?
   walletAddress   String?
+  accountName     String    @default("")
+  accountNumber   String    @default("")
+  ifscCode        String    @default("")
   gstNumber       String    @default("")
   companyAddress  String    @default("")
   companyType     String    @default("")
