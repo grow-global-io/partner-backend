@@ -135,6 +135,9 @@ router.post('/register', async (req, res) => {
             designation,
             email,
             phone,
+            accountName,
+            accountNumber,
+            ifscCode,
             gstNumber,
             companyName,
             companyAddress,
@@ -142,22 +145,37 @@ router.post('/register', async (req, res) => {
             international,
             terms,
             msmeCertificate,
-            oemCertificate,
-            fy2324Data,
-            fy2425Data,
-            password,
+            oemCertificate ,
+            fy2324Data     ,
+            fy2425Data 
         } = req.body;
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
         }
+        // Find the temporary user record that should have been verified
+        const tempUser = await prisma.user.findUnique({
+            where: { email }
+        });
+
+        console.log("tempUser", tempUser)
+
+
+        if (!tempUser) {
+            return res.status(400).json({ error: "Email not found. Please request verification first." });
+        }
+
 
         // Update the temporary user with complete registration information
-        const user = await prisma.user.create({
+        const updatedUser = await prisma.user.update({
+            where: { id: tempUser.id },
+            data: {
                 "name": name,
                 "designation": designation,
                 "phone": phone,
-                "password": password,
+                "accountName": accountName,
+                "accountNumber": accountNumber,
+                "ifscCode": ifscCode,
                 "gstNumber": gstNumber,
                 "companyAddress": companyAddress,
                 "companyType": companyType,
@@ -171,12 +189,14 @@ router.post('/register', async (req, res) => {
                 "fy2324Data": fy2324Data,
                 "fy2425Data": fy2425Data,
                 "companyName": companyName
-        });
-        res.status(201).json({
-            message: "Registration completed successfully.",
-            user: user
+            }
         });
 
+
+         res.status(201).json({
+            
+            message: "Registration completed successfully."
+        });
         console.log("Registration completed successfully.")
     } catch (error) {
         console.log("Error completing registration:", error);
