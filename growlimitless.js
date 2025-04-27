@@ -20,7 +20,7 @@ const prisma = require('./src/config/db');
 
 // Middleware
 app.use(cors({
-  origin: ['https://gll.one'],                    // Allow all origins
+  origin: ['https://gll.one', 'http://localhost:3000'],                    // Allow all origins
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   exposedHeaders: ["Content-Range", "X-Content-Range"],
