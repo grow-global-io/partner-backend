@@ -963,4 +963,4 @@ router.post('/user-by-email', async (req, res) => {
 //     }
 // });
 
-// module.exports = router;
+module.exports = router;
