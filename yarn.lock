@@ -14,6 +14,7 @@
   dependencies:
     sparse-bitfield "^3.0.3"
 
+
 "@prisma/client@^6.5.0":
   version "6.6.0"
   resolved "https://registry.npmjs.org/@prisma/client/-/client-6.6.0.tgz"
