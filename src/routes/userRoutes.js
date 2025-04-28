@@ -147,7 +147,8 @@ router.post('/register', async (req, res) => {
             msmeCertificate,
             oemCertificate ,
             fy2324Data     ,
-            fy2425Data 
+            fy2425Data ,
+            gllBalance
         } = req.body;
 
         if (!email) {
@@ -188,16 +189,19 @@ router.post('/register', async (req, res) => {
                 "oemCertificate": oemCertificate,
                 "fy2324Data": fy2324Data,
                 "fy2425Data": fy2425Data,
-                "companyName": companyName
+                "companyName": companyName,
+                "gllBalance": gllBalance,
+
             }
         });
 
 
          res.status(201).json({
             
-            message: "Registration completed successfully."
+             message: "Registration completed successfully."
         });
         console.log("Registration completed successfully.")
+        console.log("gllBalance",gllBalance)
     } catch (error) {
         console.log("Error completing registration:", error);
         res.status(500).json({ error: error });
@@ -302,7 +306,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                 data: {
                     gllBalance: {
                         
-                        increment: 200 // Add 100 GLL Ions to the user's balance as reward
+                        increment: 100 // Add 100 GLL Ions to the user's balance as reward
                     }
                 }
             });
