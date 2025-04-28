@@ -37,7 +37,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  rewards Rewards[]
+  rewards Rewards[] @relation("UserRewards")
 
   // storeConnections  storeConnection[]
   // files             File[]
@@ -63,7 +63,7 @@ model Rewards {
 
   // Foreign Key relation to User
   userId String? @db.ObjectId
-  user   User?   @relation(fields: [userId], references: [id])
+  user   User?   @relation("UserRewards", fields: [userId], references: [id])
 }
 
 // model storeConnection {
