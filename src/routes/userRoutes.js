@@ -293,6 +293,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         });
         
         console.log("Data saved with document URL:", documentUrl);
+        console.log("gllBalance", gllBalance);
         
         // If user exists, update GLL balance
         if (user) {
@@ -300,7 +301,8 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: 100 // Add 100 GLL Ions to the user's balance as reward
+                        
+                        increment: 200 // Add 100 GLL Ions to the user's balance as reward
                     }
                 }
             });
@@ -321,6 +323,8 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         res.status(500).json({ error: error.message });
     }
 });
+
+console.log("gllBalance", gllBalance);
 
 // Endpoint to delete all users (Use with extreme caution!)
 router.delete('/all-users', async (req, res) => {
