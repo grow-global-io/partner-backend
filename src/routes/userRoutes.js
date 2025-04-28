@@ -224,7 +224,7 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
                 Key: `documents/${Date.now()}-${req.file.originalname}`,
                 Body: fileContent,
                 ContentType: req.file.mimetype,
-                // ACL: 'public-read'
+                ACL: 'public-read'
             };
 
             const uploadResult = await s3.upload(params).promise();
@@ -274,7 +274,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                 Key: `documents/${Date.now()}-${req.file.originalname}`,
                 Body: fileContent,
                 ContentType: req.file.mimetype,
-                // ACL: 'public-read'
+                ACL: 'public-read'
             };
 
             const uploadResult = await s3.upload(params).promise();
