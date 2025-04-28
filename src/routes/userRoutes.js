@@ -293,7 +293,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         });
         
         console.log("Data saved with document URL:", documentUrl);
-        console.log("gllBalance", gllBalance);
+        // console.log("gllBalance", gllBalance);
         
         // If user exists, update GLL balance
         if (user) {
@@ -324,7 +324,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
     }
 });
 
-console.log("gllBalance", gllBalance);
+// console.log("gllBalance", gllBalance);
 
 // Endpoint to delete all users (Use with extreme caution!)
 router.delete('/all-users', async (req, res) => {
