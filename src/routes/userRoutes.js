@@ -7,6 +7,7 @@ const fs = require('fs');
 
 const router = express.Router();
 
+// AWS S3 configuration 
 const s3 = new AWS.S3({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -19,6 +20,7 @@ if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+// Set up multer for file uploads
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
@@ -76,6 +78,7 @@ router.post('/save-connect-wallet', async (req, res) => {
     }
 });
 
+// Save personal details from step 1 registration
 router.post('/personal-details', async (req, res) => {
     const { name, email, designation, phone, international } = req.body;
 
@@ -91,7 +94,7 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
-                    gllBalance: 20.0,
+                    gllBalance: 100.0,
                     accountName: "",
                     accountNumber: "",
                     ifscCode: "",
@@ -114,7 +117,7 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
-                    gllBalance: 20.0
+                    gllBalance: 100.0
                 }
             });
             res.status(200).json({
@@ -208,6 +211,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
+// AWS bucket code for uploading files to S3
 router.post('/uploads', upload.single('file'), async (req, res) => {
 
     let documentUrl = null;
@@ -370,6 +374,9 @@ router.post('/user-by-email', async (req, res) => {
 
         console.log("user", user)
         res.send(user);
+
+        // res.send(user.gllBalance);
+        console.log("user.gllBalance", user.gllBalance)
     } catch (error) {
         console.error("Error fetching user data:", error);
         res.status(500).json({
