@@ -51,19 +51,71 @@ model User {
 }
 
 model Rewards {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  companyName   String
-  financialYear String
-  documentType  String
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  companyName   String?
+  financialYear String?
+  documentType  String?
   document      String?
   notes         String?
   userEmail     String? // Store user email for easy reference
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+
+  // Store connection fields
+  platform  String?
+  storeUrl  String?
+  storeId   String?
+  consented Boolean? @default(false)
+
+  // Certificate fields
+  certificateType String?
+  certificateUrl  String?
+  expiryDate      DateTime?
+  issueAuthority  String?
+
+  // MSME Registration fields
+  businessName String?
+  gstin        String?
+  businessType String?
+  city         String?
+  state        String?
+
+  // Invoice fields
+  invoiceNumber String?
+  amount        String?
+  dueDate       DateTime?
+  customerName  String?
+  fileUrls      String[]  @default([])
+
+  // MSME Referral fields
+  uciNumber  String?
+  msmeUciId  String?
+  customerId String?
+  status     String? @default("pending")
+
+  // Business Story fields
+  imageUrl String?
+  story    String?
+
+  // Product fields
+  productName     String?
+  gstInNumber     String?
+  uciCode         String?
+  productCategory String?
+  productMaterial String?
+  originCountry   String?
+
+  // Social Account fields
+  socialPlatforms Json? // Store platform data as JSON
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Foreign Key relation to User
   userId String? @db.ObjectId
   user   User?   @relation("UserRewards", fields: [userId], references: [id])
+
+  // Define an index on userEmail for faster lookups
+  @@index([userEmail])
+  @@index([userId])
 }
 
 // model storeConnection {

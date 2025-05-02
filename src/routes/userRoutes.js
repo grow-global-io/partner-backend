@@ -94,7 +94,7 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
-                    gllBalance: 100.0,
+                    gllBalance: 0, // Initially set to 0, will be updated in the final step
                     accountName: "",
                     accountNumber: "",
                     ifscCode: "",
@@ -109,6 +109,7 @@ router.post('/personal-details', async (req, res) => {
                 message: "Email added successfully"
             })
         } else {
+            // Don't update GLL balance if the user already exists
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
                 data: {
@@ -116,8 +117,8 @@ router.post('/personal-details', async (req, res) => {
                     email: email,
                     designation: designation,
                     phone: phone,
-                    international: international,
-                    gllBalance: 100.0
+                    international: international
+                    // Don't update gllBalance here
                 }
             });
             res.status(200).json({
@@ -148,66 +149,70 @@ router.post('/register', async (req, res) => {
             international,
             terms,
             msmeCertificate,
-            oemCertificate ,
-            fy2324Data     ,
-            fy2425Data ,
-            gllBalance
+            oemCertificate,
+            fy2324Data,
+            fy2425Data
         } = req.body;
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
         }
-        // Find the temporary user record that should have been verified
+        
+        // Find the temporary user record
         const tempUser = await prisma.user.findUnique({
             where: { email }
         });
 
-        console.log("tempUser", tempUser)
-
+        console.log("tempUser", tempUser);
 
         if (!tempUser) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
         }
+        
+        // Validate that all required fields are provided for a complete registration
+        if (!name || !phone || !companyName || !companyType) {
+            return res.status(400).json({ 
+                error: "Incomplete registration. Please provide all required information." 
+            });
+        }
 
-
-        // Update the temporary user with complete registration information
+        // Update the user with complete registration information
+        // Set GLL balance to 100.0 only when all steps are completed
         const updatedUser = await prisma.user.update({
             where: { id: tempUser.id },
             data: {
-                "name": name,
-                "designation": designation,
-                "phone": phone,
-                "accountName": accountName,
-                "accountNumber": accountNumber,
-                "ifscCode": ifscCode,
-                "gstNumber": gstNumber,
-                "companyAddress": companyAddress,
-                "companyType": companyType,
-                "international": international,
-                "terms": terms,
-                "verificationOTP": null,
-                "otpExpiry": null,
-                "gllBalance": 100.0,
-                "msmeCertificate": msmeCertificate,
-                "oemCertificate": oemCertificate,
-                "fy2324Data": fy2324Data,
-                "fy2425Data": fy2425Data,
-                "companyName": companyName,
-                "gllBalance": gllBalance,
-
+                name,
+                designation,
+                phone,
+                accountName,
+                accountNumber,
+                ifscCode,
+                gstNumber,
+                companyAddress,
+                companyType,
+                international,
+                terms,
+                verificationOTP: null,
+                otpExpiry: null,
+                msmeCertificate,
+                oemCertificate,
+                fy2324Data,
+                fy2425Data,
+                companyName,
+                // Set GLL balance to 100.0 upon successful completion of all steps
+                gllBalance: 100.0
             }
         });
 
+        console.log("Registration completed successfully.");
+        console.log("GLL Balance set to:", updatedUser.gllBalance);
 
-         res.status(201).json({
-            
-             message: "Registration completed successfully."
+        res.status(201).json({
+            message: "Registration completed successfully."
         });
-        console.log("Registration completed successfully.")
-        console.log("gllBalance",gllBalance)
     } catch (error) {
         console.log("Error completing registration:", error);
-        res.status(500).json({ error: error });
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -250,6 +255,55 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
     }
 })
 
+// Helper function to get user by ID or email
+async function getUserByIdOrEmail(userId, email) {
+    let user = null;
+    let userEmail = null;
+
+    // If userId is provided, we first try to find the user by ID
+    if (userId) {
+        user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                gllBalance: true
+            }
+        });
+        
+        // If user found by ID, use email from database
+        if (user) {
+            userEmail = user.email;
+            console.log("User found by ID. Using email from database:", userEmail);
+        }
+    }
+    
+    // If user not found by ID but email is provided, try to find by email
+    if (!user && email) {
+        user = await prisma.user.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                gllBalance: true
+            }
+        });
+        
+        // If user found by email, use email from database
+        if (user) {
+            userEmail = user.email;
+            console.log("User found by email. Using email from database:", userEmail);
+        } else {
+            // If no user found but email provided, use the provided email
+            userEmail = email;
+            console.log("No user found. Using provided email:", userEmail);
+        }
+    }
+    
+    return { user, userEmail };
+}
 
 // Save-Data From Reward Card1
 router.post('/save-reward-card1', upload.single('document'), async (req, res) => {
@@ -258,18 +312,11 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         const { companyName, financialYear, documentType, notes, userId, email } = req.body;
         let documentUrl = null;
 
-        // Check if user ID was provided and user exists
-        let user = null;
-        if (userId) {
-            user = await prisma.user.findUnique({
-                where: { id: userId }
-            });
-        } else if (email) {
-            // If userId is not provided but email is, try to find user by email
-            user = await prisma.user.findUnique({
-                where: { email }
-            });
-        }
+        // Get user and email information
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
+        
+        // Get actual user info including email
+        const userInfo = user || { email: email };
 
         if (req.file) {
             const fileContent = fs.readFileSync(req.file.path);
@@ -288,20 +335,20 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             fs.unlinkSync(req.file.path);
         }
 
-        const createUser = await prisma.rewards.create({
+        const reward = await prisma.rewards.create({
             data: {
                 companyName,
                 financialYear,
                 documentType,
                 document: documentUrl, // Store the S3 URL instead of the file
                 notes,
-                userEmail: user ? user.email : email, // Store email for reference
+                userEmail: userInfo.email, // Always use the email from userInfo
                 ...(user && { user: { connect: { id: user.id } } })
             }
         });
         
         console.log("Data saved with document URL:", documentUrl);
-        // console.log("gllBalance", gllBalance);
+        console.log("User info email:", userInfo.email);
         
         // If user exists, update GLL balance
         if (user) {
@@ -309,7 +356,6 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        
                         increment: 100 // Add 100 GLL Ions to the user's balance as reward
                     }
                 }
@@ -319,8 +365,9 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         res.status(200).json({
             message: "Data saved successfully",
             documentUrl,
-            rewardId: createUser.id,
-            userEmail: createUser.userEmail
+            rewardId: reward.id,
+            userEmail: reward.userEmail,
+            user: user
         });
     } catch (error) {
         console.log("Error saving data:", error);
@@ -332,7 +379,82 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
     }
 });
 
-// console.log("gllBalance", gllBalance);
+// Save data from Reward Card2 - Store Connection
+router.post('/save-reward-card2', upload.none(), async (req, res) => {
+    try {
+        console.log("Request body:", req.body);
+        const { platform, storeUrl, storeId, consented, rewardId, userId, email } = req.body;
+        
+        // Validate required fields
+        if (!platform || !storeUrl || consented !== 'true') {
+            return res.status(400).json({ 
+                error: "Missing required fields. Platform, store URL, and consent are required." 
+            });
+        }
+
+        // Get user and email
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
+        
+        // Get actual user info including email
+        const userInfo = user || { email: email };
+
+        let reward;
+        
+        // If rewardId is provided, update existing reward
+        if (rewardId) {
+            reward = await prisma.rewards.update({
+                where: {
+                    id: rewardId
+                },
+                data: {
+                    platform,
+                    storeUrl,
+                    storeId: storeId || null,
+                    consented: consented === 'true',
+                    userEmail: userInfo.email // Update email from userInfo
+                }
+            });
+        } else {
+            // Otherwise create a new reward
+            reward = await prisma.rewards.create({
+                data: {
+                    platform,
+                    storeUrl,
+                    storeId: storeId || null,
+                    consented: consented === 'true',
+                    userEmail: userInfo.email, // Use email from userInfo
+                    ...(user && { user: { connect: { id: user.id } } })
+                }
+            });
+        }
+        
+        console.log("Store connection saved:", reward);
+        
+        // If user exists, update GLL balance
+        if (user) {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: 500 // Add 500 GLL Ions to the user's balance as reward
+                    }
+                }
+            });
+        }
+        
+        res.status(200).json({
+            message: "Store connected successfully",
+            reward: "500 GLL Ions",
+            gllBalance: user ? user.gllBalance : 0,
+            rewardId: reward.id,
+            userEmail: reward.userEmail,
+            user: user
+        });
+    } catch (error) {
+        console.log("Error connecting store:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Endpoint to delete all users (Use with extreme caution!)
 router.delete('/all-users', async (req, res) => {
@@ -342,7 +464,6 @@ router.delete('/all-users', async (req, res) => {
         // if (req.headers['x-confirm-delete'] !== 'YES') {
         //     return res.status(403).json({ error: "Deletion not confirmed. Missing or invalid confirmation header." });
         // }
-
         const deleteResult = await prisma.user.deleteMany({});
 
         res.status(200).json({
@@ -374,8 +495,7 @@ router.post('/user-by-email', async (req, res) => {
 
         console.log("user", user)
         res.send(user);
-
-        // res.send(user.gllBalance);
+ // res.send(user.gllBalance);
         console.log("user.gllBalance", user.gllBalance)
     } catch (error) {
         console.error("Error fetching user data:", error);
@@ -387,85 +507,6 @@ router.post('/user-by-email', async (req, res) => {
     }
 });
 
-
-// Save data from Reward Card2 - Store Connection
-// router.post('/save-reward-card2', upload.none(), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { platform, storeUrl, storeId, consented } = req.body;
-        
-//         // Validate required fields
-//         if (!platform || !storeUrl || consented !== 'true') {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Platform, store URL, and consent are required." 
-//             });
-//         }
-
-//         // Create store connection record
-//         const storeConnection = await prisma.storeConnection.create({
-//             data: {
-//                 platform,
-//                 storeUrl,
-//                 storeId: storeId || null,
-//                 consented: consented === 'true',
-//                 // connectionDate: new Date()
-//             }
-//         });
-        
-//         console.log("Store connection saved:", storeConnection);
-        
-//         // TODO: Add logic to add 500 GLL Ions to user's balance if needed
-//         // Would require user ID to be passed from frontend
-        
-//         res.status(200).json({
-//             message: "Store connected successfully"
-//         });
-//     } catch (error) {
-//         console.log("Error connecting store:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
-// // Save data from Reward Card3 - Certificate Upload
-// router.post('/save-reward-card3', upload.single('certificate'), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { certificateType, expiryDate, issueAuthority, notes, userId } = req.body;
-//         let certificateUrl = null;
-
-//         // Validate required fields
-//         if (!certificateType || !expiryDate || !issueAuthority) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Certificate type, expiry date, and issuing authority are required." 
-//             });
-//         }
-
-//         if (!req.file) {
-//             return res.status(400).json({ error: "Certificate file is required" });
-//         }
-
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // Upload certificate to S3
-//         const fileContent = fs.readFileSync(req.file.path);
-//         const params = {
-//             Bucket: process.env.AWS_BUCKET_NAME,
-//             Key: `certificates/${Date.now()}-${req.file.originalname}`,
-//             Body: fileContent,
-//             ContentType: req.file.mimetype,
-//         };
-
-//         const uploadResult = await s3.upload(params).promise();
-//         certificateUrl = uploadResult.Location;
-
-//         // Delete the temporary file
-//         fs.unlinkSync(req.file.path);
 
 //         // Create certificate record in database
 //         const certificate = await prisma.certificate.create({
