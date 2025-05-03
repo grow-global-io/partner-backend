@@ -32,6 +32,7 @@ model User {
   verificationOTP String?
   otpExpiry       DateTime?
   gllBalance      Float     @default(0)
+  apiKey          String?   @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
