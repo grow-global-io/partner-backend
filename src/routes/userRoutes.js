@@ -223,6 +223,10 @@ router.post('/register', async (req, res) => {
     }
 });
 
+
+
+
+
 // Helper function to generate a unique API key
 function generateApiKey(email) {
     const timestamp = Date.now().toString();
