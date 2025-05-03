@@ -14,12 +14,12 @@ model User {
   email           String    @unique
   phone           String?
   walletAddress   String?
-  accountName     String    @default("")
-  accountNumber   String    @default("")
+  accountName     String?   @default("")
+  accountNumber   String?   @default("")
   ifscCode        String    @default("")
   gstNumber       String    @default("")
   companyAddress  String    @default("")
-  companyType     String    @default("")
+  companyType     String?   @default("")
   companyName     String    @default("")
   msmeCertificate String?
   oemCertificate  String?
@@ -33,6 +33,8 @@ model User {
   otpExpiry       DateTime?
   gllBalance      Float     @default(0)
   apiKey          String?   @default("")
+  bankName        String?   @default("")
+  bankBranch      String?   @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

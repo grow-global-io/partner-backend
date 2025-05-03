@@ -151,7 +151,10 @@ router.post('/register', async (req, res) => {
             msmeCertificate,
             oemCertificate,
             fy2324Data,
-            fy2425Data
+            fy2425Data,
+            apiKey,
+            bankName,
+            bankBranch,
         } = req.body;
 
         if (!email) {
@@ -176,9 +179,6 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        // Generate a unique API key for the user
-        const apiKey = generateApiKey(email);
-        
         // Update the user with complete registration information
         // Set GLL balance to 100.0 only when all steps are completed
         const updatedUser = await prisma.user.update({
@@ -187,8 +187,8 @@ router.post('/register', async (req, res) => {
                 name,
                 designation,
                 phone,
-                accountName,
-                accountNumber,
+                accountName:null,
+                accountNumber:null,
                 ifscCode,
                 gstNumber,
                 companyAddress,
@@ -202,38 +202,25 @@ router.post('/register', async (req, res) => {
                 fy2324Data,
                 fy2425Data,
                 companyName,
+                apiKey,
+                bankName,
+                bankBranch,
                 // Set GLL balance to 100.0 upon successful completion of all steps
-                gllBalance: 100.0,
-                // Save the API key
-                apiKey: apiKey
+                gllBalance: 100.0
             }
         });
 
         console.log("Registration completed successfully.");
         console.log("GLL Balance set to:", updatedUser.gllBalance);
-        console.log("API Key generated:", apiKey);
 
         res.status(201).json({
-            message: "Registration completed successfully.",
-            apiKey: apiKey
+            message: "Registration completed successfully."
         });
     } catch (error) {
         console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
     }
 });
-
-
-
-
-
-// Helper function to generate a unique API key
-function generateApiKey(email) {
-    const timestamp = Date.now().toString();
-    const random = Math.random().toString(36).substring(2, 15);
-    const emailHash = Buffer.from(email).toString('base64').substring(0, 10);
-    return `GLL_${emailHash}_${random}_${timestamp}`.substring(0, 40);
-}
 
 // AWS bucket code for uploading files to S3
 router.post('/uploads', upload.single('file'), async (req, res) => {
