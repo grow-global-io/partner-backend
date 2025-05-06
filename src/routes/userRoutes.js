@@ -315,7 +315,15 @@ async function getUserByIdOrEmail(userId, email) {
 router.post('/save-reward-card1', upload.single('document'), async (req, res) => {
     try {
         console.log("Request body:", req.body);
-        const { companyName, financialYear, documentType, notes, userId, email } = req.body;
+        const { 
+            companyName, 
+            financialYear, 
+            documentType, 
+            notes, 
+            userId, 
+            email 
+        } = req.body;
+        
         let documentUrl = null;
 
         // Get user and email information
@@ -323,6 +331,11 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
         
         // Get actual user info including email
         const userInfo = user || { email: email };
+
+        // Make sure uploads directory exists
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
 
         if (req.file) {
             const fileContent = fs.readFileSync(req.file.path);
@@ -337,18 +350,24 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             const uploadResult = await s3.upload(params).promise();
             documentUrl = uploadResult.Location;
 
-            // Delete the temporary file
-            fs.unlinkSync(req.file.path);
+            // Delete the temporary file - handle missing file gracefully
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
         }
 
         const reward = await prisma.rewards.create({
             data: {
-                companyName,
-                financialYear,
-                documentType,
+                companyName: companyName || "",
+                financialYear: financialYear || "",
+                documentType: documentType || "",
                 document: documentUrl, // Store the S3 URL instead of the file
-                notes,
-                userEmail: userInfo.email, // Always use the email from userInfo
+                notes: notes || "",
+                // userEmail: userInfo.email, // Always use the email from userInfo
                 ...(user && { user: { connect: { id: user.id } } })
             }
         });
@@ -378,8 +397,12 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
     } catch (error) {
         console.log("Error saving data:", error);
         // Clean up temporary file if it exists and there was an error
-        if (req.file && req.file.path) {
-            fs.unlinkSync(req.file.path);
+        try {
+            if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+        } catch (unlinkError) {
+            console.log("Warning: Could not delete temporary file:", unlinkError);
         }
         res.status(500).json({ error: error.message });
     }
@@ -417,7 +440,7 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                     storeUrl,
                     storeId: storeId || null,
                     consented: consented === 'true',
-                    userEmail: userInfo.email // Update email from userInfo
+                    // userEmail: userInfo.email // Update email from userInfo
                 }
             });
         } else {
@@ -428,7 +451,7 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                     storeUrl,
                     storeId: storeId || null,
                     consented: consented === 'true',
-                    userEmail: userInfo.email, // Use email from userInfo
+                    // userEmail: userInfo.email, // Use email from userInfo
                     ...(user && { user: { connect: { id: user.id } } })
                 }
             });
@@ -501,7 +524,6 @@ router.post('/user-by-email', async (req, res) => {
 
         console.log("user", user)
         res.send(user);
- // res.send(user.gllBalance);
         console.log("user.gllBalance", user.gllBalance)
     } catch (error) {
         console.error("Error fetching user data:", error);
