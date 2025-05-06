@@ -4,6 +4,7 @@ const multer = require('multer');
 const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 
 const router = express.Router();
 
@@ -412,7 +413,15 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
 router.post('/save-reward-card2', upload.none(), async (req, res) => {
     try {
         console.log("Request body:", req.body);
-        const { platform, storeUrl, storeId, consented, rewardId, userId, email } = req.body;
+        const { 
+            platform, 
+            storeUrl, 
+            storeId, 
+            consented, 
+            rewardId, 
+            userId, 
+            email 
+        } = req.body;
         
         // Validate required fields
         if (!platform || !storeUrl || consented !== 'true') {
@@ -436,19 +445,20 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                     id: rewardId
                 },
                 data: {
-                    platform,
-                    storeUrl,
+                    platform: platform || "",
+                    storeUrl: storeUrl || "",
                     storeId: storeId || null,
                     consented: consented === 'true',
                     // userEmail: userInfo.email // Update email from userInfo
+                    ...(user && { user: { connect: { id: user.id } } })
                 }
             });
         } else {
             // Otherwise create a new reward
             reward = await prisma.rewards.create({
                 data: {
-                    platform,
-                    storeUrl,
+                    platform: platform || "",
+                    storeUrl: storeUrl || "",
                     storeId: storeId || null,
                     consented: consented === 'true',
                     // userEmail: userInfo.email, // Use email from userInfo
@@ -535,48 +545,145 @@ router.post('/user-by-email', async (req, res) => {
     }
 });
 
+// Save data from Reward Card3 - Certificate Upload
+router.post('/save-reward-card3', upload.single('certificate'), async (req, res) => {
+    try {
+        console.log("Request body:", req.body);
+        const { 
+            certificateType, 
+            expiryDate, 
+            issueAuthority, 
+            notes, 
+            userId, 
+            email 
+        } = req.body;
+        
+        let certificateUrl = null;
 
-//         // Create certificate record in database
-//         const certificate = await prisma.certificate.create({
-//             data: {
-//                 certificateType,
-//                 certificateUrl,
-//                 expiryDate: new Date(expiryDate),
-//                 issueAuthority,
-//                 notes: notes || "",
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
+        // Validate required fields
+        if (!certificateType || !expiryDate || !issueAuthority) {
+            return res.status(400).json({ 
+                error: "Missing required fields. Certificate type, expiry date, and issuing authority are required." 
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ error: "Certificate file is required" });
+        }
+
+        // Get user and email information
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
         
-//         console.log("Certificate saved:", certificate);
+        // Get actual user info including email
+        const userInfo = user || { email: email };
+
+        // Make sure uploads directory exists
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // Upload certificate to S3
+        const fileContent = fs.readFileSync(req.file.path);
+        const params = {
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: `certificates/${Date.now()}-${req.file.originalname}`,
+            Body: fileContent,
+            ContentType: req.file.mimetype,
+        };
+
+        const uploadResult = await s3.upload(params).promise();
+        certificateUrl = uploadResult.Location;
+
+        // Delete the temporary file - handle missing file gracefully
+        try {
+            if (fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+        } catch (unlinkError) {
+            console.log("Warning: Could not delete temporary file:", unlinkError);
+        }
+
+        // Create certificate record in database
+        const reward = await prisma.rewards.create({
+            data: {
+                certificateType: certificateType || "",
+                certificateUrl: certificateUrl || "",
+                expiryDate: expiryDate ? new Date(expiryDate) : null,
+                issueAuthority: issueAuthority || "",
+                notes: notes || "",
+                ...(user && { user: { connect: { id: user.id } } })
+            }
+        });
         
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: 300 // Add 300 GLL Ions to the user's balance as reward
-//                     }
-//                 }
-//             });
-//         }
+        console.log("Certificate saved:", reward);
         
-//         res.status(200).json({
-//             message: "Certificate uploaded successfully",
-//             reward: "300 GLL Ions",
-//             certificateId: certificate.id,
-//             certificateUrl
-//         });
-//     } catch (error) {
-//         console.log("Error uploading certificate:", error);
-//         // Clean up temporary file if it exists and there was an error
-//         if (req.file && req.file.path) {
-//             fs.unlinkSync(req.file.path);
-//         }
-//         res.status(500).json({ error: error.message });
-//     }
-// });
+        // If user exists, update GLL balance
+        if (user) {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: 800 // Add 800 GLL Ions to the user's balance as reward
+                    }
+                }
+            });
+        }
+        
+        res.status(200).json({
+            message: "Certificate uploaded successfully",
+            reward: "800 GLL Ions",
+            rewardId: reward.id,
+            certificateUrl,
+            userEmail: userInfo.email,
+            user: user
+        });
+    } catch (error) {
+        console.log("Error uploading certificate:", error);
+        // Clean up temporary file if it exists and there was an error
+        try {
+            if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+        } catch (unlinkError) {
+            console.log("Warning: Could not delete temporary file:", unlinkError);
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GSTIN Verification endpoint
+router.post('/verify-gstin', async (req, res) => {
+    const { gstin } = req.body;
+
+    if (!gstin) {
+        return res.status(400).json({ error: "GSTIN is required" });
+    }
+
+    try {
+        const response = await axios.post(
+            'https://api.bulkpe.in/client/verifyGstin',
+            { gstin },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.BULKPE_API_KEY}` // Store your API key in .env
+                }
+            }
+        );
+
+        return res.status(200).json({
+            message: "GSTIN verified successfully",
+            data: response.data
+        });
+
+    } catch (error) {
+        console.error("Error verifying GSTIN:", error.response?.data || error.message);
+        return res.status(500).json({
+            error: "Failed to verify GSTIN",
+            details: error.response?.data || error.message
+        });
+    }
+});
 
 // // Save data from Reward Card4 - MSME Registration
 // router.post('/save-reward-card4', upload.single('certificate'), async (req, res) => {
