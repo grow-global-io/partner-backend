@@ -693,6 +693,118 @@ router.post('/verify-gstin', async (req, res) => {
     }
 });
 
+// User Task Completion Endpoints
+// Check if a user has completed a specific task
+router.get('/check-task-completion', async (req, res) => {
+    try {
+        const { email, taskId, task } = req.query;
+        
+        // Use taskId if provided, otherwise fall back to task parameter
+        const actualTaskId = taskId || task;
+
+        if (!email || !actualTaskId) {
+            return res.status(400).json({ error: "Email and task identifier are required" });
+        }
+
+        const completedTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: actualTaskId
+                }
+            }
+        });
+
+        res.status(200).json({
+            completed: !!completedTask,
+            completedAt: completedTask ? completedTask.completedAt : null
+        });
+    } catch (error) {
+        console.error("Error checking task completion:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark a task as completed for a user
+router.post('/mark-task-completed', async (req, res) => {
+    try {
+        const { email, taskId, task } = req.body;
+        
+        // Use taskId if provided, otherwise fall back to task parameter
+        const actualTaskId = taskId || task;
+
+        if (!email || !actualTaskId) {
+            return res.status(400).json({ error: "Email and task identifier are required" });
+        }
+
+        // Check if user exists
+        const user = await prisma.user.findUnique({
+            where: { email }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Create or update task completion record
+        const completedTask = await prisma.userCompletedTask.upsert({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: actualTaskId
+                }
+            },
+            update: {
+                completedAt: new Date()
+            },
+            create: {
+                userEmail: email,
+                taskId: actualTaskId,
+                completedAt: new Date()
+            }
+        });
+
+        res.status(200).json({
+            message: "Task marked as completed",
+            taskId: completedTask.taskId,
+            completedAt: completedTask.completedAt
+        });
+    } catch (error) {
+        console.error("Error marking task as completed:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get all completed tasks for a user
+router.get('/get-completed-tasks', async (req, res) => {
+    try {
+        const { email } = req.query;
+
+        if (!email) {
+            return res.status(400).json({ error: "Email is required" });
+        }
+
+        const completedTasks = await prisma.userCompletedTask.findMany({
+            where: {
+                userEmail: email
+            },
+            orderBy: {
+                completedAt: 'desc'
+            }
+        });
+
+        res.status(200).json({
+            completedTasks: completedTasks.map(task => ({
+                taskId: task.taskId,
+                completedAt: task.completedAt
+            }))
+        });
+    } catch (error) {
+        console.error("Error fetching completed tasks:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // // Save data from Reward Card4 - MSME Registration
 // router.post('/save-reward-card4', upload.single('certificate'), async (req, res) => {
 //     try {
