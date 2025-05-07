@@ -728,12 +728,16 @@ router.get('/check-task-completion', async (req, res) => {
 // Mark a task as completed for a user
 router.post('/mark-task-completed', async (req, res) => {
     try {
+        console.log("Received mark-task-completed request:", req.body);
         const { email, taskId, task } = req.body;
         
         // Use taskId if provided, otherwise fall back to task parameter
         const actualTaskId = taskId || task;
 
+        console.log("Processing task completion for:", { email, actualTaskId });
+
         if (!email || !actualTaskId) {
+            console.log("Missing required fields:", { email, actualTaskId });
             return res.status(400).json({ error: "Email and task identifier are required" });
         }
 
@@ -743,8 +747,11 @@ router.post('/mark-task-completed', async (req, res) => {
         });
 
         if (!user) {
+            console.log("User not found for email:", email);
             return res.status(404).json({ error: "User not found" });
         }
+
+        console.log("Found user:", user.id);
 
         // Create or update task completion record
         const completedTask = await prisma.userCompletedTask.upsert({
@@ -763,6 +770,8 @@ router.post('/mark-task-completed', async (req, res) => {
                 completedAt: new Date()
             }
         });
+
+        console.log("Task marked as completed:", completedTask);
 
         res.status(200).json({
             message: "Task marked as completed",
