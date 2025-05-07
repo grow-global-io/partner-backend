@@ -75,7 +75,7 @@ router.post('/save-connect-wallet', async (req, res) => {
             })
         }
     } catch (error) {
-        console.log("Error completing registration:", error);
+        // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -128,7 +128,7 @@ router.post('/personal-details', async (req, res) => {
             })
         }
     } catch (error) {
-        console.log("Error completing registration:", error);
+        // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -168,7 +168,7 @@ router.post('/register', async (req, res) => {
             where: { email }
         });
 
-        console.log("tempUser", tempUser);
+        // console.log("tempUser", tempUser);
 
         if (!tempUser) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
@@ -212,8 +212,8 @@ router.post('/register', async (req, res) => {
             }
         });
 
-        console.log("Registration completed successfully.");
-        console.log("GLL Balance set to:", updatedUser.gllBalance);
+        // console.log("Registration completed successfully.");
+        // console.log("GLL Balance set to:", updatedUser.gllBalance);
 
         // amount = 100.0
         // const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()),tempUser.walletAddress);
@@ -226,7 +226,7 @@ router.post('/register', async (req, res) => {
             message: "Registration completed successfully."
         });
     } catch (error) {
-        console.log("Error completing registration:", error);
+        // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -236,9 +236,9 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
 
     let documentUrl = null;
     try {
-        console.log("Request body:", req.body);
+        // console.log("Request body:", req.body);
         const { file } = req.body;
-        console.log("File:", file);
+        // console.log("File:", file);
 
 
         if (req.file) {
@@ -265,7 +265,7 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
 
     }
     catch (error) {
-        console.log("Error uploading file:", error);
+        // console.log("Error uploading file:", error);
         res.status(500).json({ error: error });
     }
 })
@@ -290,7 +290,7 @@ async function getUserByIdOrEmail(userId, email) {
         // If user found by ID, use email from database
         if (user) {
             userEmail = user.email;
-            console.log("User found by ID. Using email from database:", userEmail);
+            // console.log("User found by ID. Using email from database:", userEmail);
         }
     }
     
@@ -309,11 +309,11 @@ async function getUserByIdOrEmail(userId, email) {
         // If user found by email, use email from database
         if (user) {
             userEmail = user.email;
-            console.log("User found by email. Using email from database:", userEmail);
+            // console.log("User found by email. Using email from database:", userEmail);
         } else {
             // If no user found but email provided, use the provided email
             userEmail = email;
-            console.log("No user found. Using provided email:", userEmail);
+            // console.log("No user found. Using provided email:", userEmail);
         }
     }
     
@@ -323,7 +323,7 @@ async function getUserByIdOrEmail(userId, email) {
 // Save-Data From Reward Card1
 router.post('/save-reward-card1', upload.single('document'), async (req, res) => {
     try {
-        console.log("Request body:", req.body);
+        // console.log("Request body:", req.body);
         const { 
             companyName, 
             financialYear, 
@@ -365,7 +365,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                     fs.unlinkSync(req.file.path);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
 
@@ -381,8 +381,8 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             }
         });
         
-        console.log("Data saved with document URL:", documentUrl);
-        console.log("User info email:", userInfo.email);
+        // console.log("Data saved with document URL:", documentUrl);
+        // console.log("User info email:", userInfo.email);
         
         // If user exists, update GLL balance
         if (user) {
@@ -404,14 +404,14 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             user: user
         });
     } catch (error) {
-        console.log("Error saving data:", error);
+        // console.log("Error saving data:", error);
         // Clean up temporary file if it exists and there was an error
         try {
             if (req.file && req.file.path && fs.existsSync(req.file.path)) {
                 fs.unlinkSync(req.file.path);
             }
         } catch (unlinkError) {
-            console.log("Warning: Could not delete temporary file:", unlinkError);
+            // console.log("Warning: Could not delete temporary file:", unlinkError);
         }
         res.status(500).json({ error: error.message });
     }
@@ -420,7 +420,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
 // Save data from Reward Card2 - Store Connection
 router.post('/save-reward-card2', upload.none(), async (req, res) => {
     try {
-        console.log("Request body:", req.body);
+        // console.log("Request body:", req.body);
         const { 
             platform, 
             storeUrl, 
@@ -475,7 +475,7 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
             });
         }
         
-        console.log("Store connection saved:", reward);
+        // console.log("Store connection saved:", reward);
         
         // If user exists, update GLL balance
         if (user) {
@@ -498,7 +498,7 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
             user: user
         });
     } catch (error) {
-        console.log("Error connecting store:", error);
+        // console.log("Error connecting store:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -540,9 +540,9 @@ router.post('/user-by-email', async (req, res) => {
             return res.status(404).json({ error: "User not found" });
         }
 
-        console.log("user", user)
+        // console.log("user", user)
         res.send(user);
-        console.log("user.gllBalance", user.gllBalance)
+        // console.log("user.gllBalance", user.gllBalance)
     } catch (error) {
         console.error("Error fetching user data:", error);
         res.status(500).json({
@@ -556,7 +556,7 @@ router.post('/user-by-email', async (req, res) => {
 // Save data from Reward Card3 - Certificate Upload
 router.post('/save-reward-card3', upload.single('certificate'), async (req, res) => {
     try {
-        console.log("Request body:", req.body);
+        // console.log("Request body:", req.body);
         const { 
             certificateType, 
             expiryDate, 
@@ -608,7 +608,7 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
                 fs.unlinkSync(req.file.path);
             }
         } catch (unlinkError) {
-            console.log("Warning: Could not delete temporary file:", unlinkError);
+            // console.log("Warning: Could not delete temporary file:", unlinkError);
         }
 
         // Create certificate record in database
@@ -623,7 +623,7 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
             }
         });
         
-        console.log("Certificate saved:", reward);
+        // console.log("Certificate saved:", reward);
         
         // If user exists, update GLL balance
         if (user) {
@@ -646,14 +646,14 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
             user: user
         });
     } catch (error) {
-        console.log("Error uploading certificate:", error);
+        // console.log("Error uploading certificate:", error);
         // Clean up temporary file if it exists and there was an error
         try {
             if (req.file && req.file.path && fs.existsSync(req.file.path)) {
                 fs.unlinkSync(req.file.path);
             }
         } catch (unlinkError) {
-            console.log("Warning: Could not delete temporary file:", unlinkError);
+            // console.log("Warning: Could not delete temporary file:", unlinkError);
         }
         res.status(500).json({ error: error.message });
     }
@@ -728,16 +728,16 @@ router.get('/check-task-completion', async (req, res) => {
 // Mark a task as completed for a user
 router.post('/mark-task-completed', async (req, res) => {
     try {
-        console.log("Received mark-task-completed request:", req.body);
+        // console.log("Received mark-task-completed request:", req.body);
         const { email, taskId, task } = req.body;
         
         // Use taskId if provided, otherwise fall back to task parameter
         const actualTaskId = taskId || task;
 
-        console.log("Processing task completion for:", { email, actualTaskId });
+        // console.log("Processing task completion for:", { email, actualTaskId });
 
         if (!email || !actualTaskId) {
-            console.log("Missing required fields:", { email, actualTaskId });
+            // console.log("Missing required fields:", { email, actualTaskId });
             return res.status(400).json({ error: "Email and task identifier are required" });
         }
 
@@ -747,11 +747,11 @@ router.post('/mark-task-completed', async (req, res) => {
         });
 
         if (!user) {
-            console.log("User not found for email:", email);
+            // console.log("User not found for email:", email);
             return res.status(404).json({ error: "User not found" });
         }
 
-        console.log("Found user:", user.id);
+        // console.log("Found user:", user.id);
 
         // Create or update task completion record
         const completedTask = await prisma.userCompletedTask.upsert({
@@ -771,7 +771,7 @@ router.post('/mark-task-completed', async (req, res) => {
             }
         });
 
-        console.log("Task marked as completed:", completedTask);
+        // console.log("Task marked as completed:", completedTask);
 
         res.status(200).json({
             message: "Task marked as completed",
