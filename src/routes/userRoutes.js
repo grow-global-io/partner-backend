@@ -5,6 +5,7 @@ const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { phoneLinkContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 
 const router = express.Router();
 
@@ -213,6 +214,13 @@ router.post('/register', async (req, res) => {
 
         console.log("Registration completed successfully.");
         console.log("GLL Balance set to:", updatedUser.gllBalance);
+
+        // amount = 100.0
+        // const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()),tempUser.walletAddress);
+        // await sendTx.wait();
+
+        // const myBalance = await getMyBalance(tempUser.walletAddress);
+        // console.log("My Balance:", myBalance);
 
         res.status(201).json({
             message: "Registration completed successfully."
