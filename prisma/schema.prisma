@@ -121,152 +121,16 @@ model Rewards {
   @@index([userId])
 }
 
-// model storeConnection {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   platform  String
-//   storeUrl  String
-//   storeId   String?
-//   consented Boolean
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
+// User Task Completion tracking model
+model UserCompletedTask {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userEmail   String // The user's email as unique identifier
+  taskId      String // The task identifier (e.g., 'card1', 'card2', etc.)
+  completedAt DateTime @default(now())
 
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-// model File {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   type      String
-//   url       String
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // Certificate model for Card3
-// model Certificate {
-//   id              String   @id @default(auto()) @map("_id") @db.ObjectId
-//   certificateType String
-//   certificateUrl  String
-//   expiryDate      DateTime
-//   issueAuthority  String
-//   notes           String
-//   createdAt       DateTime @default(now())
-//   updatedAt       DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // MSME Registration model for Card4
-// model MsmeRegistration {
-//   id             String   @id @default(auto()) @map("_id") @db.ObjectId
-//   businessName   String
-//   gstin          String
-//   businessType   String
-//   city           String
-//   state          String
-//   certificateUrl String
-//   createdAt      DateTime @default(now())
-//   updatedAt      DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // Invoice model for Card5
-// model Invoice {
-//   id            String   @id @default(auto()) @map("_id") @db.ObjectId
-//   invoiceNumber String
-//   amount        String
-//   dueDate       DateTime
-//   customerName  String
-//   fileUrls      String[] // Array of file URLs
-//   createdAt     DateTime @default(now())
-//   updatedAt     DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // MSME Referral model for Card6
-// model MsmeReferral {
-//   id         String   @id @default(auto()) @map("_id") @db.ObjectId
-//   uciNumber  String
-//   msmeUciId  String
-//   customerId String
-//   city       String
-//   state      String
-//   status     String   @default("pending") // pending, completed
-//   createdAt  DateTime @default(now())
-//   updatedAt  DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // Business Story model for Card7
-// model BusinessStory {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   imageUrl  String
-//   story     String
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // Product model for Card8
-// model Product {
-//   id              String   @id @default(auto()) @map("_id") @db.ObjectId
-//   productName     String
-//   gstInNumber     String
-//   uciCode         String
-//   productCategory String
-//   productMaterial String
-//   originCountry   String
-//   imageUrl        String
-//   status          String   @default("pending") // pending, completed
-//   createdAt       DateTime @default(now())
-//   updatedAt       DateTime @updatedAt
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // SocialAccount model for Card9
-// model SocialAccount {
-//   id        String           @id @default(auto()) @map("_id") @db.ObjectId
-//   createdAt DateTime         @default(now())
-//   updatedAt DateTime         @updatedAt
-//   platforms SocialPlatform[] // Relation to connected platforms
-
-//   // Foreign Key
-//   userId String? @db.ObjectId
-//   user   User?   @relation(fields: [userId], references: [id])
-// }
-
-// // SocialPlatform model - linked to SocialAccount
-// model SocialPlatform {
-//   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-//   name      String // e.g., Facebook, Instagram, LinkedIn, Twitter
-//   url       String // Platform URL or user handle
-//   connected Boolean  @default(true)
-//   createdAt DateTime @default(now())
-//   updatedAt DateTime @updatedAt
-
-//   // Relation to SocialAccount
-//   socialAccountId String?        @db.ObjectId
-//   socialAccount   SocialAccount? @relation(fields: [socialAccountId], references: [id])
-// }
+  // Composite unique constraint to prevent duplicate entries
+  @@unique([userEmail, taskId], name: "userEmail_taskId")
+}
