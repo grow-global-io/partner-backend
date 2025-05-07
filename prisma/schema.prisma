@@ -133,4 +133,6 @@ model UserCompletedTask {
 
   // Composite unique constraint to prevent duplicate entries
   @@unique([userEmail, taskId], name: "userEmail_taskId")
+  // Add index for faster lookups by email
+  @@index([userEmail])
 }
