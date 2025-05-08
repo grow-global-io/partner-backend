@@ -208,7 +208,9 @@ router.post('/register', async (req, res) => {
                 bankName,
                 bankBranch,
                 // Set GLL balance to 100.0 upon successful completion of all steps
-                gllBalance: 100.0
+                gllBalance: {
+                    increment: 100.0
+                }
             }
         });
 
