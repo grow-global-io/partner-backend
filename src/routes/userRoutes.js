@@ -208,7 +208,9 @@ router.post('/register', async (req, res) => {
                 bankName,
                 bankBranch,
                 // Set GLL balance to 100.0 upon successful completion of all steps
-                gllBalance: 100.0
+                gllBalance: {
+                    increment: process.env.REGISTER_REWARD
+                }
             }
         });
 
@@ -390,7 +392,7 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: 100 // Add 100 GLL Ions to the user's balance as reward
+                        increment: process.env.CARD1_REWARD // Add 100 GLL Ions to the user's balance as reward
                     }
                 }
             });
@@ -483,7 +485,7 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: 500 // Add 500 GLL Ions to the user's balance as reward
+                        increment: process.env.CARD2_REWARD // Add 500 GLL Ions to the user's balance as reward
                     }
                 }
             });
@@ -631,7 +633,7 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: 800 // Add 800 GLL Ions to the user's balance as reward
+                        increment: process.env.CARD3_REWARD // Add 800 GLL Ions to the user's balance as reward
                     }
                 }
             });
