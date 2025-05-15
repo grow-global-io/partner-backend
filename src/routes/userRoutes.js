@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { phoneLinkContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
+const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
 
@@ -528,7 +529,9 @@ router.delete('/all-users', async (req, res) => {
 // Get user data by email
 router.post('/user-by-email', async (req, res) => {
     try {
+        
         const { email } = req.body;
+        
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
@@ -541,9 +544,8 @@ router.post('/user-by-email', async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
-
-        // console.log("user", user)
-        res.send(user);
+        // res.send(user);
+        res.send(encryptJSON(user));
         // console.log("user.gllBalance", user.gllBalance)
     } catch (error) {
         console.error("Error fetching user data:", error);
