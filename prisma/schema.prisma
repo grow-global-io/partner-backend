@@ -80,6 +80,7 @@ model Rewards {
   businessType String?
   city         String?
   state        String?
+  certificate  String? // Changed from certificateUrl to certificate to match route changes
 
   // Invoice fields
   invoiceNumber String?
