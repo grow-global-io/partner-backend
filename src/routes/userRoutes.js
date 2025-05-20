@@ -57,10 +57,11 @@ router.post('/save-connect-wallet', async (req, res) => {
                     walletAddress: walletAddress,
                     glltag: glltag
                 }
-            })
-            res.status(200).json({
+            });
+            const responseData = {
                 message: "User added successfully"
-            })
+            };
+            res.send(encryptJSON(responseData));
         } else {
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
@@ -71,9 +72,10 @@ router.post('/save-connect-wallet', async (req, res) => {
                     glltag: glltag
                 }
             });
-            res.status(200).json({
+            const responseData = {
                 message: "Details updated successfully"
-            })
+            };
+            res.send(encryptJSON(responseData));
         }
     } catch (error) {
         // console.log("Error completing registration:", error);
@@ -107,10 +109,11 @@ router.post('/personal-details', async (req, res) => {
                     companyName: "",
                     terms: true
                 }
-            })
-            res.status(200).json({
+            });
+            const responseData = {
                 message: "Email added successfully"
-            })
+            };
+            res.send(encryptJSON(responseData));
         } else {
             // Don't update GLL balance if the user already exists
             const updatedUser = await prisma.user.update({
@@ -124,9 +127,10 @@ router.post('/personal-details', async (req, res) => {
                     // Don't update gllBalance here
                 }
             });
-            res.status(200).json({
+            const responseData = {
                 message: "Details updated successfully"
-            })
+            };
+            res.send(encryptJSON(responseData));
         }
     } catch (error) {
         // console.log("Error completing registration:", error);
@@ -215,19 +219,10 @@ router.post('/register', async (req, res) => {
             }
         });
 
-        // console.log("Registration completed successfully.");
-        // console.log("GLL Balance set to:", updatedUser.gllBalance);
-
-        // amount = 100.0
-        // const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()),tempUser.walletAddress);
-        // await sendTx.wait();
-
-        // const myBalance = await getMyBalance(tempUser.walletAddress);
-        // console.log("My Balance:", myBalance);
-
-        res.status(201).json({
+        const responseData = {
             message: "Registration completed successfully."
-        });
+        };
+        res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
@@ -399,13 +394,14 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             });
         }
         
-        res.status(200).json({
+        const responseData = {
             message: "Data saved successfully",
             documentUrl,
             rewardId: reward.id,
             userEmail: reward.userEmail,
             user: user
-        });
+        };
+        res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error saving data:", error);
         // Clean up temporary file if it exists and there was an error
@@ -492,14 +488,18 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
             });
         }
         
-        res.status(200).json({
+        // Create response object
+        const responseData = {
             message: "Store connected successfully",
             reward: "500 GLL Ions",
             gllBalance: user ? user.gllBalance : 0,
             rewardId: reward.id,
             userEmail: reward.userEmail,
             user: user
-        });
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error connecting store:", error);
         res.status(500).json({ error: error.message });
@@ -641,14 +641,18 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
             });
         }
         
-        res.status(200).json({
+        // Create response object
+        const responseData = {
             message: "Certificate uploaded successfully",
             reward: "800 GLL Ions",
             rewardId: reward.id,
-            certificateUrl,
+            certificateUrl: certificateUrl,
             userEmail: userInfo.email,
             user: user
-        });
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error uploading certificate:", error);
         // Clean up temporary file if it exists and there was an error
@@ -683,10 +687,11 @@ router.post('/verify-gstin', async (req, res) => {
             }
         );
 
-        return res.status(200).json({
+        const responseData = {
             message: "GSTIN verified successfully",
             data: response.data
-        });
+        };
+        res.send(encryptJSON(responseData));
 
     } catch (error) {
         console.error("Error verifying GSTIN:", error.response?.data || error.message);
@@ -719,10 +724,11 @@ router.get('/check-task-completion', async (req, res) => {
             }
         });
 
-        res.status(200).json({
+        const responseData = {
             completed: !!completedTask,
             completedAt: completedTask ? completedTask.completedAt : null
-        });
+        };
+        res.send(encryptJSON(responseData));
     } catch (error) {
         console.error("Error checking task completion:", error);
         res.status(500).json({ error: error.message });
@@ -777,11 +783,12 @@ router.post('/mark-task-completed', async (req, res) => {
 
         // console.log("Task marked as completed:", completedTask);
 
-        res.status(200).json({
+        const responseData = {
             message: "Task marked as completed",
             taskId: completedTask.taskId,
             completedAt: completedTask.completedAt
-        });
+        };
+        res.send(encryptJSON(responseData));
     } catch (error) {
         console.error("Error marking task as completed:", error);
         res.status(500).json({ error: error.message });
@@ -806,104 +813,132 @@ router.get('/get-completed-tasks', async (req, res) => {
             }
         });
 
-        res.status(200).json({
+        const responseData = {
             completedTasks: completedTasks.map(task => ({
                 taskId: task.taskId,
                 completedAt: task.completedAt
             }))
-        });
+        };
+        res.send(encryptJSON(responseData));
     } catch (error) {
         console.error("Error fetching completed tasks:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// // Save data from Reward Card4 - MSME Registration
-// router.post('/save-reward-card4', upload.single('certificate'), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { businessName, gstin, businessType, city, state, certificateUrl, userId } = req.body;
-//         let msmeCertificateUrl = certificateUrl || null;
+// Save data from Reward Card4 - MSME Registration
+router.post('/save-reward-card4', upload.single('certificate'), async (req, res) => {
+    try {
+        // console.log("Request body:", req.body);
+        const { businessName, gstin, businessType, city, state, certificateUrl, userId, email } = req.body;
+        let msmeCertificateUrl = certificateUrl || null;
 
-//         // Validate required fields
-//         if (!businessName || !gstin || !businessType || !city || !state) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Business details are required." 
-//             });
-//         }
+        // Validate required fields
+        if (!businessName || !gstin || !businessType || !city || !state) {
+            return res.status(400).json({ 
+                error: "Missing required fields. Business details are required." 
+            });
+        }
 
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // If certificate file was uploaded directly (not pre-uploaded)
-//         if (req.file) {
-//             const fileContent = fs.readFileSync(req.file.path);
-//             const params = {
-//                 Bucket: process.env.AWS_BUCKET_NAME,
-//                 Key: `msme-certificates-reward-card/${Date.now()}-${req.file.originalname}`,
-//                 Body: fileContent,
-//                 ContentType: req.file.mimetype,
-//             };
-
-//             const uploadResult = await s3.upload(params).promise();
-//             msmeCertificateUrl = uploadResult.Location;
-
-//             // Delete the temporary file
-//             fs.unlinkSync(req.file.path);
-//         }
-
-//         // Check if we have a certificate URL
-//         if (!msmeCertificateUrl) {
-//             return res.status(400).json({ error: "MSME Certificate is required" });
-//         }
-
-//         // Create MSME registration record in database
-//         const msmeRegistration = await prisma.msmeRegistration.create({
-//             data: {
-//                 businessName,
-//                 gstin,
-//                 businessType,
-//                 city,
-//                 state,
-//                 certificateUrl: msmeCertificateUrl,
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
+        // Get user and email information
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
         
-//         console.log("MSME Registration saved:", msmeRegistration);
+        // Get actual user info including email
+        const userInfo = user || { email: email };
+
+        // Make sure uploads directory exists
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        // If certificate file was uploaded directly (not pre-uploaded)
+        if (req.file) {
+            const fileContent = fs.readFileSync(req.file.path);
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `msme-certificates-reward-card/${Date.now()}-${req.file.originalname}`,
+                Body: fileContent,
+                ContentType: req.file.mimetype,
+            };
+
+            const uploadResult = await s3.upload(params).promise();
+            msmeCertificateUrl = uploadResult.Location;
+
+            // Delete the temporary file - handle missing file gracefully
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+
+        // Check if we have a certificate URL
+        if (!msmeCertificateUrl) {
+            return res.status(400).json({ error: "MSME Certificate is required" });
+        }
+
+        // Create MSME registration record in database using Rewards model
+        const reward = await prisma.rewards.create({
+            data: {
+                businessName,
+                gstin,
+                businessType,
+                city,
+                state,
+                certificate: msmeCertificateUrl,
+                userEmail: userInfo.email,
+                ...(user && { user: { connect: { id: user.id } } })
+            }
+        });
         
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: 100 // Add 100 GLL Ions to the user's balance as reward
-//                     }
-//                 }
-//             });
-//         }
+        console.log("MSME Registration saved:", reward);
         
-//         res.status(200).json({
-//             message: "MSME Registration completed successfully",
-//             reward: "100 GLL Ions",
-//             registrationId: msmeRegistration.id,
-//             certificateUrl: msmeCertificateUrl
-//         });
-//     } catch (error) {
-//         console.log("Error completing MSME registration:", error);
-//         // Clean up temporary file if it exists and there was an error
-//         if (req.file && req.file.path) {
-//             fs.unlinkSync(req.file.path);
-//         }
-//         res.status(500).json({ error: error.message });
-//     }
-// });
+        // If user exists, update GLL balance
+        if (user) {
+            console.log('Current GLL Balance:', user.gllBalance);
+            console.log('CARD4_REWARD value:', process.env.CARD4_REWARD);
+            
+            const rewardAmount = process.env.CARD4_REWARD ? parseFloat(process.env.CARD4_REWARD) : 100;
+            console.log('Reward amount to be added:', rewardAmount);
+
+            const updatedUser = await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: rewardAmount // Add 100 GLL Ions to the user's balance as reward
+                    }
+                }
+            });
+            console.log('Updated GLL Balance:', updatedUser.gllBalance);
+        }
+        
+        // Create response object
+        const responseData = {
+            message: "MSME Registration completed successfully",
+            reward: "100 GLL Ions",
+            registrationId: reward.id,
+            certificateUrl: msmeCertificateUrl,
+            userEmail: userInfo.email,
+            user: user
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.log("Error completing MSME registration:", error);
+        // Clean up temporary file if it exists and there was an error
+        try {
+            if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+                fs.unlinkSync(req.file.path);
+            }
+        } catch (unlinkError) {
+            // console.log("Warning: Could not delete temporary file:", unlinkError);
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // // Save data from Reward Card5 - Invoice Upload
 // router.post('/save-reward-card5', upload.array('multipleFiles'), async (req, res) => {
