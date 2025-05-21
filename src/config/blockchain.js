@@ -1,6 +1,7 @@
 const PhoneLink = require('../../artifacts/contracts/phoneLink.sol/phoneLink.json');
 const ERC20Permit = require('../../abi/ERC20Permit.json');
 const { ethers, JsonRpcProvider, parseUnits, formatUnits } = require("ethers");
+const prisma = require('../config/db');
 
 const provider = new JsonRpcProvider(process.env.RPC_URL);
 const fs = require('fs')
@@ -31,9 +32,15 @@ const convertToEtherAmount = (amount) => {
  * @param {string} address - The wallet address to check balance for
  * @returns {Promise<string>} The token balance in ether units
  */
-const getMyBalance = async (address) => {
+const getMyBalance = async (email) => {
     try {
-        const balance = await tokenContract.balanceOf(address);
+        const tempUser = await prisma.user.findUnique({
+            where: { email }
+        });
+        if (!tempUser) {
+            return res.status(400).json({ error: "Email not found. Please login to gll.one first." });
+        }
+        const balance = await tokenContract.balanceOf(tempUser.walletAddress);
         return formatUnits(balance, 'ether');
     } catch (error) {
         throw new Error(`Error getting token balance: ${error.message}`);

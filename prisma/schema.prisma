@@ -8,33 +8,36 @@ datasource db {
 }
 
 model User {
-  id              String    @id @default(auto()) @map("_id") @db.ObjectId
-  name            String
-  designation     String?
-  email           String    @unique
-  phone           String?
-  walletAddress   String?
-  accountName     String?   @default("")
-  accountNumber   String?   @default("")
-  ifscCode        String    @default("")
-  gstNumber       String    @default("")
-  companyAddress  String    @default("")
-  companyType     String?   @default("")
-  companyName     String    @default("")
-  msmeCertificate String?
-  oemCertificate  String?
-  fy2324Data      String?
-  fy2425Data      String?
-  glltag          String?
-  international   Boolean   @default(false)
-  terms           Boolean   @default(true)
-  isVerified      Boolean   @default(false)
-  verificationOTP String?
-  otpExpiry       DateTime?
-  gllBalance      Float     @default(0)
-  apiKey          String?   @default("")
-  bankName        String?   @default("")
-  bankBranch      String?   @default("")
+  id                      String    @id @default(auto()) @map("_id") @db.ObjectId
+  name                    String
+  designation             String?
+  email                   String    @unique
+  phone                   String?
+  walletAddress           String?
+  accountName             String?   @default("")
+  accountNumber           String?   @default("")
+  ifscCode                String    @default("")
+  gstNumber               String    @default("")
+  companyAddress          String    @default("")
+  companyType             String?   @default("")
+  companyName             String    @default("")
+  msmeCertificate         String?
+  oemCertificate          String?
+  fy2324Data              String?
+  fy2425Data              String?
+  glltag                  String?
+  international           Boolean   @default(false)
+  terms                   Boolean   @default(true)
+  isVerified              Boolean   @default(false)
+  verificationOTP         String?
+  otpExpiry               DateTime?
+  gllBalance              Float     @default(0)
+  apiKey                  String?   @default("")
+  bankName                String?   @default("")
+  bankBranch              String?   @default("")
+  telegramId              String? // Telegram chat ID for the user
+  notificationPreferences Json? // Store notification preferences as JSON
+  lastInteraction         DateTime? // Last time user interacted with the bot
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
