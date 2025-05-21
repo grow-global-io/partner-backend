@@ -14,6 +14,10 @@ const OPENROUTER_URL = process.env.OPENROUTER_URL;
 
 // Function to get AI response
 async function getAIResponse(message) {
+    // Comment out AI functionality for now
+    return "I understand commands better. Please use the menu or type /help to see what I can do.";
+
+    /* Commenting out AI chatbot functionality
     // Check for appreciation messages
     const appreciationKeywords = /(?:good|great|nice|awesome|amazing|excellent|wonderful|fantastic|brilliant|perfect)\s*(?:job|work|bot|helper|assistant|done|going|help)|(?:thank|thanks|thx|ty|thankyou)/i;
     
@@ -66,6 +70,7 @@ async function getAIResponse(message) {
         `\n\n` +
         `Visit Our Website: https://gll.one for more information`;
     }
+    */
 }
 
 // Track users waiting to provide email
@@ -430,29 +435,93 @@ bot.on('clear_command', async (msg) => {
     }
 });
 
-// Update message handler to track messages
+// Handle general messages with AI
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     
     // Track user messages
     trackMessage(chatId, msg.message_id);
 
-    // Handle commands
-    if (msg.text && ['Balance', 'Surprise', 'Clear', 'Help'].includes(msg.text)) {
+    // Handle email input for account linking FIRST
+    if (usersAwaitingEmail.has(chatId) && msg.text) {
+        console.log('Processing email:', msg.text);
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const email = msg.text.trim();
+
+        if (!emailRegex.test(email)) {
+            await sendMessageWithTracking(chatId,
+                '❌ Invalid email format. Please provide a valid email address.',
+                { reply_markup: { remove_keyboard: true } }
+            );
+            return;
+        }
+
+        try {
+            // Check if user exists in database
+            const user = await prisma.user.findUnique({
+                where: { email }
+            });
+
+            if (!user) {
+                await sendMessageWithTracking(chatId,
+                    '❌ Email not found in our system.\n\n' +
+                    'Please register first at https://gll.one\n\n' +
+                    'After registration, you can come back and link your account.',
+                    { reply_markup: { remove_keyboard: true } }
+                );
+                usersAwaitingEmail.delete(chatId);
+                return;
+            }
+
+            // Check if already linked to another Telegram ID
+            if (user.telegramId && user.telegramId !== chatId.toString()) {
+                await sendMessageWithTracking(chatId,
+                    '❌ This email is already linked to another Telegram account.\n\n' +
+                    'Please contact support if you think this is an error.',
+                    { reply_markup: { remove_keyboard: true } }
+                );
+                usersAwaitingEmail.delete(chatId);
+                return;
+            }
+
+            // Update user with Telegram ID
+            await prisma.user.update({
+                where: { email },
+                data: { telegramId: chatId.toString() }
+            });
+
+            usersAwaitingEmail.delete(chatId);
+
+            await sendMessageWithTracking(chatId,
+                `✅ Account successfully linked!\n\n` +
+                `Welcome ${user.name || 'back'}! You can now use these commands:\n\n` +
+                `🔷 /balance - Check GLL Balance\n` +
+                `🎲 /surprise - Get a Random Duck\n` +
+                `🧹 /clear - Clear Chat History\n` +
+                `❓ /help - Show All Commands\n\n` +
+                `Visit Our Website: https://gll.one for more information`,
+                { 
+                    parse_mode: 'Markdown',
+                    reply_markup: mainKeyboard
+                }
+            );
+            return;
+        } catch (error) {
+            console.error('Error linking account:', error);
+            await sendMessageWithTracking(chatId,
+                '❌ An error occurred while linking your account. Please try again later.',
+                { reply_markup: { remove_keyboard: true } }
+            );
+            usersAwaitingEmail.delete(chatId);
+            return;
+        }
+    }
+
+    // THEN handle commands
+    if (msg.text && ['Balance', 'Surprise', 'Clear', 'Help', 'Link'].includes(msg.text)) {
         await handleCommand(msg, msg.text);
         return;
     }
-
-    // Array of flower emojis
-    const flowers = ['🌸', '🌺', '🌹', '🌷', '🌻', '🌼', '💐', '🌿', '🪷', '🌱'];
-    // Get random flowers
-    const getRandomFlowers = (count = 2) => {
-        const selected = new Set();
-        while(selected.size < count) {
-            selected.add(flowers[Math.floor(Math.random() * flowers.length)]);
-        }
-        return Array.from(selected).join(' ');
-    };
 
     // Handle Good Morning/Evening
     if (msg.text && /^good\s*morning/i.test(msg.text.trim())) {
@@ -484,44 +553,13 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    // Handle general messages with AI
-    if (msg.text && !msg.text.startsWith('/')) {
-        // Send typing action
-        await bot.sendChatAction(chatId, 'typing');
-
-        try {
-            // Get AI response
-            const aiResponse = await getAIResponse(msg.text);
-
-            // Send the response
-            await sendMessageWithTracking(chatId,
-                `${aiResponse}\n\n_Remember, you can always use our commands for specific actions:_`,
-                { 
-                    parse_mode: 'Markdown',
-                    reply_markup: mainKeyboard 
-                }
-            );
-        } catch (error) {
-            console.error('Error in AI response:', error);
-            await sendMessageWithTracking(chatId,
-                "I apologize, but I'm having trouble understanding that. Please try using one of our commands instead.",
-                { reply_markup: mainKeyboard }
-            );
-        }
-        return;
-    }
-
-    // Handle any other text that doesn't start with a command
-    if (msg.text && !msg.text.startsWith('/')) {
+    // Handle any other text with a default response
+    if (msg.text) {
         await sendMessageWithTracking(chatId,
-            "🤖 Beep Boop! I only understand commands.",
+            "Please use the menu buttons or type /help to see available commands.",
             { reply_markup: mainKeyboard }
         );
-        return;
     }
-
-    // Handle other message cases...
-    // ... rest of your message handling code ...
 });
 
 // Webhook endpoint for Telegram updates
