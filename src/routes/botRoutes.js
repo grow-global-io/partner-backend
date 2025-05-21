@@ -6,11 +6,11 @@ const axios = require('axios');
 const router = express.Router();
 
 // Initialize bot with your token
-const bot = new TelegramBot('7964395958:AAEgeIgPYr7sLsvx8QFwtf4zdp0CYqx-CJk', { polling: true });
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
 // OpenRouter API configuration
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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'; // Replace with your API key
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_URL = process.env.OPENROUTER_URL;
 
 // Function to get AI response
 async function getAIResponse(message) {
@@ -53,7 +53,7 @@ async function getAIResponse(message) {
             ]
         }, {
             headers: {
-                'Authorization': `Bearer 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`,
+                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
                 'HTTP-Referer': 'https://gll.one',
                 'X-Title': 'Grow Global Partners Bot'
             }
