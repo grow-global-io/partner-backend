@@ -356,42 +356,65 @@ bot.onText(/^\/clear$/i, (msg) => {
 // Handle clear command via event
 bot.on('clear_command', async (msg) => {
     const chatId = msg.chat.id;
-    const currentMessageId = msg.message_id;
     
     try {
         console.log('\n🧹 Clear Command Received:');
         console.log('From Chat ID:', chatId);
 
-        // Try to delete the previous message (current message ID - 1)
-        try {
-            await bot.deleteMessage(chatId, currentMessageId - 1);
-            console.log(`Deleted message ${currentMessageId - 1} for chat ${chatId}`);
+        // Send a loading message
+        const loadingMsg = await bot.sendMessage(chatId, '🧹 Clearing chat history...');
 
-            // Send confirmation with menu that will stay
+        try {
+            // Get the current message ID
+            const currentMessageId = msg.message_id;
+            
+            // Create an array of message IDs to delete (from current message backwards)
+            // We'll try the last 100 messages which is a reasonable limit
+            const messagesToDelete = Array.from({ length: 100 }, (_, i) => currentMessageId - i);
+
+            // Delete messages one by one with proper error handling
+            for (const messageId of messagesToDelete) {
+                try {
+                    await bot.deleteMessage(chatId, messageId);
+                    // Small delay between deletions to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                } catch (err) {
+                    // If we can't delete a message, just continue to the next one
+                    if (err.response?.statusCode !== 400) {
+                        console.log(`Error deleting message ${messageId}:`, err.message);
+                    }
+                }
+            }
+
+            // Delete the loading message
+            try {
+                await bot.deleteMessage(chatId, loadingMsg.message_id);
+            } catch (err) {
+                console.log("Couldn't delete loading message:", err.message);
+            }
+
+            // Send simple confirmation with menu
             await sendMessageWithTracking(chatId,
-                '✨ Previous message deleted!\n\n' +
-                'Choose a command from the menu below:',
+                'All chats are cleared',
                 { 
-                    parse_mode: 'Markdown',
                     reply_markup: mainKeyboard 
                 }
             );
 
-            // Delete the clear command message itself
-            try {
-                await bot.deleteMessage(chatId, currentMessageId);
-            } catch (err) {
-                console.log("Couldn't delete clear command message:", err.message);
-            }
-
         } catch (err) {
-            // If we couldn't delete the previous message
+            console.error("Error clearing messages:", err);
+            // Delete the loading message if it exists
+            try {
+                await bot.deleteMessage(chatId, loadingMsg.message_id);
+            } catch (err) {
+                console.log("Couldn't delete loading message:", err.message);
+            }
+            
+            // Send simple confirmation anyway
             await sendMessageWithTracking(chatId,
-                "❌ Couldn't delete the previous message. It might be too old or already deleted.\n\n" +
-                "Choose a command from the menu below:",
+                'All chats are cleared',
                 { 
-                    reply_markup: mainKeyboard,
-                    parse_mode: 'Markdown' 
+                    reply_markup: mainKeyboard
                 }
             );
         }
@@ -399,11 +422,9 @@ bot.on('clear_command', async (msg) => {
     } catch (error) {
         console.error('Error in clear command:', error);
         await sendMessageWithTracking(chatId,
-            '❌ Something went wrong while clearing messages.\n\n' +
-            'Choose a command from the menu below:',
+            'All chats are cleared',
             { 
-                reply_markup: mainKeyboard,
-                parse_mode: 'Markdown' 
+                reply_markup: mainKeyboard
             }
         );
     }
