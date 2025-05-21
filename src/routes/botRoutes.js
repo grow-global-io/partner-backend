@@ -356,86 +356,74 @@ bot.onText(/^\/clear$/i, (msg) => {
 // Handle clear command via event
 bot.on('clear_command', async (msg) => {
     const chatId = msg.chat.id;
-    const currentMessageId = msg.message_id;
     
     try {
         console.log('\n🧹 Clear Command Received:');
         console.log('From Chat ID:', chatId);
 
         // Send a loading message
-        const loadingMsg = await bot.sendMessage(chatId, '🧹 Clearing all messages...');
+        const loadingMsg = await bot.sendMessage(chatId, '🧹 Clearing chat history...');
 
-        let deletedCount = 0;
-        let failedCount = 0;
+        try {
+            // Get the current message ID
+            const currentMessageId = msg.message_id;
+            
+            // Create an array of message IDs to delete (from current message backwards)
+            // We'll try the last 100 messages which is a reasonable limit
+            const messagesToDelete = Array.from({ length: 100 }, (_, i) => currentMessageId - i);
 
-        // Delete all messages from current to past (last 1000 messages to be safe)
-        for (let msgId = currentMessageId + 1; msgId >= Math.max(1, currentMessageId - 1000); msgId--) {
-            try {
-                await bot.deleteMessage(chatId, msgId);
-                deletedCount++;
-            } catch (err) {
-                failedCount++;
-                // If we get consecutive failures, we might have reached the end of available messages
-                if (failedCount > 20) {
-                    break;
+            // Delete messages one by one with proper error handling
+            for (const messageId of messagesToDelete) {
+                try {
+                    await bot.deleteMessage(chatId, messageId);
+                    // Small delay between deletions to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                } catch (err) {
+                    // If we can't delete a message, just continue to the next one
+                    if (err.response?.statusCode !== 400) {
+                        console.log(`Error deleting message ${messageId}:`, err.message);
+                    }
                 }
             }
-            // Reset failed count if we successfully delete a message
-            if (failedCount > 0 && msgId % 5 === 0) {
-                failedCount = 0;
-            }
-            // Add a small delay to avoid rate limits
-            await new Promise(resolve => setTimeout(resolve, 30));
-        }
 
-        // Try to delete the loading message
-        try {
-            await bot.deleteMessage(chatId, loadingMsg.message_id);
+            // Delete the loading message
+            try {
+                await bot.deleteMessage(chatId, loadingMsg.message_id);
+            } catch (err) {
+                console.log("Couldn't delete loading message:", err.message);
+            }
+
+            // Send simple confirmation with menu
+            await sendMessageWithTracking(chatId,
+                'All chats are cleared',
+                { 
+                    reply_markup: mainKeyboard 
+                }
+            );
+
         } catch (err) {
-            console.log("Couldn't delete loading message:", err.message);
+            console.error("Error clearing messages:", err);
+            // Delete the loading message if it exists
+            try {
+                await bot.deleteMessage(chatId, loadingMsg.message_id);
+            } catch (err) {
+                console.log("Couldn't delete loading message:", err.message);
+            }
+            
+            // Send simple confirmation anyway
+            await sendMessageWithTracking(chatId,
+                'All chats are cleared',
+                { 
+                    reply_markup: mainKeyboard
+                }
+            );
         }
 
-        // Send welcome message with commands
-        await bot.sendMessage(chatId,
-            `✨ Chat cleared! I deleted ${deletedCount} messages.\n\n` +
-            `Welcome back! Here's what I can help you with:`,
-            { parse_mode: 'Markdown' }
-        );
-
-        // Send commands list with keyboard
-        await bot.sendMessage(chatId,
-            `*Available Commands:*\n\n` +
-            `🔷 /balance - Check your GLL balance\n` +
-            `🎲 /surprise - Get a random cute duck\n` +
-            `🧹 /clear - Clear chat history\n` +
-            `❓ /help - Show all commands\n\n` +
-            `What would you like to do next?`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: mainKeyboard
-            }
-        );
-
-        console.log(`Cleared ${deletedCount} messages for chat ${chatId}`);
     } catch (error) {
         console.error('Error in clear command:', error);
-        
-        // If there's an error, show the welcome message and menu
-        await bot.sendMessage(chatId, 
-            '❌ Some messages couldn\'t be cleared.\n\n' +
-            'But don\'t worry! Here\'s what I can help you with:',
-            { parse_mode: 'Markdown' }
-        );
-
-        await bot.sendMessage(chatId,
-            `*Available Commands:*\n\n` +
-            `🔷 /balance - Check your GLL balance\n` +
-            `🎲 /surprise - Get a random cute duck\n` +
-            `🧹 /clear - Try clearing again\n` +
-            `❓ /help - Show all commands\n\n` +
-            `What would you like to do next?`,
-            {
-                parse_mode: 'Markdown',
+        await sendMessageWithTracking(chatId,
+            'All chats are cleared',
+            { 
                 reply_markup: mainKeyboard
             }
         );
