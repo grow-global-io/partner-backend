@@ -717,6 +717,94 @@ router.post('/verify-gstin', async (req, res) => {
     }
 });
 
+// GST Verification route
+router.post('/gst-verify', async (req, res) => {
+    try {
+        const { gstNumber } = req.body;
+
+        if (!gstNumber) {
+            return res.send(encryptJSON({ 
+                success: false,
+                message: "GST number is required" 
+            }));
+        }
+
+        // Validate GST number format (basic validation)
+        const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+        if (!gstRegex.test(gstNumber)) {
+            return res.send(encryptJSON({ 
+                success: false,
+                message: "Invalid GST number format" 
+            }));
+        }
+
+        // Get GST verification URL from environment or use fallback
+        const gstVerifyUrl = process.env.GST_VERIFY_URL;
+
+        // Make request to GST verification service
+        const response = await axios.get(`${gstVerifyUrl}/${gstNumber}`, {
+            timeout: 10000, // 10 second timeout
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // Check if response is valid
+        if (!response.data) {
+            throw new Error('Invalid response from GST verification service');
+        }
+
+        // Prepare success response
+        const responseData = {
+            success: true,
+            data: response.data,
+            message: "GST verification completed successfully"
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error('GST Verification Error:', error);
+        
+        // Handle specific error cases
+        if (error.response?.data) {
+            // API returned an error response
+            return res.status(error.response.status || 400).send(encryptJSON({
+                success: false,
+                message: error.response.data.message || "GST verification failed",
+                error: error.response.data
+            }));
+        }
+
+        if (error.code === 'ECONNABORTED') {
+            // Timeout error
+            return res.status(408).send(encryptJSON({
+                success: false,
+                message: "GST verification service timed out",
+                error: "Request timeout"
+            }));
+        }
+
+        if (error.code === 'ENOTFOUND' || error.code === 'ERR_BAD_REQUEST') {
+            // Service not available
+            return res.status(503).send(encryptJSON({
+                success: false,
+                message: "GST verification service is currently unavailable",
+                error: "Service unavailable"
+            }));
+        }
+
+        // Generic error response
+        res.status(500).send(encryptJSON({
+            success: false,
+            message: "Error verifying GST number",
+            error: error.message
+        }));
+    }
+});
+
 // User Task Completion Endpoints
 // Check if a user has completed a specific task
 router.get('/check-task-completion', async (req, res) => {
@@ -954,6 +1042,89 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
         res.status(500).json({ error: error.message });
     }
 });
+
+
+router.post('/ifscCode-verify', async (req, res) => {
+    try {
+        const { ifscCode } = req.body;
+
+        if (!ifscCode) {
+            return res.send(encryptJSON({ 
+                success: false,
+                message: "IFSC code is required" 
+            }));
+        }
+
+        // Validate IFSC code format (basic validation)
+        const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+        if (!ifscRegex.test(ifscCode)) {
+            return res.send(encryptJSON({ 
+                success: false,
+                message: "Invalid IFSC code format" 
+            }));
+        }
+
+        // Make request to Razorpay IFSC API
+        const response = await axios.get(`${process.env.IFSC_VERIFY_URL}/${ifscCode}`, {
+            timeout: 10000, // 10 second timeout
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // Check if response is valid
+        if (!response.data) {
+            throw new Error('Invalid response from IFSC verification service');
+        }
+
+        // Prepare success response
+        const responseData = {
+            success: true,
+            data: response.data,
+            message: "IFSC code verification completed successfully"
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error('IFSC Verification Error:', error);
+        
+        // Handle specific error cases
+        if (error.response?.status === 404) {
+            return res.status(404).send(encryptJSON({
+                success: false,
+                message: "IFSC code not found",
+                error: "Invalid IFSC code"
+            }));
+        }
+
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).send(encryptJSON({
+                success: false,
+                message: "IFSC verification service timed out",
+                error: "Request timeout"
+            }));
+        }
+
+        if (error.code === 'ENOTFOUND' || error.code === 'ERR_BAD_REQUEST') {
+            return res.status(503).send(encryptJSON({
+                success: false,
+                message: "IFSC verification service is currently unavailable",
+                error: "Service unavailable"
+            }));
+        }
+
+        // Generic error response
+        res.status(500).send(encryptJSON({
+            success: false,
+            message: "Error verifying IFSC code",
+            error: error.message
+        }));
+    }
+});
+
 
 // // Save data from Reward Card5 - Invoice Upload
 // router.post('/save-reward-card5', upload.array('multipleFiles'), async (req, res) => {
