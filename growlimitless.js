@@ -6,6 +6,7 @@ const express = require('express');
 const cors = require('cors');
 // Import routes
 const userRoutes = require('./src/routes/userRoutes');
+const botRoutes = require('./src/routes/botRoutes');
 const errorHandler = require('./src/middleware/errorHandler');
 const { MongoClient } = require('mongodb');
 
@@ -49,6 +50,7 @@ app.get("/", (req, res) => {
 
 // API Routes
 app.use('/api/users', userRoutes);
+app.use('/api/bot', botRoutes);
 
 // Error handling middleware (should be last)
 app.use(errorHandler);
@@ -56,6 +58,7 @@ app.use(errorHandler);
 // Start the Express server
 app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
+    console.log('🤖 Telegram bot is active and listening for messages...');
 });
 
 // Handle unhandled promise rejections

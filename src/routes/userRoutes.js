@@ -267,15 +267,19 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
             fs.unlinkSync(req.file.path);
         }
 
-        res.status(200).json({
+        const responseData = {
             message: "File uploaded successfully",
-            url : documentUrl
-        });
+            url: documentUrl
+        };
+        res.send(encryptJSON(responseData));
 
     }
     catch (error) {
         // console.log("Error uploading file:", error);
-        res.status(500).json({ error: error });
+        const errorResponse = {
+            error: error.message || "Error uploading file"
+        };
+        res.status(500).send(encryptJSON(errorResponse));
     }
 })
 
