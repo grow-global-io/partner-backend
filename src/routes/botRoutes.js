@@ -362,81 +362,48 @@ bot.on('clear_command', async (msg) => {
         console.log('\n🧹 Clear Command Received:');
         console.log('From Chat ID:', chatId);
 
-        // Send a loading message
-        const loadingMsg = await bot.sendMessage(chatId, '🧹 Clearing all messages...');
-
-        let deletedCount = 0;
-        let failedCount = 0;
-
-        // Delete all messages from current to past (last 1000 messages to be safe)
-        for (let msgId = currentMessageId + 1; msgId >= Math.max(1, currentMessageId - 1000); msgId--) {
-            try {
-                await bot.deleteMessage(chatId, msgId);
-                deletedCount++;
-            } catch (err) {
-                failedCount++;
-                // If we get consecutive failures, we might have reached the end of available messages
-                if (failedCount > 20) {
-                    break;
-                }
-            }
-            // Reset failed count if we successfully delete a message
-            if (failedCount > 0 && msgId % 5 === 0) {
-                failedCount = 0;
-            }
-            // Add a small delay to avoid rate limits
-            await new Promise(resolve => setTimeout(resolve, 30));
-        }
-
-        // Try to delete the loading message
+        // Try to delete the previous message (current message ID - 1)
         try {
-            await bot.deleteMessage(chatId, loadingMsg.message_id);
+            await bot.deleteMessage(chatId, currentMessageId - 1);
+            console.log(`Deleted message ${currentMessageId - 1} for chat ${chatId}`);
+
+            // Send confirmation with menu that will stay
+            await sendMessageWithTracking(chatId,
+                '✨ Previous message deleted!\n\n' +
+                'Choose a command from the menu below:',
+                { 
+                    parse_mode: 'Markdown',
+                    reply_markup: mainKeyboard 
+                }
+            );
+
+            // Delete the clear command message itself
+            try {
+                await bot.deleteMessage(chatId, currentMessageId);
+            } catch (err) {
+                console.log("Couldn't delete clear command message:", err.message);
+            }
+
         } catch (err) {
-            console.log("Couldn't delete loading message:", err.message);
+            // If we couldn't delete the previous message
+            await sendMessageWithTracking(chatId,
+                "❌ Couldn't delete the previous message. It might be too old or already deleted.\n\n" +
+                "Choose a command from the menu below:",
+                { 
+                    reply_markup: mainKeyboard,
+                    parse_mode: 'Markdown' 
+                }
+            );
         }
 
-        // Send welcome message with commands
-        await bot.sendMessage(chatId,
-            `✨ Chat cleared! I deleted ${deletedCount} messages.\n\n` +
-            `Welcome back! Here's what I can help you with:`,
-            { parse_mode: 'Markdown' }
-        );
-
-        // Send commands list with keyboard
-        await bot.sendMessage(chatId,
-            `*Available Commands:*\n\n` +
-            `🔷 /balance - Check your GLL balance\n` +
-            `🎲 /surprise - Get a random cute duck\n` +
-            `🧹 /clear - Clear chat history\n` +
-            `❓ /help - Show all commands\n\n` +
-            `What would you like to do next?`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: mainKeyboard
-            }
-        );
-
-        console.log(`Cleared ${deletedCount} messages for chat ${chatId}`);
     } catch (error) {
         console.error('Error in clear command:', error);
-        
-        // If there's an error, show the welcome message and menu
-        await bot.sendMessage(chatId, 
-            '❌ Some messages couldn\'t be cleared.\n\n' +
-            'But don\'t worry! Here\'s what I can help you with:',
-            { parse_mode: 'Markdown' }
-        );
-
-        await bot.sendMessage(chatId,
-            `*Available Commands:*\n\n` +
-            `🔷 /balance - Check your GLL balance\n` +
-            `🎲 /surprise - Get a random cute duck\n` +
-            `🧹 /clear - Try clearing again\n` +
-            `❓ /help - Show all commands\n\n` +
-            `What would you like to do next?`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: mainKeyboard
+        await sendMessageWithTracking(chatId,
+            '❌ Something went wrong while clearing messages.\n\n' +
+            'Choose a command from the menu below:',
+            { 
+                reply_markup: mainKeyboard,
+                parse_mode: 'Markdown' 
             }
         );
     }
