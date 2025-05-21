@@ -739,7 +739,7 @@ router.post('/gst-verify', async (req, res) => {
         }
 
         // Get GST verification URL from environment or use fallback
-        const gstVerifyUrl = process.env.GST_VERIFY_URL || 'http://sheet.gstincheck.co.in/check/bb70e9c95ebbb3d1bfd7b053eba7d554';
+        const gstVerifyUrl = process.env.GST_VERIFY_URL;
 
         // Make request to GST verification service
         const response = await axios.get(`${gstVerifyUrl}/${gstNumber}`, {
