@@ -106,12 +106,18 @@ const options = {
         },
         ChatRequest: {
           type: "object",
-          required: ["query"],
+          required: ["query", "walletId"],
           properties: {
             query: {
               type: "string",
               description: "User's question about the document",
               example: "What is this document about?",
+            },
+            walletId: {
+              type: "string",
+              description:
+                "User's wallet ID for authentication and message tracking",
+              example: "user_wallet_123",
             },
           },
         },

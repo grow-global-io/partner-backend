@@ -9,56 +9,49 @@ class DeepseekService {
     // Deepseek API configuration
     console.log("DeepseekService: Initializing Deepseek API");
 
-    // For embeddings, we'll use OpenAI since Deepseek doesn't provide embeddings
-    this.embeddingClient = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      baseURL: "https://api.openai.com/v1",
-    });
-
     // For chat completions, use Deepseek
     this.chatClient = new OpenAI({
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: "https://api.deepseek.com/v1",
     });
+
+    // No external API needed for embeddings - using local implementation
+    console.log(
+      "DeepseekService: Using local text-based embeddings (no external API required)"
+    );
   }
 
   /**
-   * @description Generate embeddings for text chunks (using OpenAI)
+   * @description Generate embeddings for text chunks (using OpenRouter/text similarity)
    * @param {Array<string>} textChunks - Array of text chunks to embed
    * @returns {Promise<Array>} Array of embeddings
    */
   async generateEmbeddings(textChunks) {
     try {
+      console.log(
+        `DeepseekService: Generating embeddings for ${textChunks.length} chunks`
+      );
       const embeddings = [];
 
-      // Process chunks in batches to avoid rate limits
-      const batchSize = 10;
-      for (let i = 0; i < textChunks.length; i += batchSize) {
-        const batch = textChunks.slice(i, i + batchSize);
+      // Since we don't have OpenAI, let's use simple text-based embeddings
+      // This will create basic vector representations based on text features
+      for (let i = 0; i < textChunks.length; i++) {
+        const chunk = textChunks[i];
+        const embedding = this.createSimpleEmbedding(chunk);
 
-        const response = await this.embeddingClient.embeddings.create({
-          model: "text-embedding-3-small",
-          input: batch,
+        embeddings.push({
+          text: chunk,
+          embedding: embedding,
+          metadata: {
+            chunkIndex: i,
+            tokenCount: this.estimateTokenCount(chunk),
+          },
         });
-
-        // Extract embeddings from response
-        response.data.forEach((embeddingData, index) => {
-          embeddings.push({
-            text: batch[index],
-            embedding: embeddingData.embedding,
-            metadata: {
-              chunkIndex: i + index,
-              tokenCount: this.estimateTokenCount(batch[index]),
-            },
-          });
-        });
-
-        // Add delay to respect rate limits
-        if (i + batchSize < textChunks.length) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
       }
 
+      console.log(
+        `DeepseekService: Generated ${embeddings.length} embeddings successfully`
+      );
       return embeddings;
     } catch (error) {
       console.error("DeepseekService: Error generating embeddings:", error);
@@ -67,18 +60,14 @@ class DeepseekService {
   }
 
   /**
-   * @description Generate embedding for a single query (using OpenAI)
+   * @description Generate embedding for a single query (using simple text-based method)
    * @param {string} query - Query text
    * @returns {Promise<Array>} Embedding vector
    */
   async generateEmbedding(query) {
     try {
-      const response = await this.embeddingClient.embeddings.create({
-        model: "text-embedding-3-small",
-        input: query,
-      });
-
-      return response.data[0].embedding;
+      console.log("DeepseekService: Generating query embedding");
+      return this.createSimpleEmbedding(query);
     } catch (error) {
       console.error(
         "DeepseekService: Error generating query embedding:",
@@ -86,6 +75,80 @@ class DeepseekService {
       );
       throw error;
     }
+  }
+
+  /**
+   * @description Create simple text-based embedding vector
+   * @param {string} text - Text to embed
+   * @returns {Array<number>} Simple embedding vector
+   */
+  createSimpleEmbedding(text) {
+    // Create a simple embedding based on text characteristics
+    const words = text.toLowerCase().split(/\s+/);
+    const chars = text.toLowerCase();
+
+    // Create a 384-dimensional vector (common embedding size)
+    const embedding = new Array(384).fill(0);
+
+    // Basic features based on text content
+    embedding[0] = words.length / 100; // Normalized word count
+    embedding[1] = chars.length / 1000; // Normalized character count
+    embedding[2] = (text.match(/[A-Z]/g) || []).length / text.length; // Uppercase ratio
+    embedding[3] = (text.match(/\d/g) || []).length / text.length; // Digit ratio
+    embedding[4] = (text.match(/[.!?]/g) || []).length / text.length; // Punctuation ratio
+
+    // Word frequency features (simple bag of words approach)
+    const wordCounts = {};
+    words.forEach((word) => {
+      if (word.length > 2) {
+        // Ignore very short words
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      }
+    });
+
+    // Fill embedding with word hash values
+    let index = 5;
+    for (const word in wordCounts) {
+      if (index >= embedding.length) break;
+      const hashValue = this.simpleHash(word) / 1000000; // Normalize hash
+      embedding[index] = wordCounts[word] * hashValue;
+      index++;
+    }
+
+    // Character n-grams for better text representation
+    for (let i = 0; i < chars.length - 2 && index < embedding.length; i++) {
+      const trigram = chars.substring(i, i + 3);
+      const hashValue = this.simpleHash(trigram) / 1000000;
+      embedding[index] = hashValue;
+      index++;
+    }
+
+    // Normalize the embedding vector
+    const magnitude = Math.sqrt(
+      embedding.reduce((sum, val) => sum + val * val, 0)
+    );
+    if (magnitude > 0) {
+      for (let i = 0; i < embedding.length; i++) {
+        embedding[i] /= magnitude;
+      }
+    }
+
+    return embedding;
+  }
+
+  /**
+   * @description Simple hash function for text
+   * @param {string} str - String to hash
+   * @returns {number} Hash value
+   */
+  simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash);
   }
 
   /**

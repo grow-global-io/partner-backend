@@ -16,14 +16,21 @@ class PDFService {
    */
   async extractTextFromPDF(pdfBuffer) {
     try {
+      // Use basic extraction without the broken custom page render
       const options = {
-        // Custom page render function for better text extraction
-        pagerender: this.customPageRender,
-        // Maximum number of pages to process (for performance)
-        max: 100,
+        // Remove the broken customPageRender function
+        // pagerender: this.customPageRender,
+        max: 100, // Maximum number of pages to process
+        normalizeWhitespace: false,
+        disableCombineTextItems: false,
       };
 
+      console.log("PDFService: Starting text extraction...");
       const data = await pdfParse(pdfBuffer, options);
+
+      console.log(
+        `PDFService: Extracted ${data.text.length} characters from ${data.numpages} pages`
+      );
 
       return {
         text: data.text,
@@ -53,20 +60,17 @@ class PDFService {
    */
   async extractPageTexts(pdfBuffer) {
     try {
-      const pages = [];
-      let currentPage = 1;
+      // Use basic extraction and split by estimated page length
+      const data = await pdfParse(pdfBuffer);
+      const fullText = data.text;
+      const totalPages = data.numpages;
 
-      // Extract text page by page for better organization
-      const options = {
-        pagerender: (pageData) => {
-          return this.customPageRender(pageData, currentPage++);
-        },
-      };
+      console.log(
+        `PDFService: Splitting ${fullText.length} characters into ${totalPages} pages`
+      );
 
-      const data = await pdfParse(pdfBuffer, options);
-
-      // Split text by page breaks if available
-      const pageTexts = this.splitTextByPages(data.text, data.numpages);
+      // Split text into pages (rough estimation)
+      const pageTexts = this.splitTextByPages(fullText, totalPages);
 
       return pageTexts.map((text, index) => ({
         pageNumber: index + 1,

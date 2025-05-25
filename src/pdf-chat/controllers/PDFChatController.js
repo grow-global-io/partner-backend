@@ -158,17 +158,22 @@ class PDFChatController {
 
       // Validate that text was extracted successfully
       if (!cleanedText || cleanedText.trim().length === 0) {
+        console.error(`PDF text extraction failed for ${fileName}:`, {
+          originalTextLength: pdfData.text?.length || 0,
+          cleanedTextLength: cleanedText?.length || 0,
+          totalPages: pdfData.totalPages,
+        });
         return res.status(400).json({
           success: false,
           error: "No text content could be extracted from the PDF",
           details:
             "This PDF appears to be image-based (scanned) or contains no extractable text. Please ensure your PDF contains selectable text content.",
           troubleshooting: {
-            issue: "Image-based or scanned PDF",
+            issue: "Text extraction failed",
             solutions: [
-              "Convert scanned images to text-based PDF using OCR",
-              "Use a PDF with selectable text content",
-              "Re-create the PDF from the original document",
+              "Ensure the PDF contains selectable text (not just images)",
+              "Try re-uploading the document",
+              "Convert scanned images to text-based PDF using OCR if needed",
             ],
             fileInfo: {
               fileName: fileName,
@@ -180,25 +185,15 @@ class PDFChatController {
         });
       }
 
-      // Check if extracted text is too short to be meaningful
-      if (cleanedText.trim().length < 50) {
-        return res.status(400).json({
-          success: false,
-          error: "Insufficient text content extracted from PDF",
-          details: `Only ${
-            cleanedText.trim().length
-          } characters were extracted. This PDF may be mostly images or have very little text content.`,
-          extractedText: cleanedText.trim(),
-          recommendation:
-            "Please upload a PDF with more substantial text content for effective chat functionality.",
-        });
-      }
-
       // Split text into chunks
       const textChunks = this.deepseekService.splitTextIntoChunks(cleanedText);
 
       // Validate that chunks were created
       if (!textChunks || textChunks.length === 0) {
+        console.error(`Text chunking failed for ${fileName}:`, {
+          cleanedTextLength: cleanedText.length,
+          textPreview: cleanedText.substring(0, 100),
+        });
         return res.status(400).json({
           success: false,
           error: "Failed to process PDF text into chunks",
@@ -219,6 +214,10 @@ class PDFChatController {
 
       // Validate embeddings were generated
       if (!embeddings || embeddings.length === 0) {
+        console.error(`Embedding generation failed for ${fileName}:`, {
+          textChunks: textChunks.length,
+          textLength: cleanedText.length,
+        });
         return res.status(500).json({
           success: false,
           error: "Failed to generate embeddings for PDF content",
@@ -316,12 +315,27 @@ class PDFChatController {
 
     try {
       const { documentId } = req.params;
-      const { query } = req.body;
+      const { query, walletId } = req.body;
 
-      if (!documentId || !query) {
+      // Validate required fields first
+      if (!documentId) {
         return res.status(400).json({
           success: false,
-          error: "Missing required fields: documentId and query are required",
+          error: "Missing required parameter: documentId is required",
+        });
+      }
+
+      if (!query) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required field: query is required",
+        });
+      }
+
+      if (!walletId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required field: walletId is required",
         });
       }
 
@@ -335,11 +349,22 @@ class PDFChatController {
         });
       }
 
+      // Verify that the user has access to this document
+      if (document.walletId !== walletId) {
+        return res.status(403).json({
+          success: false,
+          error: "Access denied",
+          details: "You don't have permission to chat with this document",
+        });
+      }
+
       const documentData = document;
 
       // Store user query in document-specific conversation
       const userMessage = {
+        walletId,
         documentId,
+        documentName: documentData.fileName,
         message: query,
         sender: "user",
         messageType: "query",
@@ -363,10 +388,11 @@ class PDFChatController {
       }
 
       // Get conversation context for chain of thought (get recent messages)
-      const recentMessages = await this.messageModel.getMessagesByDocument(
-        documentId,
+      const recentMessages = await this.messageModel.getMessagesByWallet(
+        walletId,
         1,
-        8
+        8,
+        documentId
       );
 
       const conversationContext = recentMessages.messages
@@ -407,7 +433,9 @@ Would you like to try uploading a different document?`;
 
         // Store assistant response
         await this.messageModel.storeMessage({
+          walletId,
           documentId,
+          documentName: documentData.fileName,
           message: noEmbeddingsResponse,
           sender: "assistant",
           messageType: "response",
@@ -460,7 +488,9 @@ Would you like to try uploading a different document?`;
         const embeddingErrorResponse = `I'm sorry, but I can't process your question right now due to an issue with the AI service. Please try again later.`;
 
         await this.messageModel.storeMessage({
+          walletId,
           documentId,
+          documentName: documentData.fileName,
           message: embeddingErrorResponse,
           sender: "assistant",
           messageType: "response",
@@ -499,7 +529,9 @@ Would you like to try uploading a different document?`;
 
         // Store assistant response
         await this.messageModel.storeMessage({
+          walletId,
           documentId,
+          documentName: documentData.fileName,
           message: noContextResponse,
           sender: "assistant",
           messageType: "response",
@@ -536,7 +568,9 @@ Would you like to try uploading a different document?`;
 
       // Store assistant response in document conversation
       await this.messageModel.storeMessage({
+        walletId,
         documentId,
+        documentName: documentData.fileName,
         message: chatResponse.answer,
         sender: "assistant",
         messageType: "response",
@@ -549,6 +583,9 @@ Would you like to try uploading a different document?`;
           relevantSources: chatResponse.sources,
         },
       });
+
+      // Update document's last chat time
+      await this.documentModel.updateLastChatTime(documentId, walletId);
 
       res.json({
         success: true,
@@ -568,8 +605,9 @@ Would you like to try uploading a different document?`;
 
       // Try to store error message
       try {
-        if (req.params.documentId) {
+        if (req.params.documentId && req.body.walletId) {
           await this.messageModel.storeMessage({
+            walletId: req.body.walletId,
             documentId: req.params.documentId,
             message: "An error occurred while processing your request.",
             sender: "system",

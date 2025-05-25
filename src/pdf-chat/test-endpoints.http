@@ -1,5 +1,6 @@
 ### PDF Chat API - Document-Centric Testing
 ### Updated for document-specific conversations with chain of thought
+### IMPORTANT: All chat endpoints now require walletId in the request body
 
 @baseUrl = http://localhost:8000/api/pdf-chat
 @walletId = user_wallet_123
@@ -28,6 +29,7 @@ GET {{baseUrl}}/documents/{{walletId}}
 Content-Type: application/json
 
 ### 3. CHAT WITH SPECIFIC DOCUMENT (Initial conversation)
+### ✅ FIXED: Now properly includes walletId in request body for message tracking
 POST {{baseUrl}}/chat/{{testDocumentId}}
 Content-Type: application/json
 
@@ -37,6 +39,7 @@ Content-Type: application/json
 }
 
 ### 4. CHAT WITH SPECIFIC DOCUMENT (Follow-up question - demonstrates chain of thought)
+### ✅ FIXED: Conversation context will be maintained from previous messages
 POST {{baseUrl}}/chat/{{testDocumentId}}
 Content-Type: application/json
 
@@ -46,6 +49,7 @@ Content-Type: application/json
 }
 
 ### 5. CHAT WITH SPECIFIC DOCUMENT (Specific question)
+### ✅ FIXED: All messages will be properly stored and retrieved
 POST {{baseUrl}}/chat/{{testDocumentId}}
 Content-Type: application/json
 
@@ -55,6 +59,7 @@ Content-Type: application/json
 }
 
 ### 6. GET ALL MESSAGES FOR SPECIFIC DOCUMENT (Conversation history)
+### ✅ This should now return all the messages from steps 3, 4, and 5
 GET {{baseUrl}}/documents/{{walletId}}/{{testDocumentId}}/messages?page=1&limit=50&sortOrder=asc
 Content-Type: application/json
 
@@ -67,6 +72,7 @@ GET {{baseUrl}}/documents/{{walletId}}/{{testDocumentId}}/messages?page=2&limit=
 Content-Type: application/json
 
 ### 9. ADVANCED DOCUMENT CHAT (Complex question with context)
+### ✅ FIXED: Will have access to previous conversation history
 POST {{baseUrl}}/chat/{{testDocumentId}}
 Content-Type: application/json
 

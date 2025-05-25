@@ -342,7 +342,7 @@ router.get("/documents/:walletId/:documentId/summary", (req, res) => {
  *   post:
  *     tags: [Document Chat]
  *     summary: Chat with a specific document
- *     description: Send a query to chat with a specific document using Deepseek AI with conversation context (chain of thought). No wallet ID required.
+ *     description: Send a query to chat with a specific document using Deepseek AI with conversation context (chain of thought). Requires walletId in request body for authentication and message tracking.
  *     parameters:
  *       - $ref: '#/components/parameters/DocumentId'
  *     requestBody:
@@ -359,7 +359,13 @@ router.get("/documents/:walletId/:documentId/summary", (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ChatResponse'
  *       400:
- *         description: Bad request - missing required fields
+ *         description: Bad request - missing required fields (documentId, query, or walletId)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Access denied - user doesn't have permission to chat with this document
  *         content:
  *           application/json:
  *             schema:
