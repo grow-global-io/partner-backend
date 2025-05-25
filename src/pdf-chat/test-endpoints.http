@@ -1,0 +1,237 @@
+### PDF Chat API - Document-Centric Testing
+### Updated for document-specific conversations with chain of thought
+### IMPORTANT: All chat endpoints now require walletId in the request body
+
+@baseUrl = http://localhost:8000/api/pdf-chat
+@walletId = user_wallet_123
+@testDocumentId = b04579e5-c001-41e9-9eaa-76583edc96ae
+
+### 1. UPLOAD PDF DOCUMENT
+POST {{baseUrl}}/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="walletId"
+
+{{walletId}}
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="pdf"; filename="test-document.pdf"
+Content-Type: application/pdf
+
+# @name uploadPDF
+# Add your PDF file here or use curl:
+# curl -X POST http://localhost:8000/api/pdf-chat/upload -F "walletId=user_wallet_123" -F "pdf=@/path/to/your/document.pdf"
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 2. GET ALL DOCUMENTS WITH CONVERSATION SUMMARIES
+GET {{baseUrl}}/documents/{{walletId}}
+Content-Type: application/json
+
+### 3. CHAT WITH SPECIFIC DOCUMENT (Initial conversation)
+### ✅ FIXED: Now properly includes walletId in request body for message tracking
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "What is this document about? Give me a brief overview."
+}
+
+### 4. CHAT WITH SPECIFIC DOCUMENT (Follow-up question - demonstrates chain of thought)
+### ✅ FIXED: Conversation context will be maintained from previous messages
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "Can you elaborate on the main points you mentioned?"
+}
+
+### 5. CHAT WITH SPECIFIC DOCUMENT (Specific question)
+### ✅ FIXED: All messages will be properly stored and retrieved
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "What are the key skills mentioned in this document?"
+}
+
+### 6. GET ALL MESSAGES FOR SPECIFIC DOCUMENT (Conversation history)
+### ✅ This should now return all the messages from steps 3, 4, and 5
+GET {{baseUrl}}/documents/{{walletId}}/{{testDocumentId}}/messages?page=1&limit=50&sortOrder=asc
+Content-Type: application/json
+
+### 7. GET CONVERSATION SUMMARY FOR DOCUMENT
+GET {{baseUrl}}/documents/{{walletId}}/{{testDocumentId}}/summary
+Content-Type: application/json
+
+### 8. GET DOCUMENT MESSAGES WITH PAGINATION (Page 2)
+GET {{baseUrl}}/documents/{{walletId}}/{{testDocumentId}}/messages?page=2&limit=10&sortOrder=desc
+Content-Type: application/json
+
+### 9. ADVANCED DOCUMENT CHAT (Complex question with context)
+### ✅ FIXED: Will have access to previous conversation history
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "Based on our previous discussion, what would you recommend as next steps?"
+}
+
+### 10. GET UPDATED DOCUMENTS LIST (Should show conversation statistics)
+GET {{baseUrl}}/documents/{{walletId}}
+Content-Type: application/json
+
+###
+### TESTING WITH DIFFERENT DOCUMENT (Replace documentId with your actual document ID)
+###
+
+@secondDocumentId = your-second-document-id-here
+
+### 11. CHAT WITH DIFFERENT DOCUMENT (Separate conversation thread)
+POST {{baseUrl}}/chat/{{secondDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "What type of document is this?"
+}
+
+### 12. GET MESSAGES FOR SECOND DOCUMENT (Separate conversation)
+GET {{baseUrl}}/documents/{{walletId}}/{{secondDocumentId}}/messages
+Content-Type: application/json
+
+###
+### ERROR TESTING
+###
+
+### 13. CHAT WITH NON-EXISTENT DOCUMENT
+POST {{baseUrl}}/chat/non-existent-document-id
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "This should fail"
+}
+
+### 14. GET MESSAGES FOR NON-EXISTENT DOCUMENT
+GET {{baseUrl}}/documents/{{walletId}}/non-existent-document-id/messages
+Content-Type: application/json
+
+### 15. CHAT WITHOUT WALLET ID
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "query": "This should fail due to missing walletId"
+}
+
+### 16. CHAT WITHOUT QUERY
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}"
+}
+
+###
+### LEGACY ENDPOINTS (Deprecated - for backward compatibility)
+###
+
+### 17. LEGACY: Get documents (deprecated)
+GET {{baseUrl}}/documents/{{walletId}}/list
+Content-Type: application/json
+
+### 18. LEGACY: Chat without document ID (deprecated)
+POST {{baseUrl}}/chat
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "This uses the old chat endpoint",
+  "documentId": "{{testDocumentId}}"
+}
+
+###
+### PERFORMANCE TESTING
+###
+
+### 19. MULTIPLE RAPID CHAT REQUESTS (Test conversation context)
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "Question 1: What is the main topic?"
+}
+
+###
+
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "Question 2: Following up on that topic, what are the details?"
+}
+
+###
+
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "Question 3: Can you summarize our conversation so far?"
+}
+
+###
+### VALIDATION TESTING
+###
+
+### 20. VERY LONG QUERY (Test limits)
+POST {{baseUrl}}/chat/{{testDocumentId}}
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}",
+  "query": "This is a very long query to test how the system handles extensive text input. Can you provide a detailed analysis of the document, including all major sections, key points, methodologies, conclusions, and any recommendations? Please be as comprehensive as possible while maintaining accuracy and relevance to the document content. I'm particularly interested in understanding the document's structure, main arguments, supporting evidence, and overall significance."
+}
+
+###
+### SWAGGER DOCUMENTATION
+###
+
+### 21. GET API DOCUMENTATION
+GET http://localhost:8000/api/pdf-chat/docs
+Content-Type: text/html
+
+###
+### SUMMARY OF NEW API STRUCTURE
+###
+
+# NEW DOCUMENT-CENTRIC API ENDPOINTS:
+# 
+# 1. POST /upload - Upload PDF documents
+# 2. GET /documents/{walletId} - Get all documents with conversation summaries
+# 3. POST /chat/{documentId} - Chat with specific document (with conversation context)
+# 4. GET /documents/{walletId}/{documentId}/messages - Get conversation history for document
+# 5. GET /documents/{walletId}/{documentId}/summary - Get conversation statistics for document
+#
+# KEY FEATURES:
+# - Each document has its own conversation thread
+# - Chain of thought: AI maintains context from previous messages
+# - Conversation continuity per document
+# - Message pagination and sorting
+# - Conversation statistics and summaries
+# - Legacy endpoint compatibility
+#
+# TESTING WORKFLOW:
+# 1. Upload a PDF document
+# 2. Get the documentId from the response
+# 3. Replace @testDocumentId with your actual document ID
+# 4. Run the chat and message retrieval tests
+# 5. Observe conversation continuity and context awareness
