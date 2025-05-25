@@ -27,6 +27,10 @@ const options = {
         url: "https://api.growlimitless.app",
         description: "Production server",
       },
+      {
+        url: "https://partner-backend-j2wt.onrender.com",
+        description: "Partner backend deployment server",
+      },
     ],
     components: {
       schemas: {
