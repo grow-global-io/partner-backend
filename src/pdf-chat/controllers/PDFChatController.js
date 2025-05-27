@@ -123,7 +123,8 @@ class PDFChatController {
               issue: "AWS signature mismatch",
               solution:
                 "Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables",
-              documentation: "/api/pdf-chat/docs - check AWS Setup section",
+              documentation:
+                "/api/api-routes/pdf-chat/docs - check AWS Setup section",
             },
           });
         } else if (s3Error.message.includes("Access Denied")) {

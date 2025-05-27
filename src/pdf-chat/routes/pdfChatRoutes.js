@@ -128,7 +128,7 @@ const pdfChatController = new PDFChatController();
 
 /**
  * @swagger
- * /api/pdf-chat:
+ * /api/api-routes/pdf-chat:
  *   get:
  *     tags: [Health]
  *     summary: API status and available endpoints
@@ -174,14 +174,14 @@ router.get("/", (req, res) => {
       summary:
         "GET /documents/{walletId}/{documentId}/summary - Get conversation summary",
     },
-    documentation: "/api/pdf-chat/docs",
+    documentation: "/api/api-routes/pdf-chat/docs",
     testFile: "src/pdf-chat/test-endpoints.http",
   });
 });
 
 /**
  * @swagger
- * /api/pdf-chat/upload:
+ * /api/api-routes/pdf-chat/upload:
  *   post:
  *     tags: [PDF Management]
  *     summary: Upload and process PDF document
@@ -218,7 +218,7 @@ router.post("/upload", upload.single("pdf"), (req, res) => {
 
 /**
  * @swagger
- * /api/pdf-chat/documents/{walletId}:
+ * /api/api-routes/pdf-chat/documents/{walletId}:
  *   get:
  *     tags: [Document Management]
  *     summary: Get all documents with conversation summaries
@@ -251,7 +251,7 @@ router.get("/documents/:walletId", (req, res) => {
 
 /**
  * @swagger
- * /api/pdf-chat/documents/{walletId}/{documentId}/messages:
+ * /api/api-routes/pdf-chat/documents/{walletId}/{documentId}/messages:
  *   get:
  *     tags: [Document Conversations]
  *     summary: Get all messages for a specific document
@@ -304,7 +304,7 @@ router.get("/documents/:walletId/:documentId/messages", (req, res) => {
 
 /**
  * @swagger
- * /api/pdf-chat/documents/{walletId}/{documentId}/summary:
+ * /api/api-routes/pdf-chat/documents/{walletId}/{documentId}/summary:
  *   get:
  *     tags: [Document Conversations]
  *     summary: Get conversation summary for a document
@@ -338,7 +338,7 @@ router.get("/documents/:walletId/:documentId/summary", (req, res) => {
 
 /**
  * @swagger
- * /api/pdf-chat/chat/{documentId}:
+ * /api/api-routes/pdf-chat/chat/{documentId}:
  *   post:
  *     tags: [Document Chat]
  *     summary: Chat with a specific document
@@ -390,7 +390,7 @@ router.post("/chat/:documentId", (req, res) => {
 // Legacy endpoints (deprecated but maintained for backward compatibility)
 /**
  * @swagger
- * /api/pdf-chat/documents/{walletId}/list:
+ * /api/api-routes/pdf-chat/documents/{walletId}/list:
  *   get:
  *     tags: [Legacy Endpoints]
  *     summary: Get documents for wallet (deprecated)
@@ -413,7 +413,7 @@ router.get("/documents/:walletId/list", (req, res) => {
 
 /**
  * @swagger
- * /api/pdf-chat/chat:
+ * /api/api-routes/pdf-chat/chat:
  *   post:
  *     tags: [Legacy Endpoints]
  *     summary: Chat with documents (deprecated)
