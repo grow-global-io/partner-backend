@@ -47,7 +47,7 @@ app.use(express.json());
 
 // Swagger Documentation
 app.use(
-  "/api/pdf-chat/docs",
+  "/api/api-routes/pdf-chat/docs",
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpecs, {
     customSiteTitle: "PDF Chat API Documentation",
@@ -88,8 +88,8 @@ app.get("/", (req, res) => {
     <ul>
       <li><a href="/api/users">/api/users</a> - User management</li>
       <li><a href="/api/bot">/api/bot</a> - Telegram bot</li>
-      <li><a href="/api/pdf-chat">/api/pdf-chat</a> - PDF Chat system</li>
-      <li><a href="/api/pdf-chat/docs">/api/pdf-chat/docs</a> - 📄 PDF Chat API Documentation (Swagger)</li>
+      <li><a href="/api/api-routes/pdf-chat">/api/api-routes/pdf-chat</a> - PDF Chat system</li>
+      <li><a href="/api/api-routes/pdf-chat/docs">/api/api-routes/pdf-chat/docs</a> - 📄 PDF Chat API Documentation (Swagger)</li>
     </ul>
   `);
 });
@@ -106,11 +106,11 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log("🤖 Telegram bot is active and listening for messages...");
-  console.log("📄 PDF Chat API is available at /api/pdf-chat");
+  console.log("📄 PDF Chat API is available at /api/api-routes/pdf-chat");
   console.log(
     "📖 PDF Chat API Documentation: http://localhost:" +
       PORT +
-      "/api/pdf-chat/docs"
+      "/api/api-routes/pdf-chat/docs"
   );
 });
 
