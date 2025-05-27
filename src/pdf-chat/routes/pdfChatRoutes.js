@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const PDFChatController = require("../controllers/PDFChatController");
+const S3Service = require("../services/S3Service");
 
 const router = express.Router();
 
@@ -18,6 +19,14 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
 
+// Configure multer for general file uploads
+const fileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
+
 // Initialize controller
 const pdfChatController = new PDFChatController();
 
@@ -25,6 +34,82 @@ const pdfChatController = new PDFChatController();
  * @swagger
  * components:
  *   schemas:
+ *     PDFUploadRequest:
+ *       type: object
+ *       required:
+ *         - pdf
+ *         - walletId
+ *       properties:
+ *         pdf:
+ *           type: string
+ *           format: binary
+ *           description: PDF file to upload (max 10MB)
+ *         walletId:
+ *           type: string
+ *           description: User's wallet ID
+ *         url:
+ *           type: string
+ *           format: uri
+ *           description: Optional URL associated with the document
+ *
+ *     PDFUploadResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           description: Operation success status
+ *         message:
+ *           type: string
+ *           description: Success message
+ *         data:
+ *           type: object
+ *           properties:
+ *             documentId:
+ *               type: string
+ *               description: Unique document identifier
+ *             fileName:
+ *               type: string
+ *               description: Original filename
+ *             totalPages:
+ *               type: integer
+ *               description: Number of pages in PDF
+ *             totalChunks:
+ *               type: integer
+ *               description: Number of text chunks extracted
+ *             fileSize:
+ *               type: integer
+ *               description: File size in bytes
+ *             s3Url:
+ *               type: string
+ *               description: S3 storage URL
+ *             uploadedAt:
+ *               type: string
+ *               format: date-time
+ *               description: Upload timestamp
+ *             metadata:
+ *               type: object
+ *               description: Additional document metadata
+ *             url:
+ *               type: string
+ *               format: uri
+ *               description: Associated URL if provided during upload
+ *
+ *     ErrorResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           description: Operation success status (false for errors)
+ *         error:
+ *           type: string
+ *           description: Error message
+ *         details:
+ *           type: string
+ *           description: Detailed error information
+ *         troubleshooting:
+ *           type: object
+ *           description: Optional troubleshooting information
+ *
  *     DocumentWithConversation:
  *       type: object
  *       properties:
@@ -47,6 +132,10 @@ const pdfChatController = new PDFChatController();
  *           type: string
  *           format: date-time
  *           description: Upload timestamp
+ *         url:
+ *           type: string
+ *           format: uri
+ *           description: Associated URL if provided during upload
  *         conversation:
  *           type: object
  *           properties:
@@ -124,6 +213,114 @@ const pdfChatController = new PDFChatController();
  *         usage:
  *           type: object
  *           description: Token usage information
+ *
+ *     DocumentListResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         data:
+ *           type: object
+ *           properties:
+ *             walletId:
+ *               type: string
+ *             documents:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   documentId:
+ *                     type: string
+ *                   fileName:
+ *                     type: string
+ *                   fileSize:
+ *                     type: integer
+ *                   totalPages:
+ *                     type: integer
+ *                   totalChunks:
+ *                     type: integer
+ *                   uploadedAt:
+ *                     type: string
+ *                     format: date-time
+ *                   lastChatAt:
+ *                     type: string
+ *                     format: date-time
+ *                   url:
+ *                     type: string
+ *                     format: uri
+ *                     description: Associated URL if provided during upload
+ *             totalDocuments:
+ *               type: integer
+ *             documentsWithConversations:
+ *               type: integer
+ *
+ *     DocumentConversationSummary:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *         data:
+ *           type: object
+ *           properties:
+ *             documentId:
+ *               type: string
+ *             totalMessages:
+ *               type: integer
+ *             userMessages:
+ *               type: integer
+ *             assistantMessages:
+ *               type: integer
+ *             firstMessageAt:
+ *               type: string
+ *               format: date-time
+ *             lastMessageAt:
+ *               type: string
+ *               format: date-time
+ *             hasConversation:
+ *               type: boolean
+ *             document:
+ *               type: object
+ *               properties:
+ *                 fileName:
+ *                   type: string
+ *                 uploadedAt:
+ *                   type: string
+ *                   format: date-time
+ *                 fileSize:
+ *                   type: integer
+ *                 totalPages:
+ *                   type: integer
+ *                 url:
+ *                   type: string
+ *                   format: uri
+ *                   description: Associated URL if provided during upload
+ *
+ *     FileUploadResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           description: Operation success status
+ *         data:
+ *           type: object
+ *           properties:
+ *             fileUrl:
+ *               type: string
+ *               format: uri
+ *               description: Public S3 URL of the uploaded file
+ *             fileName:
+ *               type: string
+ *               description: Original file name
+ *             fileSize:
+ *               type: integer
+ *               description: File size in bytes
+ *             mimeType:
+ *               type: string
+ *               description: File MIME type
+ *             uploadedAt:
+ *               type: string
+ *               format: date-time
+ *               description: Upload timestamp
  */
 
 /**
@@ -185,7 +382,9 @@ router.get("/", (req, res) => {
  *   post:
  *     tags: [PDF Management]
  *     summary: Upload and process PDF document
- *     description: Upload a PDF file and extract text content for chat functionality
+ *     description: |
+ *       Upload a PDF file and extract text content for chat functionality.
+ *       You can optionally provide a URL associated with the document.
  *     requestBody:
  *       required: true
  *       content:
@@ -214,6 +413,90 @@ router.get("/", (req, res) => {
  */
 router.post("/upload", upload.single("pdf"), (req, res) => {
   pdfChatController.uploadPDF(req, res);
+});
+
+/**
+ * @swagger
+ * /api/api-routes/pdf-chat/upload/file:
+ *   post:
+ *     tags: [File Management]
+ *     summary: Upload a file to S3
+ *     description: Upload any file to S3 and get back a public URL
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: File to upload
+ *     responses:
+ *       201:
+ *         description: File uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/FileUploadResponse'
+ *       400:
+ *         description: Bad request - no file uploaded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error during upload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post("/upload/file", fileUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file uploaded",
+      });
+    }
+
+    const fileBuffer = req.file.buffer;
+    const fileName = req.file.originalname;
+    const mimeType = req.file.mimetype;
+
+    // Initialize S3 service
+    const s3Service = new S3Service();
+
+    // Upload to S3
+    const s3Result = await s3Service.uploadPDF(
+      fileBuffer,
+      fileName,
+      "public", // Using 'public' as the folder name
+      mimeType
+    );
+
+    res.status(201).json({
+      success: true,
+      data: {
+        fileUrl: s3Result.s3Url,
+        fileName: s3Result.fileName,
+        fileSize: s3Result.fileSize,
+        mimeType: s3Result.mimeType,
+        uploadedAt: s3Result.uploadedAt,
+      },
+    });
+  } catch (error) {
+    console.error("Error uploading file:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to upload file",
+      details: error.message,
+    });
+  }
 });
 
 /**
