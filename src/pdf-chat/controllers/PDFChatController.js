@@ -772,7 +772,7 @@ Would you like to try uploading a different document?`;
           totalChunks: doc.metadata?.totalChunks || 0,
           uploadedAt: doc.metadata?.uploadedAt || doc.uploadedAt,
           lastChatAt: doc.metadata?.lastChatAt,
-          url: doc.url || null, // Include URL if available
+          url: doc.s3Url || doc.url || null, // Try s3Url first, then fall back to url, then null
           conversation: {
             totalMessages: messageStats.pagination.totalMessages,
             userMessages: userMessageCount,
