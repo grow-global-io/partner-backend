@@ -140,3 +140,43 @@ model UserCompletedTask {
   // Add index for faster lookups by email
   @@index([userEmail])
 }
+
+model GGASeller {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  email           String    @unique
+  sellerType      String
+  isVerified      Boolean   @default(false)
+  verifiedAt      DateTime?
+  aadharDoc       String?
+  gstDoc          String?
+  whatsappNumber  String?
+  certificateUrl  String?
+  products        Json[] // Each product object will include: {productName, productImage, description, productType, location, sellsOnline, addedAt}
+  storeName       String?
+  storeTagline    String?
+  storeLogo       String?
+  socialLinks     Json?
+  storeUrl        String?
+  storyMedia      String?
+  storyMediaType  String?
+  sampleRequested Boolean   @default(false)
+  sampleShipped   Boolean   @default(false)
+  shippingLabel   String?
+  trustBadge      Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+// Add Weekly Mission Completion tracking model
+model WeeklyMissionCompletion {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userEmail   String // The user's email
+  missionType String // Type of mission completed (product, invite, whatsapp)
+  completedAt DateTime @default(now())
+  weekNumber  Int // Week number of the year
+  year        Int // Year of completion
+
+  @@unique([userEmail, missionType, weekNumber, year], name: "unique_weekly_mission")
+  @@index([userEmail])
+  @@index([weekNumber, year])
+}
