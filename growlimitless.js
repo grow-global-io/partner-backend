@@ -97,7 +97,7 @@ app.get("/", (req, res) => {
 // API Routes
 app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
-app.use("/api/pdf-chat", pdfChatRoutes);
+app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
 
 // Error handling middleware (should be last)
 app.use(errorHandler);
