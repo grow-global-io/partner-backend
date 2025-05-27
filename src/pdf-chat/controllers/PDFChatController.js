@@ -54,11 +54,21 @@ class PDFChatController {
   /**
    * @description Upload PDF and create embeddings
    * @param {Object} req - Express request object
+   * @param {string} req.body.walletId - User's wallet ID (required)
+   * @param {string} [req.body.url] - Optional URL associated with the document
+   * @param {File} req.file - PDF file upload (required)
    * @param {Object} res - Express response object
+   * @returns {Object} Response with document details including URL if provided
+   * @example
+   * // Upload with URL
+   * const formData = new FormData();
+   * formData.append('pdf', pdfFile);
+   * formData.append('walletId', 'wallet123');
+   * formData.append('url', 'https://example.com/document');
    */
   async uploadPDF(req, res) {
     try {
-      const { walletId } = req.body;
+      const { walletId, url } = req.body;
 
       if (!walletId) {
         return res.status(400).json({
@@ -258,6 +268,7 @@ class PDFChatController {
         embeddings: enrichedEmbeddings,
         totalPages: pdfData.totalPages,
         extractedText: cleanedText,
+        url: url || null, // Store URL if provided
       };
 
       const storedDocument = await this.documentModel.storeDocument(
@@ -294,6 +305,7 @@ class PDFChatController {
           s3Url: s3Result.s3Url,
           uploadedAt: new Date(),
           metadata: pdfData.metadata,
+          url: url || null, // Return URL in response
         },
       });
     } catch (error) {
@@ -760,6 +772,7 @@ Would you like to try uploading a different document?`;
           totalChunks: doc.metadata?.totalChunks || 0,
           uploadedAt: doc.metadata?.uploadedAt || doc.uploadedAt,
           lastChatAt: doc.metadata?.lastChatAt,
+          url: doc.url || null, // Include URL if available
           conversation: {
             totalMessages: messageStats.pagination.totalMessages,
             userMessages: userMessageCount,
@@ -911,6 +924,7 @@ Would you like to try uploading a different document?`;
         totalChunks: doc.metadata.totalChunks,
         uploadedAt: doc.metadata.uploadedAt,
         lastChatAt: doc.metadata.lastChatAt,
+        url: doc.url || null, // Include URL if available
       }));
 
       res.json({
@@ -1255,6 +1269,7 @@ Would you like to try uploading a different document?`;
           uploadedAt: document.metadata.uploadedAt,
           lastChatAt: document.metadata.lastChatAt,
           downloadUrl: presignedUrl,
+          url: document.url || null, // Return URL if available
         },
       });
     } catch (error) {

@@ -19,18 +19,10 @@ const app = express();
 // Environment variables
 const PORT = process.env.PORT || 8000;
 
-// Database connection
-const prisma = require("./src/config/db");
-
 // Middleware
 app.use(
   cors({
-    origin: [
-      "https://gll.one",
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://partner.growlimitless.app",
-    ], // Allow all origins
+    origin: ["*"], // Allow all origins
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: [
       "Content-Type",
