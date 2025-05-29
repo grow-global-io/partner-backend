@@ -274,7 +274,7 @@ async function handleManufacturerStep(chatId, input, currentStep = 1) {
                 } else {
                     await prisma.GGASeller.create({ data: { email: registration.email, sellerType: registration.sellerType || "Unknown", isVerified: false, products: [productData], createdAt: new Date(), updatedAt: new Date() } });
                 }
-                await prisma.user.update({ where: { email: registration.email }, data: { gllBalance: { increment: 10 } } });
+                await prisma.user.update({ where: { email: registration.email }, data: { gllBalance: { increment: parseFloat(process.env.MANUFACTURER_BONUS) } } });
                 const user = await prisma.user.findUnique({ where: { email: registration.email } });
                 const sellerName = user?.name || registration.email.split('@')[0];
                 const capitalizedName = sellerName.charAt(0).toUpperCase() + sellerName.slice(1);
@@ -361,7 +361,7 @@ async function handleVerificationStep(chatId, input, currentStep = 1) {
                 }
                 const certificateUrl = await generateCertificate(seller, user);
                 await prisma.GGASeller.update({ where: { email: verification.email }, data: { aadharDoc: verification.aadharDoc, gstDoc: verification.gstDoc, whatsappNumber: verification.whatsappNumber, isVerified: true, verifiedAt: new Date(), certificateUrl: certificateUrl } });
-                await prisma.user.update({ where: { email: verification.email }, data: { gllBalance: { increment: 25 } } });
+                await prisma.user.update({ where: { email: verification.email }, data: { gllBalance: { increment: parseFloat(process.env.VERIFICATION_BONUS) } } });
                 await sendMessageWithTracking(chatId, `✅ Documents received and verified!\n\n🎓 You are now a GLL Certified Exporter\n\n📄 Download your certificate here: [Download Certificate](${certificateUrl})\n\n🎁 +25 GLL Ions added.\n\nLet's now create your storefront! Click "Create Store" to begin.`, { parse_mode: 'Markdown', reply_markup: { keyboard: [['Create Store'], ['🏠 Back to Home']], resize_keyboard: true } });
                 verificationProcess.delete(chatId);
                 return;
@@ -641,7 +641,7 @@ async function handleStoreStep(chatId, input, currentStep = 1) {
                     where: { email: store.email },
                     data: { storeName: store.storeName, storeTagline: store.storeTagline, storeLogo: store.storeLogo, socialLinks: store.socialLinks, storeUrl: `https://growglobal.asia/${storeUrl}`, updatedAt: new Date() }
                 });
-                await prisma.user.update({ where: { email: store.email }, data: { gllBalance: { increment: 25 } } });
+                await prisma.user.update({ where: { email: store.email }, data: { gllBalance: { increment: parseFloat(process.env.STORE_BONUS) } } });
                 const productCount = updatedSeller.products ? updatedSeller.products.length : 0;
                 await sendMessageWithTracking(chatId, `🎉 Your store is now LIVE!\n\n🌐 ${updatedSeller.storeUrl}\n\n🏷️ Products added: ${productCount}\n🎁 +25 GLL Ions awarded!\n\n🌟 Next Step: Build trust with buyers by sharing your story and product samples.\nThis will help you:\n• Get a Trusted Exporter Badge 🎖️\n• Increase buyer confidence 📈\n• Earn +25 GLL Ions 🎁`, { parse_mode: 'Markdown', reply_markup: trustBuildingKeyboard });
                 storeCreation.delete(chatId);
@@ -728,7 +728,7 @@ async function handleStoryStep(chatId, input, currentStep = 1) {
                     where: { email: story.email },
                     data: { storyMedia: story.storyMedia, storyMediaType: story.storyMediaType, sampleRequested: story.sampleRequested, shippingLabel: shippingLabel, trustBadge: true, updatedAt: new Date() }
                 });
-                await prisma.user.update({ where: { email: story.email }, data: { gllBalance: { increment: 25 } } });
+                await prisma.user.update({ where: { email: story.email }, data: { gllBalance: { increment: parseFloat(process.env.TRUST_BADGE_BONUS) } } });
                 let completionMessage = '✅ Your story has been saved!\n\n🎖️ You\'ve earned the Trusted Exporter Badge\n🎁 +25 GLL Ions added.\n\nBuyers are more likely to order from you now!';
                 if (story.sampleRequested && shippingLabel) {
                     completionMessage += '\n\n📦 Great! Here\'s your shipping label:\n' + `[Download Label](${shippingLabel})`;
@@ -833,7 +833,7 @@ async function recordMissionCompletion(email, missionType) {
     const currentYear = currentDate.getFullYear();
     try {
         await prisma.weeklyMissionCompletion.create({ data: { userEmail: email, missionType: missionType, weekNumber: currentWeek, year: currentYear } });
-        await prisma.user.update({ where: { email }, data: { gllBalance: { increment: 50 } } });
+        await prisma.user.update({ where: { email }, data: { gllBalance: { increment: parseFloat(process.env.WEEKLY_MISSION_BONUS) } } });
         return true;
     } catch (error) { console.error('Error recording mission completion:', error); return false; }
 }
@@ -926,7 +926,7 @@ async function handleRegistrationStep(chatId, input = null) {
         if (registration.currentStep > Object.keys(REGISTRATION_STEPS).length) {
             try {
                 await prisma.user.create({
-                    data: { email: registration.email, name: registration.name, phone: registration.phone, telegramId: chatId.toString(), gllBalance: parseFloat(process.env.REGISTER_REWARD || "100.0"), companyType: "Individual", terms: true }
+                    data: { email: registration.email, name: registration.name, phone: registration.phone, telegramId: chatId.toString(), gllBalance: parseFloat(process.env.REGISTER_REWARD ), companyType: "Individual", terms: true }
                 });
                 await sendMessageWithTracking(chatId, `✅ Registration completed! Welcome ${registration.name}!\n\n💰 Your GLL Balance: ${process.env.REGISTER_REWARD || "100.0"} GLL\n\nUse the menu or commands like /balance, /help.`, { parse_mode: 'Markdown', reply_markup: mainKeyboard });
                 registrationProcess.delete(chatId);
