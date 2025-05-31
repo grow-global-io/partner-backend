@@ -761,6 +761,33 @@ const options = {
             },
           },
         },
+        WalletDocuments: {
+          type: "object",
+          properties: {
+            walletId: {
+              type: "string",
+              description: "User's wallet ID",
+              example: "user_wallet_123",
+            },
+            noOfDocuments: {
+              type: "integer",
+              description: "Number of documents allowed for this wallet",
+              example: 3,
+            },
+          },
+        },
+        WalletDocumentsResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: true,
+            },
+            data: {
+              $ref: "#/components/schemas/WalletDocuments",
+            },
+          },
+        },
       },
       parameters: {
         WalletId: {
@@ -810,6 +837,10 @@ const options = {
         name: "Legacy Endpoints",
         description:
           "Deprecated endpoints maintained for backward compatibility",
+      },
+      {
+        name: "Wallet Documents",
+        description: "Manage wallet document limits",
       },
     ],
   },

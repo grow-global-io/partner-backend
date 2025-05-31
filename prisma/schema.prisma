@@ -181,39 +181,10 @@ model WeeklyMissionCompletion {
   @@index([weekNumber, year])
 }
 
-// User Document Management Model
-model UserDocument {
-  id                     String    @id @default(auto()) @map("_id") @db.ObjectId
-  walletId               String    @unique // User's wallet identifier
-  totalDocumentsCapacity Int       @default(3) // Total documents user can handle (default 3 for free tier)
-  documentsUsed          Int       @default(0) // Number of documents currently used
-  currentPlanId          String?   @db.ObjectId // Reference to current pricing plan
-  isFreeTier             Boolean   @default(true) // Whether user is on free tier
-  subscriptionStartDate  DateTime? // When paid subscription started
-  subscriptionEndDate    DateTime? // When paid subscription ends
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-
-  // Relations
-  currentPlan PricingPlan? @relation(fields: [currentPlanId], references: [id])
-}
-
-// Pricing Plans Model
-model PricingPlan {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  planName    String   @unique // e.g., "Free", "Basic", "Standard", "Premium"
-  description String // Plan description
-  price       Float // Price in USD
-  pdfLimit    Int // Number of PDFs allowed
-  isActive    Boolean  @default(true) // Whether plan is currently available
-  planType    String   @default("paid") // "free" or "paid"
-  features    String[] @default([]) // Array of plan features
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  userDocuments UserDocument[]
-
-  @@index([planType])
-  @@index([isActive])
+model WalletDocuments {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  walletId      String   @unique
+  noOfDocuments Int      @default(3)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
