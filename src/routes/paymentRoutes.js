@@ -14,6 +14,8 @@ const router = express.Router();
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
 const BASE_URL = process.env.BASE_URL || "http://localhost:8000";
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://partner.growlimitless.app";
 
 /**
  * @description Validates the request payload for payment processing
@@ -266,7 +268,7 @@ router.post("/purchase-plan", async (req, res) => {
  * /api/payments/success:
  *   get:
  *     summary: Handle successful payment callback
- *     description: Processes successful payment completion and updates wallet document count
+ *     description: Processes successful payment completion, updates wallet document count, and redirects to frontend
  *     tags:
  *       - Payment Processing
  *     parameters:
@@ -274,27 +276,12 @@ router.post("/purchase-plan", async (req, res) => {
  *       - $ref: '#/components/parameters/PaymentWalletId'
  *       - $ref: '#/components/parameters/NoOfDocs'
  *     responses:
- *       200:
- *         description: Payment processed successfully and wallet updated
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/PaymentSuccessResponse'
+ *       302:
+ *         description: Redirects to frontend with success status
  *       400:
- *         description: Missing required parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *             example:
- *               success: false
- *               error: "Missing required parameters"
+ *         description: Missing required parameters - redirects to frontend with error
  *       500:
- *         description: Error processing payment success
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *         description: Error processing payment - redirects to frontend with error
  */
 router.get("/success", async (req, res) => {
   try {
@@ -302,10 +289,14 @@ router.get("/success", async (req, res) => {
 
     // Validate required parameters
     if (!session_id || !walletId || !noOfDocs) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required parameters",
+      console.error("Missing required parameters:", {
+        session_id,
+        walletId,
+        noOfDocs,
       });
+      return res.redirect(
+        `${FRONTEND_URL}/resume?status=error&message=Missing required parameters`
+      );
     }
 
     const additionalDocs = parseInt(noOfDocs);
@@ -313,24 +304,33 @@ router.get("/success", async (req, res) => {
     // Update wallet documents
     const updatedWallet = await updateWalletDocuments(walletId, additionalDocs);
 
+    // Log successful payment processing
+    console.log(
+      `Payment successful: Session ${session_id}, Wallet ${walletId}, Added ${additionalDocs} documents`
+    );
+    console.log(`Updated wallet documents: ${updatedWallet.noOfDocuments}`);
+
     // Determine if this was a new wallet or existing one
     const isNewWallet = updatedWallet.noOfDocuments === 3 + additionalDocs;
     const message = isNewWallet
       ? "Payment successful! New wallet created with documents."
       : "Payment successful! Documents updated successfully.";
 
-    res.status(200).json({
-      success: true,
-      message,
-      walletId,
-      updatedDocuments: updatedWallet.noOfDocuments,
-    });
+    // Redirect to frontend with success parameters
+    const redirectUrl = `${FRONTEND_URL}/resume?status=success&sessionId=${session_id}&walletId=${walletId}&documents=${
+      updatedWallet.noOfDocuments
+    }&message=${encodeURIComponent(message)}`;
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment success handler error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to process successful payment",
-    });
+
+    // Redirect to frontend with error
+    const errorMessage = "Failed to process successful payment";
+    res.redirect(
+      `${FRONTEND_URL}/resume?status=error&message=${encodeURIComponent(
+        errorMessage
+      )}`
+    );
   }
 });
 
@@ -339,7 +339,7 @@ router.get("/success", async (req, res) => {
  * /api/payments/cancel:
  *   get:
  *     summary: Handle payment cancellation
- *     description: Processes payment cancellation by user
+ *     description: Processes payment cancellation by user and redirects to frontend
  *     tags:
  *       - Payment Processing
  *     parameters:
@@ -351,18 +351,10 @@ router.get("/success", async (req, res) => {
  *           type: string
  *           example: "session_123"
  *     responses:
- *       200:
- *         description: Payment cancellation processed
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/PaymentCancelResponse'
+ *       302:
+ *         description: Redirects to frontend with cancellation status
  *       500:
- *         description: Error processing cancellation
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *         description: Error processing cancellation - redirects to frontend with error
  */
 router.get("/cancel", async (req, res) => {
   try {
@@ -370,19 +362,25 @@ router.get("/cancel", async (req, res) => {
 
     console.log(`Payment cancelled for session: ${session_id || "unknown"}`);
 
-    res.status(200).json({
-      success: false,
-      message: session_id
-        ? "Payment was cancelled by user"
-        : "Payment was cancelled",
-      sessionId: session_id || null,
-    });
+    // Redirect to frontend with cancellation status
+    const message = session_id
+      ? "Payment was cancelled by user"
+      : "Payment was cancelled";
+
+    const redirectUrl = `${FRONTEND_URL}/resume?status=cancelled&sessionId=${
+      session_id || ""
+    }&message=${encodeURIComponent(message)}`;
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment cancel handler error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to process payment cancellation",
-    });
+
+    // Redirect to frontend with error
+    const errorMessage = "Failed to process payment cancellation";
+    res.redirect(
+      `${FRONTEND_URL}/resume?status=error&message=${encodeURIComponent(
+        errorMessage
+      )}`
+    );
   }
 });
 
