@@ -6,13 +6,9 @@ const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./src/pdf-chat/config/swagger");
-const pricingPlanSwaggerSpecs = require("./src/config/pricingPlanSwagger");
-const userDocumentSwaggerSpecs = require("./src/config/userDocumentSwagger");
 // Import routes
 const userRoutes = require("./src/routes/userRoutes");
 const botRoutes = require("./src/routes/botRoutes");
-const userDocumentRoutes = require("./src/routes/userDocumentRoutes");
-const pricingPlanRoutes = require("./src/routes/pricingPlanRoutes");
 const pdfChatRoutes = require("./src/pdf-chat/routes/pdfChatRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
 const { MongoClient } = require("mongodb");
@@ -66,44 +62,6 @@ app.use(
   })
 );
 
-// Pricing Plans Swagger Documentation
-app.use(
-  "/api/pricing-plans/docs",
-  swaggerUi.serve,
-  swaggerUi.setup(pricingPlanSwaggerSpecs, {
-    customSiteTitle: "Pricing Plans API Documentation",
-    customCss: ".swagger-ui .topbar { display: none }",
-    swaggerOptions: {
-      persistAuthorization: true,
-      displayRequestDuration: true,
-      docExpansion: "list",
-      filter: true,
-      showExtensions: true,
-      showCommonExtensions: true,
-      tryItOutEnabled: true,
-    },
-  })
-);
-
-// User Documents Swagger Documentation
-app.use(
-  "/api/user-documents/docs",
-  swaggerUi.serve,
-  swaggerUi.setup(userDocumentSwaggerSpecs, {
-    customSiteTitle: "User Documents API Documentation",
-    customCss: ".swagger-ui .topbar { display: none }",
-    swaggerOptions: {
-      persistAuthorization: true,
-      displayRequestDuration: true,
-      docExpansion: "list",
-      filter: true,
-      showExtensions: true,
-      showCommonExtensions: true,
-      tryItOutEnabled: true,
-    },
-  })
-);
-
 async function testConnection() {
   const client = new MongoClient(
     "mongodb+srv://operations:nIzoFig3d47La9Cz@cluster0.zz7u5.mongodb.net/Partners?retryWrites=true&w=majority&appName=Cluster0"
@@ -128,12 +86,8 @@ app.get("/", (req, res) => {
     <ul>
       <li><a href="/api/users">/api/users</a> - User management</li>
       <li><a href="/api/bot">/api/bot</a> - Telegram bot</li>
-      <li><a href="/api/user-documents">/api/user-documents</a> - User document management</li>
-      <li><a href="/api/pricing-plans">/api/pricing-plans</a> - Pricing plan management</li>
       <li><a href="/api/api-routes/pdf-chat">/api/api-routes/pdf-chat</a> - PDF Chat system</li>
       <li><a href="/api/api-routes/pdf-chat/docs">/api/api-routes/pdf-chat/docs</a> - 📄 PDF Chat API Documentation (Swagger)</li>
-      <li><a href="/api/pricing-plans/docs">/api/pricing-plans/docs</a> - 💰 Pricing Plans API Documentation (Swagger)</li>
-      <li><a href="/api/user-documents/docs">/api/user-documents/docs</a> - 📋 User Documents API Documentation (Swagger)</li>
     </ul>
   `);
 });
@@ -141,8 +95,6 @@ app.get("/", (req, res) => {
 // API Routes
 app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
-app.use("/api/user-documents", userDocumentRoutes);
-app.use("/api/pricing-plans", pricingPlanRoutes);
 app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
 
 // Error handling middleware (should be last)
@@ -157,16 +109,6 @@ app.listen(PORT, () => {
     "📖 PDF Chat API Documentation: http://localhost:" +
       PORT +
       "/api/api-routes/pdf-chat/docs"
-  );
-  console.log(
-    "💰 Pricing Plans API Documentation: http://localhost:" +
-      PORT +
-      "/api/pricing-plans/docs"
-  );
-  console.log(
-    "📋 User Documents API Documentation: http://localhost:" +
-      PORT +
-      "/api/user-documents/docs"
   );
 });
 

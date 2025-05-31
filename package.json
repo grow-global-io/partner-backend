@@ -4,14 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon growlimitless.js",
     "generate": "prisma generate",
     "build": "npm install && npm run generate",
     "start": "node growlimitless.js",
-    "init-pricing-plans": "node src/scripts/initPricingPlans.js"
+    "migrate": "prisma migrate dev"
   },
   "keywords": [],
   "author": "",
@@ -44,29 +42,6 @@
   },
   "devDependencies": {
     "nodemon": "^3.1.9",
-    "prisma": "^6.6.0",
-    "jest": "^29.7.0",
-    "supertest": "^7.0.0",
-    "@types/jest": "^29.5.13"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/src/tests/**/*.test.js"
-    ],
-    "collectCoverageFrom": [
-      "src/**/*.js",
-      "!src/tests/**",
-      "!src/node_modules/**"
-    ],
-    "coverageDirectory": "coverage",
-    "coverageReporters": [
-      "text",
-      "lcov",
-      "html"
-    ],
-    "setupFilesAfterEnv": [
-      "<rootDir>/src/tests/setup.js"
-    ]
+    "prisma": "^6.6.0"
   }
 }
