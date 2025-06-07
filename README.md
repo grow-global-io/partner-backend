@@ -325,6 +325,131 @@ This project is licensed under the ISC License.
 
 For technical support or integration assistance, please contact the GrowLimitless development team.
 
+## AWS Deployment Guide
+
+This project is set up for deployment to AWS using Terraform and GitHub Actions CI/CD pipeline.
+
+### Architecture Overview
+
+The deployment architecture consists of:
+
+- **VPC** with public and private subnets across multiple availability zones
+- **ECS Fargate** for containerized application deployment
+- **ECR** for Docker image storage
+- **Application Load Balancer** for traffic distribution
+- **S3** for file storage
+- **CloudWatch** for logs and monitoring
+- **Systems Manager Parameter Store** for secrets management
+
+### Prerequisites
+
+1. **AWS Account** with appropriate permissions
+2. **GitHub Repository** with Actions enabled
+3. **Terraform** installed locally for initial setup (v1.5.0 or later)
+4. **AWS CLI** installed and configured
+
+### Initial Setup
+
+1. **Fork/Clone this repository**
+
+2. **Add GitHub Secrets**
+
+   Navigate to your GitHub repository Settings > Secrets and add:
+
+   - `AWS_ACCESS_KEY_ID`: Your AWS access key
+   - `AWS_SECRET_ACCESS_KEY`: Your AWS secret key
+   - `MONGODB_URI`: MongoDB connection string
+   - `OPENAI_API_KEY`: OpenAI API key
+   - `TELEGRAM_BOT_TOKEN`: Telegram Bot token
+   - `JWT_SECRET`: Secret for JWT authentication
+   - `TEST_DATABASE_URL`: MongoDB connection string for testing
+
+3. **Create S3 Bucket for Terraform State**
+
+   ```bash
+   aws s3 mb s3://growlimitless-tfstate --region us-east-1
+   ```
+
+4. **Initial Terraform Deployment** (only needed once)
+
+   ```bash
+   cd terraform
+   terraform init
+   terraform plan
+   terraform apply
+   ```
+
+### CI/CD Pipeline
+
+The GitHub Actions workflow (`deploy.yml`) automates:
+
+1. **Testing**: Runs test suite on every push
+2. **Building**: Builds Docker image on successful tests
+3. **Deployment**: Pushes to ECR and updates ECS service
+4. **Infrastructure**: Applies Terraform changes to keep infrastructure in sync
+
+### Environment Variables
+
+Configure your environment using the provided `.env.example` as a template:
+
+```
+# Server Configuration
+PORT=8000
+NODE_ENV=production
+
+# Database Configuration
+DATABASE_URL=mongodb+srv://username:password@cluster.mongodb.net/dbname
+
+# AWS Configuration
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_S3_BUCKET=your-bucket-name
+
+# API Keys
+OPENAI_API_KEY=your_openai_api_key
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+
+# Security
+JWT_SECRET=your_jwt_secret
+```
+
+### Monitoring and Debugging
+
+- **CloudWatch Logs**: `/ecs/growlimitless-partner-production`
+- **ECS Dashboard**: Check task status and events
+- **ALB Logs**: Monitor HTTP traffic and errors
+
+### Manual Deployment
+
+If needed, you can manually trigger the deployment from GitHub:
+
+1. Go to Actions tab
+2. Select "Deploy to AWS" workflow
+3. Click "Run workflow" and select the branch to deploy
+
+### Scaling
+
+To scale the application:
+
+1. Update `app_count` in `terraform/variables.tf` to increase instance count
+2. Adjust `cpu` and `memory` values based on performance needs
+
+### Cleanup
+
+To avoid unnecessary AWS charges, clean up resources when not needed:
+
+```bash
+cd terraform
+terraform destroy
+```
+
+### Troubleshooting
+
+- **Failed Deployment**: Check CloudWatch Logs for application errors
+- **Terraform Errors**: Verify AWS credentials and permissions
+- **Container Crash**: Check task definition and environment variables
+
 ---
 
 **Built with ❤️ by the GrowLimitless Team**
