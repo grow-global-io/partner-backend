@@ -1,0 +1,45 @@
+{
+    "family": "visiq-prod-backend",
+    "containerDefinitions": [
+        {
+            "name": "visiq-backend-prod",
+            "image": "905418397461.dkr.ecr.us-east-1.amazonaws.com/visiq-prod-backend:dev1",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "name": "visiq-backend-prod-3000-tcp",
+                    "containerPort": 3000,
+                    "hostPort": 3000,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                }
+            ],
+            "essential": true,
+            "environment": [],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/visiq-prod-backend",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "systemControls": []
+        }
+    ],
+    "taskRoleArn": "arn:aws:iam::905418397461:role/ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::905418397461:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "256",
+    "memory": "512",
+    "runtimePlatform": {
+        "cpuArchitecture": "X86_64",
+        "operatingSystemFamily": "LINUX"
+    }
+}
