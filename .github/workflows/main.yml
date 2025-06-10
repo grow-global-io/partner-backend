@@ -1,15 +1,15 @@
 {
-    "family": "visiq-prod-backend",
+    "family": "gll-backend",
     "containerDefinitions": [
         {
-            "name": "visiq-backend-prod",
-            "image": "905418397461.dkr.ecr.us-east-1.amazonaws.com/visiq-prod-backend:dev1",
+            "name": "gll-prod",
+            "image": "390378708439.dkr.ecr.eu-north-1.amazonaws.com/gll-repo:latest",
             "cpu": 0,
             "portMappings": [
                 {
-                    "name": "visiq-backend-prod-3000-tcp",
-                    "containerPort": 3000,
-                    "hostPort": 3000,
+                    "name": "gll-backend-8000-tcp",
+                    "containerPort": 8000,
+                    "hostPort": 8000,
                     "protocol": "tcp",
                     "appProtocol": "http"
                 }
@@ -21,17 +21,17 @@
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
-                    "awslogs-group": "/ecs/visiq-prod-backend",
+                    "awslogs-group": "/ecs/gll-backend",
                     "awslogs-create-group": "true",
-                    "awslogs-region": "us-east-1",
+                    "awslogs-region": "eu-north-1",
                     "awslogs-stream-prefix": "ecs"
                 }
             },
             "systemControls": []
         }
     ],
-    "taskRoleArn": "arn:aws:iam::905418397461:role/ecsTaskExecutionRole",
-    "executionRoleArn": "arn:aws:iam::905418397461:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::390378708439:role/ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::390378708439:role/ecsTaskExecutionRole",
     "networkMode": "awsvpc",
     "requiresCompatibilities": [
         "FARGATE"
