@@ -227,7 +227,6 @@ router.post('/register', async (req, res) => {
 
         /** Code to get GLL balance from email wallet ***** */
         // const myBalance = await getMyBalance(email);
-        // console.log("My Balance:", myBalance);
         /** *********** */
 
         const responseData = {
