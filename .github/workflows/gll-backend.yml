@@ -10,7 +10,7 @@ env:
   AWS_DEFAULT_REGION: eu-north-1
   IMAGE_REPO_NAME: gll-repo
   IMAGE_TAG: latest
-  REPOSITORY_URI: 390378708439.dkr.ecr.eu-north-1.amazonaws.com/gll-repo
+  REPOSITORY_URI: 390378708439.dkr.ecr.eu-north-1.amazonaws.com/gll-repo:latest
 
 jobs:
   deploy:
