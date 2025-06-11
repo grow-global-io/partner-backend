@@ -96,6 +96,6 @@ jobs:
         run: |
           aws ecs update-service \
           --cluster gll-backend  \
-          --service gll-backend-service \
+          --service gll-backend-svc \
           --force-new-deployment \
           --region ${{ env.AWS_DEFAULT_REGION }}
