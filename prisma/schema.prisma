@@ -56,6 +56,34 @@ model User {
   // socialAccounts    SocialAccount[]
 }
 
+model Creator {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  username    String? @unique
+  email       String  @unique
+  phone       String?
+  nationality String?
+  terms       Boolean @default(false)
+
+  // Instagram fields
+  instagramId       String?
+  instagramUsername String?
+  profilePicture    String?
+
+  // Bank and payment fields
+  bankBranch    String?
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+  ifscCode      String?
+  apiKey        String?
+
+  // System fields
+  gllBalance Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
 model Rewards {
   id            String  @id @default(auto()) @map("_id") @db.ObjectId
   companyName   String?
