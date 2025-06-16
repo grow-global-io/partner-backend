@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const PDFChatController = require("../controllers/PDFChatController");
+const WalletDocumentsController = require("../controllers/WalletDocumentsController");
 const S3Service = require("../services/S3Service");
 
 const router = express.Router();
@@ -723,5 +724,148 @@ router.get("/documents/:walletId/list", (req, res) => {
 router.post("/chat", (req, res) => {
   pdfChatController.chat(req, res);
 });
+
+// Wallet Documents Routes
+/**
+ * @swagger
+ * /api/api-routes/pdf-chat/wallet-documents:
+ *   post:
+ *     tags: [Wallet Documents]
+ *     summary: Create or update wallet document limit
+ *     description: Set the maximum number of documents allowed for a specific wallet
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - walletId
+ *               - noOfDocuments
+ *             properties:
+ *               walletId:
+ *                 type: string
+ *                 description: User's wallet ID
+ *                 example: "user_wallet_123"
+ *               noOfDocuments:
+ *                 type: integer
+ *                 description: Maximum number of documents allowed
+ *                 example: 5
+ *                 minimum: 1
+ *     responses:
+ *       200:
+ *         description: Wallet document limit created/updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WalletDocumentsResponse'
+ *       400:
+ *         description: Bad request - missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post("/wallet-documents", WalletDocumentsController.createOrUpdate);
+
+/**
+ * @swagger
+ * /api/api-routes/pdf-chat/wallet-documents:
+ *   get:
+ *     tags: [Wallet Documents]
+ *     summary: Get wallet document limit
+ *     description: Retrieve the document limit for a specific wallet. If no limit exists, creates one with default value of 3 documents.
+ *     parameters:
+ *       - in: query
+ *         name: walletId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Wallet ID to get document limit for
+ *         example: "user_wallet_123"
+ *     responses:
+ *       200:
+ *         description: Wallet document limit retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WalletDocumentsResponse'
+ *       400:
+ *         description: Bad request - missing walletId parameter
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/wallet-documents", WalletDocumentsController.get);
+
+/**
+ * @swagger
+ * /api/api-routes/pdf-chat/wallet-documents/{walletId}:
+ *   put:
+ *     tags: [Wallet Documents]
+ *     summary: Update wallet document limit
+ *     description: Update the maximum number of documents allowed for a specific wallet
+ *     parameters:
+ *       - in: path
+ *         name: walletId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Wallet ID to update document limit for
+ *         example: "user_wallet_123"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - noOfDocuments
+ *             properties:
+ *               noOfDocuments:
+ *                 type: integer
+ *                 description: New maximum number of documents allowed
+ *                 example: 10
+ *                 minimum: 1
+ *     responses:
+ *       200:
+ *         description: Wallet document limit updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WalletDocumentsResponse'
+ *       400:
+ *         description: Bad request - missing required fields or invalid walletId
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Wallet not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.put("/wallet-documents/:walletId", WalletDocumentsController.update);
 
 module.exports = router;

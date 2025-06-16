@@ -208,3 +208,11 @@ model WeeklyMissionCompletion {
   @@index([userEmail])
   @@index([weekNumber, year])
 }
+
+model WalletDocuments {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  walletId      String   @unique
+  noOfDocuments Int      @default(3)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
