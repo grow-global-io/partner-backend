@@ -291,6 +291,7 @@ router.post('/register', async (req, res) => {
         //     console.log("SWITCH is not 'true', skipping blockchain transaction");
         // }
 
+        await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         console.log("About to get balance for email:", email);
         const myBalance = await getMyBalance(email);
@@ -328,6 +329,7 @@ router.post('/register-creator', async (req, res) => {
             profilePicture,
             terms,
             apiKey,
+            aboutMe, // Optional: Allow setting aboutMe during registration
         } = req.body;
 
         if (!email) {
@@ -339,8 +341,6 @@ router.post('/register-creator', async (req, res) => {
             where: { email }
         });
 
-        // console.log("tempCreator", tempCreator);
-
         if (!tempCreator) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
         }
@@ -349,6 +349,13 @@ router.post('/register-creator', async (req, res) => {
         if (!name || !phone || !instagramUsername || !nationality) {
             return res.status(400).json({ 
                 error: "Incomplete registration. Please provide all required information." 
+            });
+        }
+
+        // Validate aboutMe if provided
+        if (aboutMe && typeof aboutMe === 'string' && aboutMe.length > 500) {
+            return res.status(400).json({ 
+                error: "About me cannot exceed 500 characters" 
             });
         }
 
@@ -371,45 +378,23 @@ router.post('/register-creator', async (req, res) => {
                 profilePicture,
                 terms,
                 apiKey,
+                aboutMe: aboutMe ? aboutMe.trim() : '', // Add aboutMe field
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
                 }
             }
         });
-        console.log("Creator updated successfully");
-        console.log("tempCreator", tempCreator);
-        console.log("updatedCreator", updatedCreator);
-        // res.send(updatedCreator);
 
-        /** Code to send GLL to email wallet *******/
+        console.log(`Creator registration completed. Synced GLL balance: ${user.gllBalance}`);
         
-        // amount = process.env.REGISTER_REWARD
-        // if(process.env.SWITCH === 'true'){
-        //     console.log("Sending GLL transaction...");
-        //     // res.send("Sending GLL transaction...");
-        //     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
-        //     await sendTx.wait();
-        //     res.send("Sending GLL transaction...");
-        //     console.log("GLL transaction completed");
-        // } else {
-        //     console.log("SWITCH is not 'true', skipping blockchain transaction");
-        // }
-
-        /** Code to get GLL balance from email wallet ***** */
-        console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
-        console.log("My Balance:", myBalance);
-        console.log("Balance retrieved successfully");
-        /** *********** */
-
         const responseData = {
             message: "Registration completed successfully."
         };
         res.send(encryptJSON(responseData));
-        // res.send(responseData);
+        
     } catch (error) {
-        // console.log("Error completing registration:", error);
+        console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -1300,6 +1285,116 @@ router.post('/ifscCode-verify', async (req, res) => {
 });
 
 
+router.put('/creator-profile/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { aboutMe } = req.body;
+        
+        // Decode URL-encoded email
+        const decodedEmail = decodeURIComponent(email);
+        
+        console.log('Updating creator about me for email:', decodedEmail);
+        
+        // Validation
+        if (!decodedEmail) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Email is required" 
+            });
+        }
+
+        if (aboutMe === undefined || aboutMe === null) {
+            return res.status(400).json({ 
+                success: false,
+                message: "aboutMe field is required" 
+            });
+        }
+
+        if (typeof aboutMe !== 'string') {
+            return res.status(400).json({ 
+                success: false,
+                message: "aboutMe must be a string" 
+            });
+        }
+
+        if (aboutMe.length > 500) {
+            return res.status(400).json({ 
+                success: false,
+                message: "About me cannot exceed 500 characters" 
+            });
+        }
+
+        // Check if creator exists
+        const existingCreator = await prisma.Creator.findUnique({
+            where: { email: decodedEmail }
+        });
+
+        if (!existingCreator) {
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
+        }
+
+        // Update the aboutMe field
+        const updatedCreator = await prisma.Creator.update({
+            where: { email: decodedEmail },
+            data: {
+                aboutMe: aboutMe.trim() // Trim whitespace
+            }
+        });
+
+        // Check if IFSC code exists to determine KYC completion status
+        const hasIfscCode = updatedCreator.ifscCode && updatedCreator.ifscCode.trim() !== '';
+        const isKycComplete = hasIfscCode;
+
+        // Format response to match frontend expectations
+        const profileData = {
+            email: updatedCreator.email,
+            name: updatedCreator.name || 'User',
+            username: updatedCreator.username || 'user',
+            instagramUsername: updatedCreator.instagramUsername || '',
+            profilePicture: updatedCreator.profilePicture || '',
+            aboutMe: updatedCreator.aboutMe || '',
+            isKycComplete: isKycComplete,
+            phone: updatedCreator.phone || '',
+            nationality: updatedCreator.nationality || '',
+            instagramId: updatedCreator.instagramId || '',
+            bankDetails: {
+                ifscCode: updatedCreator.ifscCode || '',
+                bankName: updatedCreator.bankName || '',
+                bankBranch: updatedCreator.bankBranch || '',
+                accountNumber: updatedCreator.accountNumber || '',
+                accountName: updatedCreator.accountName || ''
+            },
+            registrationTimestamp: updatedCreator.createdAt,
+            apiKey: updatedCreator.apiKey || '',
+            gllBalance: updatedCreator.gllBalance || 0,
+            terms: updatedCreator.terms || false
+        };
+
+        console.log(`About me updated successfully for ${decodedEmail}`);
+
+        const responseData = {
+            success: true,
+            message: "About me updated successfully",
+            data: profileData
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+        
+    } catch (error) {
+        console.error("Error updating about me:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while updating about me",
+            error: error.message
+        });
+    }
+});
+
+// GET route for fetching creator profile data
 router.get('/creator-profile/:email', async (req, res) => {
     try {
         const { email } = req.params;
@@ -1319,7 +1414,7 @@ router.get('/creator-profile/:email', async (req, res) => {
         const creator = await prisma.Creator.findUnique({
             where: { email: decodedEmail }
         });
-        
+
         if (!creator) {
             return res.status(404).json({ 
                 success: false,
@@ -1329,8 +1424,6 @@ router.get('/creator-profile/:email', async (req, res) => {
 
         // Check if IFSC code exists to determine KYC completion status
         const hasIfscCode = creator.ifscCode && creator.ifscCode.trim() !== '';
-        
-        // For creators, we can consider KYC complete if they have banking details
         const isKycComplete = hasIfscCode;
 
         // Format response to match frontend expectations
@@ -1338,8 +1431,9 @@ router.get('/creator-profile/:email', async (req, res) => {
             email: creator.email,
             name: creator.name || 'User',
             username: creator.username || 'user',
-            instagramUsername: creator.instagramUsername || 'user',
+            instagramUsername: creator.instagramUsername || '',
             profilePicture: creator.profilePicture || '',
+            aboutMe: creator.aboutMe || '',
             isKycComplete: isKycComplete,
             phone: creator.phone || '',
             nationality: creator.nationality || '',
