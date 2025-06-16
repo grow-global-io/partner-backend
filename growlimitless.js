@@ -102,7 +102,7 @@ app.get("/", (req, res) => {
   console.log("Welcome to GrowLimitless API");
   testConnection();
   res.send(`
-    <h1>Welcome to GrowLimitless Partner Backend APIs</h1>
+    <h1>Welcome to GrowLimitless Partner Backend API</h1>
     <p>🚀 Server is running successfully!</p>
     <h2>Available APIs:</h2>
     <ul>
