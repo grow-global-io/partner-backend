@@ -24,6 +24,14 @@ const options = {
         description: "Development server",
       },
       {
+        url: "http://backend.gll.one",
+        description: "Partner backend deployment server",
+      },
+      {
+        url: "https://backend.gll.one",
+        description: "Partner backend deployment server",
+      },
+      {
         url: "https://api.growlimitless.app",
         description: "Production server",
       },
