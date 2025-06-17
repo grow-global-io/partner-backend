@@ -81,6 +81,7 @@ model Creator {
   accountName   String?
   ifscCode      String?
   apiKey        String?
+  aboutMe       String?
 
   // System fields
   gllBalance Float    @default(0)
