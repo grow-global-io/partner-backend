@@ -1,4 +1,4 @@
-name: Deploy to DEV Go-denty
+name: Deploy to GLL Dev
 
 on:
   push:
