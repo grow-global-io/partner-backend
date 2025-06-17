@@ -11,6 +11,7 @@ const userRoutes = require("./src/routes/userRoutes");
 const botRoutes = require("./src/routes/botRoutes");
 const paymentRoutes = require("./src/routes/paymentRoutes");
 const pdfChatRoutes = require("./src/pdf-chat/routes/pdfChatRoutes");
+const hotelCheckinRoutes = require("./src/routes/hotelCheckinRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
 const { MongoClient } = require("mongodb");
 
@@ -133,6 +134,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
+app.use("/api/hotel-checkin", hotelCheckinRoutes);
 
 // Error handling middleware (should be last)
 app.use(errorHandler);
