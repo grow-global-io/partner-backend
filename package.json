@@ -34,18 +34,20 @@
     "node": "^24.0.0",
     "node-fetch": "^2.7.0",
     "node-telegram-bot-api": "^0.66.0",
+    "nodemailer": "^7.0.3",
     "openai": "^4.103.0",
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.17.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "twilio": "^4.22.0",
     "uuid": "^11.1.0",
     "yarn": "^1.22.22"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "supertest": "^6.3.3",
     "nodemon": "^3.1.9",
-    "prisma": "^6.6.0"
+    "prisma": "^6.6.0",
+    "supertest": "^6.3.3"
   }
 }
