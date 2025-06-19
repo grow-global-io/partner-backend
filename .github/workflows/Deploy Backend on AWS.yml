@@ -1,4 +1,4 @@
-name: Deploy to GLL Dev
+name: Deploy to GLL Backend dev
 
 on:
   push:
