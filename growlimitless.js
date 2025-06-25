@@ -6,10 +6,12 @@ const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./src/pdf-chat/config/swagger");
+const storefrontSwaggerSpecs = require("./src/storefront/config/swagger");
 // Import routes
 const userRoutes = require("./src/routes/userRoutes");
 const botRoutes = require("./src/routes/botRoutes");
 const pdfChatRoutes = require("./src/pdf-chat/routes/pdfChatRoutes");
+const storefrontRoutes = require("./src/storefront/routes/storefrontRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
 const { MongoClient } = require("mongodb");
 
@@ -62,6 +64,25 @@ app.use(
   })
 );
 
+// Storefront Swagger Documentation
+app.use(
+  "/api/storefront/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(storefrontSwaggerSpecs, {
+    customSiteTitle: "Storefront API Documentation",
+    customCss: ".swagger-ui .topbar { display: none }",
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: "none",
+      filter: true,
+      showExtensions: true,
+      showCommonExtensions: true,
+      tryItOutEnabled: true,
+    },
+  })
+);
+
 async function testConnection() {
   const client = new MongoClient(
     "mongodb+srv://operations:nIzoFig3d47La9Cz@cluster0.zz7u5.mongodb.net/Partners?retryWrites=true&w=majority&appName=Cluster0"
@@ -88,6 +109,8 @@ app.get("/", (req, res) => {
       <li><a href="/api/bot">/api/bot</a> - Telegram bot</li>
       <li><a href="/api/api-routes/pdf-chat">/api/api-routes/pdf-chat</a> - PDF Chat system</li>
       <li><a href="/api/api-routes/pdf-chat/docs">/api/api-routes/pdf-chat/docs</a> - 📄 PDF Chat API Documentation (Swagger)</li>
+      <li><a href="/api/storefront">/api/storefront</a> - Storefront system</li>
+      <li><a href="/api/storefront/docs">/api/storefront/docs</a> - 🛒 Storefront API Documentation (Swagger)</li>
     </ul>
   `);
 });
@@ -96,6 +119,7 @@ app.get("/", (req, res) => {
 app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
 app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
+app.use("/api/storefront", storefrontRoutes);
 
 // Error handling middleware (should be last)
 app.use(errorHandler);
@@ -109,6 +133,12 @@ app.listen(PORT, () => {
     "📖 PDF Chat API Documentation: http://localhost:" +
       PORT +
       "/api/api-routes/pdf-chat/docs"
+  );
+  console.log("🛒 Storefront API is available at /api/storefront");
+  console.log(
+    "📖 Storefront API Documentation: http://localhost:" +
+      PORT +
+      "/api/storefront/docs"
   );
 });
 

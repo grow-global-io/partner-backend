@@ -44,6 +44,7 @@ model User {
 
   // Relations
   rewards Rewards[] @relation("UserRewards")
+  stores  Store[]   @relation("UserStores")
 
   // storeConnections  storeConnection[]
   // files             File[]
@@ -179,4 +180,45 @@ model WeeklyMissionCompletion {
   @@unique([userEmail, missionType, weekNumber, year], name: "unique_weekly_mission")
   @@index([userEmail])
   @@index([weekNumber, year])
+}
+
+// Storefront feature models
+model Store {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  slug        String   @unique
+  logoUrl     String?
+  bannerUrl   String?
+  walletId    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  products Product[] @relation("StoreProducts")
+  userId   String?   @db.ObjectId
+  user     User?     @relation("UserStores", fields: [userId], references: [id])
+
+  @@index([walletId])
+}
+
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  price       Float
+  category    String?
+  imageUrls   String[] @default([])
+  inStock     Boolean  @default(true)
+  sku         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  storeId String @db.ObjectId
+  store   Store  @relation("StoreProducts", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([category])
 }
