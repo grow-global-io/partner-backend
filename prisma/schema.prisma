@@ -44,7 +44,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  rewards Rewards[] @relation("UserRewards")
+  rewards  Rewards[]      @relation("UserRewards")
   checkins HotelCheckin[] // Relation to hotel check-ins
 
   // storeConnections  storeConnection[]
@@ -57,17 +57,18 @@ model User {
   // products          Product[]
   // socialAccounts    SocialAccount[]
 
-  @@index([apiKey], unique: true, sparse: true)
+  // @@index([apiKey], unique: true, sparse: true)
 }
 
 model Creator {
-  id          String  @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  username    String? @unique
-  email       String  @unique
-  phone       String?
-  nationality String?
-  terms       Boolean @default(false)
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  username      String? @unique
+  email         String  @unique
+  phone         String?
+  nationality   String?
+  walletAddress String? // Add wallet address field for blockchain transactions
+  terms         Boolean @default(false)
 
   // Instagram fields
   instagramId       String?
@@ -224,26 +225,29 @@ model WalletDocuments {
 
 // Add new model for hotel check-ins
 model HotelCheckin {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  email       String
-  whatsapp    String
-  dob         DateTime
-  address     String
-  country     String
-  bookingID   String
-  hotelID     String
-  hotelName   String
-  entryDate   DateTime
-  exitDate    DateTime
-  noOfPerson  Int
-  secureKey   String   @unique
-  secureLink  String   @unique
-  status      String   @default("Pending") // Pending or Checked-IN
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  email      String
+  whatsapp   String
+  dob        DateTime
+  address    String
+  country    String
+  bookingID  String
+  hotelID    String
+  hotelName  String
+  entryDate  DateTime
+  exitDate   DateTime
+  noOfPerson Int
+  secureKey  String   @unique
+  secureLink String   @unique
+  status     String   @default("Pending") // Pending or Checked-IN
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relation to User
-  user        User     @relation(fields: [hotelID], references: [apiKey])
+  // user User @relation(fields: [hotelID], references: [apiKey])
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @db.ObjectId
+
   @@index([hotelID])
 }

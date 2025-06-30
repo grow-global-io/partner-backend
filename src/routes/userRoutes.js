@@ -42,6 +42,43 @@ const upload = multer({
     }
 });
 
+// Function to synchronize GLL balance between User and Creator tables
+async function syncGLLBalance(email) {
+    try {
+        console.log(`Starting GLL balance sync for email: ${email}`);
+        
+        // Find user by email
+        const user = await prisma.user.findUnique({
+            where: { email }
+        });
+        
+        // Find creator by email
+        const creator = await prisma.Creator.findUnique({
+            where: { email }
+        });
+        
+        if (user && creator) {
+            // If both exist, update creator's balance to match user's balance
+            await prisma.Creator.update({
+                where: { email },
+                data: {
+                    gllBalance: user.gllBalance
+                }
+            });
+            console.log(`Synced Creator balance to ${user.gllBalance} for email: ${email}`);
+        } else if (user && !creator) {
+            console.log(`Creator not found for email: ${email}, no sync needed`);
+        } else if (!user && creator) {
+            console.log(`User not found for email: ${email}, no sync needed`);
+        } else {
+            console.log(`Neither User nor Creator found for email: ${email}`);
+        }
+    } catch (error) {
+        console.error(`Error syncing GLL balance for email ${email}:`, error);
+        throw error;
+    }
+}
+
 router.post('/save-connect-wallet', async (req, res) => {
     const { name, email, walletAddress, glltag } = req.body;
 
@@ -279,17 +316,15 @@ router.post('/register', async (req, res) => {
 
         /** Code to send GLL to email wallet *******/
         
-        // amount = process.env.REGISTER_REWARD
-        // if(process.env.SWITCH === 'true'){
-        //     console.log("Sending GLL transaction...");
-        //     // res.send("Sending GLL transaction...");
-        //     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
-        //     await sendTx.wait();
-        //     res.send("Sending GLL transaction...");
-        //     console.log("GLL transaction completed");
-        // } else {
-        //     console.log("SWITCH is not 'true', skipping blockchain transaction");
-        // }
+        amount = process.env.REGISTER_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
 
         await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
@@ -302,8 +337,7 @@ router.post('/register', async (req, res) => {
         const responseData = {
             message: "Registration completed successfully."
         };
-        // res.send(encryptJSON(responseData));
-        // res.send(responseData);
+        res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
@@ -386,7 +420,30 @@ router.post('/register-creator', async (req, res) => {
             }
         });
 
-        console.log(`Creator registration completed. Synced GLL balance: ${user.gllBalance}`);
+
+         /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.REGISTER_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
+
+        await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        console.log("About to get balance for email:", email);
+        const myBalance = await getMyBalance(email);
+        console.log("My Balance:", myBalance);
+        console.log("Balance retrieved successfully");
+        /** *********** */
+
+        
+
+        console.log(`Creator registration completed. Synced GLL balance: ${updatedCreator.gllBalance}`);
         
         const responseData = {
             message: "Registration completed successfully."
@@ -566,6 +623,26 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD1_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
+
+        await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        console.log("About to get balance for email:", email);
+        const myBalance = await getMyBalance(email);
+        console.log("My Balance:", myBalance);
+        console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         const responseData = {
@@ -660,6 +737,26 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD2_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
+
+        await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        console.log("About to get balance for email:", email);
+        const myBalance = await getMyBalance(email);
+        console.log("My Balance:", myBalance);
+        console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         // Create response object
@@ -813,6 +910,26 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD3_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
+
+        await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        console.log("About to get balance for email:", email);
+        const myBalance = await getMyBalance(email);
+        console.log("My Balance:", myBalance);
+        console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         // Create response object
@@ -1173,6 +1290,27 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD4_REWARD
+        if(process.env.SWITCH === 'true'){
+            console.log("Sending GLL transaction...");
+            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+            await sendTx.wait();
+            console.log("GLL transaction completed");
+        } else {
+            console.log("SWITCH is not 'true', skipping blockchain transaction");
+        }
+
+        await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        console.log("About to get balance for email:", email);
+        const myBalance = await getMyBalance(email);
+        console.log("My Balance:", myBalance);
+        console.log("Balance retrieved successfully");
+            /** *********** */
+            
             console.log('Updated GLL Balance:', updatedUser.gllBalance);
         }
         
