@@ -325,11 +325,10 @@ router.post('/register', async (req, res) => {
         } else {
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
-
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
         /** *********** */
@@ -433,10 +432,10 @@ router.post('/register-creator', async (req, res) => {
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
 
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
         /** *********** */
@@ -636,10 +635,10 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
 
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
         /** *********** */
@@ -750,10 +749,10 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
 
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
         /** *********** */
@@ -923,10 +922,10 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
 
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
         /** *********** */
@@ -1303,14 +1302,13 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
             // console.log("SWITCH is not 'true', skipping blockchain transaction");
         }
 
-        await syncGLLBalance(email);
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
-        const myBalance = await getMyBalance(email);
+        // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
         // console.log("Balance retrieved successfully");
             /** *********** */
-            
             // console.log('Updated GLL Balance:', updatedUser.gllBalance);
         }
         
