@@ -45,8 +45,6 @@ const upload = multer({
 // Function to synchronize GLL balance between User and Creator tables
 async function syncGLLBalance(email) {
     try {
-        // console.log(`Starting GLL balance sync for email: ${email}`);
-        
         // Find user by email
         const user = await prisma.user.findUnique({
             where: { email }
@@ -65,13 +63,6 @@ async function syncGLLBalance(email) {
                     gllBalance: user.gllBalance
                 }
             });
-            // console.log(`Synced Creator balance to ${user.gllBalance} for email: ${email}`);
-        } else if (user && !creator) {
-            // console.log(`Creator not found for email: ${email}, no sync needed`);
-        } else if (!user && creator) {
-            // console.log(`User not found for email: ${email}, no sync needed`);
-        } else {
-            // console.log(`Neither User nor Creator found for email: ${email}`);
         }
     } catch (error) {
         console.error(`Error syncing GLL balance for email ${email}:`, error);
@@ -317,14 +308,19 @@ router.post('/register', async (req, res) => {
         /** Code to send GLL to email wallet *******/
         
         amount = process.env.REGISTER_REWARD
-        if(process.env.SWITCH === 'true' && tempUser.walletAddress){
-            // console.log("Sending GLL transaction...");
-            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
-            await sendTx.wait();
-            // console.log("GLL transaction completed");
-        } else {
-            // console.log("SWITCH is not 'true' or user has no wallet address, skipping blockchain transaction");
+        if (process.env.SWITCH === 'true') {
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Registration GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Registration blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
         }
+        // } else {
+        //     // console.log("SWITCH is not 'true' or user has no wallet address, skipping blockchain transaction");
+        // }
         // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
@@ -423,15 +419,17 @@ router.post('/register-creator', async (req, res) => {
          /** Code to send GLL to email wallet *******/
         
         amount = process.env.REGISTER_REWARD
-        if(process.env.SWITCH === 'true' && tempCreator.walletAddress){
-            // console.log("Sending GLL transaction...");
-            const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
-            await sendTx.wait();
-            // console.log("GLL transaction completed");
-        } else {
-            // console.log("SWITCH is not 'true' or creator has no wallet address, skipping blockchain transaction");
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Creator registration GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Creator registration blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
         }
-
+        
         // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
         // console.log("About to get balance for email:", email);
@@ -535,16 +533,6 @@ async function getUserByIdOrEmail(userId, email) {
                 walletAddress: true
             }
         });
-        
-        // If user found by email, use email from database
-        if (user) {
-            userEmail = user.email;
-            // console.log("User found by email. Using email from database:", userEmail);
-        } else {
-            // If no user found but email provided, use the provided email
-            userEmail = email;
-            // console.log("No user found. Using provided email:", userEmail);
-        }
     }
     
     return { user, userEmail };
@@ -628,26 +616,15 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
              /** Code to send GLL to email wallet *******/
         
         amount = process.env.CARD1_REWARD
-        if(process.env.SWITCH === 'true' && user.walletAddress){
-            // console.log("🚀 Starting GLL blockchain transaction...");
-            // console.log("Amount:", amount, "GLL tokens");
-            // console.log("Target wallet:", user.walletAddress);
-            // console.log("Converted amount (wei):", convertToEtherAmount(amount.toString()).toString());
-            
+        if(process.env.SWITCH === 'true'){
             try {
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
-                // console.log("📤 Transaction sent, hash:", sendTx.hash);
                 await sendTx.wait();
-                // console.log("✅ GLL transaction completed successfully");
+                // console.log("✅ Card 1 GLL transaction completed");
             } catch (blockchainError) {
-                // console.error("❌ Blockchain transaction failed:", blockchainError.message);
-                // console.error("Full blockchain error:", blockchainError);
+                console.error("❌ Card 1 blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            // console.log("⏭️ Skipping blockchain transaction");
-            // console.log("- SWITCH:", process.env.SWITCH);
-            // console.log("- User wallet address:", user.walletAddress || 'null');
         }
 
         // await syncGLLBalance(email);
@@ -755,26 +732,15 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
              /** Code to send GLL to email wallet *******/
         
         amount = process.env.CARD2_REWARD
-        if(process.env.SWITCH === 'true' && user.walletAddress){
-            // console.log("🚀 Starting GLL blockchain transaction (Card 2)...");
-            // console.log("Amount:", amount, "GLL tokens");
-            // console.log("Target wallet:", user.walletAddress);
-            // console.log("Converted amount (wei):", convertToEtherAmount(amount.toString()).toString());
-            
+        if(process.env.SWITCH === 'true'){
             try {
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
-                // console.log("📤 Transaction sent, hash:", sendTx.hash);
-                // await sendTx.wait();
-                // console.log("✅ GLL transaction completed successfully");
+                await sendTx.wait();
+                // console.log("✅ Card 2 GLL transaction completed");
             } catch (blockchainError) {
-                // console.error("❌ Blockchain transaction failed:", blockchainError.message);
-                // console.error("Full blockchain error:", blockchainError);
+                console.error("❌ Card 2 blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            // console.log("⏭️ Skipping blockchain transaction (Card 2)");
-            // console.log("- SWITCH:", process.env.SWITCH);
-            // console.log("- User wallet address:", user.walletAddress || 'null');
         }
 
         // await syncGLLBalance(email);
@@ -941,26 +907,15 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
              /** Code to send GLL to email wallet *******/
         
         amount = process.env.CARD3_REWARD
-        if(process.env.SWITCH === 'true' && user.walletAddress){
-            // console.log("🚀 Starting GLL blockchain transaction (Card 3)...");
-            // console.log("Amount:", amount, "GLL tokens");
-            // console.log("Target wallet:", user.walletAddress);
-            // console.log("Converted amount (wei):", convertToEtherAmount(amount.toString()).toString());
-            
+        if(process.env.SWITCH === 'true'){
             try {
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
-                // console.log("📤 Transaction sent, hash:", sendTx.hash);
                 await sendTx.wait();
-                // console.log("✅ GLL transaction completed successfully");
+                // console.log("✅ Card 3 GLL transaction completed");
             } catch (blockchainError) {
-                // console.error("❌ Blockchain transaction failed:", blockchainError.message);
-                // console.error("Full blockchain error:", blockchainError);
+                console.error("❌ Card 3 blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            // console.log("⏭️ Skipping blockchain transaction (Card 3)");
-            // console.log("- SWITCH:", process.env.SWITCH);
-            // console.log("- User wallet address:", user.walletAddress || 'null');
         }
 
         // await syncGLLBalance(email);
@@ -1334,26 +1289,15 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
              /** Code to send GLL to email wallet *******/
         
         amount = process.env.CARD4_REWARD
-        if(process.env.SWITCH === 'true' && user.walletAddress){
-            // console.log("🚀 Starting GLL blockchain transaction (Card 4)...");
-            // console.log("Amount:", amount, "GLL tokens");
-            // console.log("Target wallet:", user.walletAddress);
-            // console.log("Converted amount (wei):", convertToEtherAmount(amount.toString()).toString());
-            
+        if(process.env.SWITCH === 'true'){
             try {
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
-                // console.log("📤 Transaction sent, hash:", sendTx.hash);
                 await sendTx.wait();
-                // console.log("✅ GLL transaction completed successfully");
+                // console.log("✅ Card 4 GLL transaction completed");
             } catch (blockchainError) {
-                // console.error("❌ Blockchain transaction failed:", blockchainError.message);
-                // console.error("Full blockchain error:", blockchainError);
+                console.error("❌ Card 4 blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            // console.log("⏭️ Skipping blockchain transaction (Card 4)");
-            // console.log("- SWITCH:", process.env.SWITCH);
-            // console.log("- User wallet address:", user.walletAddress || 'null');
         }
 
         // await syncGLLBalance(email);
