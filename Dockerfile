@@ -1,32 +1,55 @@
-# Use official Node.js runtime as the base image
-FROM node:18-alpine
+FROM node:18
+ARG AWS_ACCESS_KEY_ID
+ARG AWS_SECRET_ACCESS_KEY
+ARG AWS_BUCKET_NAME
+ARG AWS_REGION
+ARG BREVO_API_KEY
+ARG CARD1_REWARD
+ARG CARD2_REWARD
+ARG CARD3_REWARD
+ARG CONTRACT_ADDRESS
+ARG GLL_ADDRESS
+ARG DATABASE_URL
+ARG GST_VERIFY_URL
+ARG IFSC_VERIFY_URL
+ARG MY_ENCRYPT_KEY
+ARG OPENROUTER_API_KEY
+ARG OPENROUTER_URL
+ARG REGISTER_REWARD
+ARG RPC_URL
+ARG TELEGRAM_BOT_TOKEN
+ARG DEEPSEEK_API_KEY
+ARG OPENAI_API_KEY
+ARG FRONTEND_URL
 
-# Set working directory in the container
-WORKDIR /app
+ENV AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+    AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+    AWS_BUCKET_NAME=$AWS_BUCKET_NAME \
+    AWS_REGION=$AWS_REGION \
+    BREVO_API_KEY=$BREVO_API_KEY \
+    CARD1_REWARD=$CARD1_REWARD \
+    CARD2_REWARD=$CARD2_REWARD \
+    CARD3_REWARD=$CARD3_REWARD \
+    CONTRACT_ADDRESS=$CONTRACT_ADDRESS \
+    GLL_ADDRESS=$GLL_ADDRESS \
+    DATABASE_URL=$DATABASE_URL \
+    GST_VERIFY_URL=$GST_VERIFY_URL \
+    IFSC_VERIFY_URL=$IFSC_VERIFY_URL \
+    MY_ENCRYPT_KEY=$MY_ENCRYPT_KEY \
+    OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
+    OPENROUTER_URL=$OPENROUTER_URL \
+    REGISTER_REWARD=$REGISTER_REWARD \
+    RPC_URL=$RPC_URL \
+    TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
+    DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+    OPENAI_API_KEY=$OPENAI_API_KEY \
+    FRONTEND_URL=$FRONTEND_URL
 
-# Copy package.json and package-lock.json (if available)
+
+WORKDIR /usr/src/app
 COPY package*.json ./
-
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy the rest of the application code
+RUN npm install
 COPY . .
-
-# Copy the secret file if it exists
-COPY .secret .secret
-
-# Create uploads directory
-RUN mkdir -p src/uploads
-
-# Generate Prisma client
 RUN npx prisma generate
-
-# Expose the port the app runs on
-EXPOSE 3000
-
-# Define environment variable for production
-ENV NODE_ENV=production
-
-# Start the application
-CMD ["npm", "start"] 
+EXPOSE 8000
+CMD ["npm", "start"]
