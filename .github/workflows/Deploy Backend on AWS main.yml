@@ -1,0 +1,101 @@
+name: Deploy to GLL Backend main
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_ACCOUNT_ID: 390378708439
+  AWS_DEFAULT_REGION: eu-north-1
+  IMAGE_REPO_NAME: gll-repo
+  IMAGE_TAG: latest
+  REPOSITORY_URI: 390378708439.dkr.ecr.eu-north-1.amazonaws.com/gll-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Docker Login
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_DEFAULT_REGION }} | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com
+
+      - name: Create .secret file
+        run: echo "${{ secrets.SECRET_FILE_CONTENT }}" > .secret
+
+      - name: Docker Build
+        run: |
+          docker build \
+            --build-arg AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+            --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+            --build-arg AWS_BUCKET_NAME=$AWS_BUCKET_NAME \
+            --build-arg AWS_REGION=$AWS_REGION \
+            --build-arg BREVO_API_KEY=$BREVO_API_KEY \
+            --build-arg CARD1_REWARD=$CARD1_REWARD \
+            --build-arg CARD2_REWARD=$CARD2_REWARD \
+            --build-arg CARD3_REWARD=$CARD3_REWARD \
+            --build-arg CONTRACT_ADDRESS=$CONTRACT_ADDRESS \
+            --build-arg GLL_ADDRESS=$GLL_ADDRESS \
+            --build-arg DATABASE_URL=$DATABASE_URL \
+            --build-arg GST_VERIFY_URL=$GST_VERIFY_URL \
+            --build-arg IFSC_VERIFY_URL=$IFSC_VERIFY_URL \
+            --build-arg MY_ENCRYPT_KEY=$MY_ENCRYPT_KEY \
+            --build-arg OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
+            --build-arg OPENROUTER_URL=$OPENROUTER_URL \
+            --build-arg REGISTER_REWARD=$REGISTER_REWARD \
+            --build-arg RPC_URL=$RPC_URL \
+            --build-arg TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
+            --build-arg DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
+            --build-arg OPENAI_API_KEY=$OPENAI_API_KEY \
+            --build-arg FRONTEND_URL=$FRONTEND_URL \
+            -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_BUCKET_NAME: ${{ secrets.AWS_BUCKET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          CARD1_REWARD: ${{ secrets.CARD1_REWARD }}
+          CARD2_REWARD: ${{ secrets.CARD2_REWARD }}
+          CARD3_REWARD: ${{ secrets.CARD3_REWARD }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}
+          GLL_ADDRESS: ${{ secrets.GLL_ADDRESS }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GST_VERIFY_URL: ${{ secrets.GST_VERIFY_URL }}
+          IFSC_VERIFY_URL: ${{ secrets.IFSC_VERIFY_URL }}
+          MY_ENCRYPT_KEY: ${{ secrets.MY_ENCRYPT_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_URL: ${{ secrets.OPENROUTER_URL }}
+          REGISTER_REWARD: ${{ secrets.REGISTER_REWARD }}
+          RPC_URL: ${{ secrets.RPC_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+
+      - name: Docker Tag
+        run: docker tag ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} ${{ env.REPOSITORY_URI }}:${{ env.IMAGE_TAG }}
+
+      - name: Docker Push
+        run: docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_DEFAULT_REGION }}.amazonaws.com/${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }}
+
+      - name: ECS Update
+        run: |
+          aws ecs update-service \
+          --cluster gll-backend  \
+          --service gll-backend-svc \
+          --force-new-deployment \
+          --region ${{ env.AWS_DEFAULT_REGION }}
