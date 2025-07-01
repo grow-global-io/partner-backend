@@ -30,6 +30,7 @@ app.use(
       "https://growlimitless.com",
       "https://partner.growlimitless.app",
       "https://gll.one",
+      "https://dev.gll.one",
     ], // Allow only specific localhost ports
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: [
