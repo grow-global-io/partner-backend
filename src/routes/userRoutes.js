@@ -808,6 +808,7 @@ router.post('/user-by-email', async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
+        
         // res.send(user);
         res.send(encryptJSON(user));
         // console.log("user.gllBalance", user.gllBalance)
