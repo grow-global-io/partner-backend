@@ -1,0 +1,159 @@
+### Excel Processing API Test Endpoints
+### Base URL for local development
+@baseUrl = http://localhost:8000/api/storefront
+
+### 1. Upload Excel file
+# Note: This requires a multipart form with an Excel file
+# Use a REST client that supports file uploads
+POST {{baseUrl}}/upload
+Content-Type: multipart/form-data
+
+# Example using curl:
+# curl -X POST {{baseUrl}}/upload \
+#   -F "excel=@/path/to/your/file.xlsx"
+
+### 2. Search Excel data (after uploading)
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "sales data",
+  "topK": 5
+}
+
+### 3. Search Excel data with file filter
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "revenue report",
+  "fileKey": "excel-documents/your-file-key.xlsx",
+  "topK": 10
+}
+
+### 4. Get LLM response using Excel data
+POST {{baseUrl}}/llm
+Content-Type: application/json
+
+{
+  "query": "What are the top performing products based on the data?",
+  "topK": 5
+}
+
+### 5. Get LLM response with file filter
+POST {{baseUrl}}/llm
+Content-Type: application/json
+
+{
+  "query": "Analyze the quarterly sales trends",
+  "fileKey": "excel-documents/your-file-key.xlsx",
+  "topK": 8
+}
+
+### 6. Get list of all Excel files
+GET {{baseUrl}}/files
+
+### 7. Get Excel files with pagination
+GET {{baseUrl}}/files?limit=10&offset=0
+
+### 8. Get Excel files by status
+GET {{baseUrl}}/files?status=completed
+
+### 9. Reprocess Excel file (with re-embedding)
+POST {{baseUrl}}/reprocess
+Content-Type: application/json
+
+{
+  "fileKey": "excel-documents/your-file-key.xlsx",
+  "reembed": true
+}
+
+### 10. Reprocess Excel file (without re-embedding)
+POST {{baseUrl}}/reprocess
+Content-Type: application/json
+
+{
+  "fileKey": "excel-documents/your-file-key.xlsx",
+  "reembed": false
+}
+
+### Example test scenarios:
+
+### Upload a sample Excel file with product data
+# Sample Excel should contain columns like:
+# Product Name | Category | Price | Quantity | Revenue | Date
+
+### Search for specific products
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "electronics products",
+  "topK": 3
+}
+
+### Ask analytical questions
+POST {{baseUrl}}/llm
+Content-Type: application/json
+
+{
+  "query": "What is the total revenue for electronics category?",
+  "topK": 10
+}
+
+### Search for time-based data
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "query": "Q4 2023 sales",
+  "topK": 5
+}
+
+### Complex analytical query
+POST {{baseUrl}}/llm
+Content-Type: application/json
+
+{
+  "query": "Compare the performance of different product categories and identify the most profitable ones",
+  "topK": 15
+}
+
+### Check processing status
+GET {{baseUrl}}/files?status=processing
+
+### Get completed files only
+GET {{baseUrl}}/files?status=completed&limit=20
+
+### Error handling tests:
+
+### Search without query (should return 400)
+POST {{baseUrl}}/search
+Content-Type: application/json
+
+{
+  "topK": 5
+}
+
+### LLM query without query (should return 400)
+POST {{baseUrl}}/llm
+Content-Type: application/json
+
+{
+  "fileKey": "some-file-key"
+}
+
+### Reprocess non-existent file (should return 404)
+POST {{baseUrl}}/reprocess
+Content-Type: application/json
+
+{
+  "fileKey": "non-existent-file.xlsx"
+}
+
+### Notes:
+# 1. Replace "your-file-key.xlsx" with actual file keys from upload responses
+# 2. The Excel file should contain structured data for meaningful search results
+# 3. Embeddings are generated using the existing DeepSeek service
+# 4. Vector search uses cosine similarity for finding relevant rows
+# 5. LLM responses use DeepSeek API for generating contextual answers 

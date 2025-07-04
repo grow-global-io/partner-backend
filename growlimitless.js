@@ -14,6 +14,8 @@ const pdfChatRoutes = require("./src/pdf-chat/routes/pdfChatRoutes");
 const storefrontRoutes = require("./src/storefront/routes/storefrontRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
 const { MongoClient } = require("mongodb");
+const leadgenRoutes = require("./src/leadgen/routes/leadgenRoutes");
+const leadgenSwaggerSpecs = require("./src/leadgen/config/swagger");
 
 // Create Express app
 const app = express();
@@ -45,10 +47,10 @@ app.use(
 );
 app.use(express.json());
 
-// Swagger Documentation
+// PDF Chat Swagger Documentation
 app.use(
   "/api/api-routes/pdf-chat/docs",
-  swaggerUi.serve,
+  swaggerUi.serveFiles(swaggerSpecs),
   swaggerUi.setup(swaggerSpecs, {
     customSiteTitle: "PDF Chat API Documentation",
     customCss: ".swagger-ui .topbar { display: none }",
@@ -67,9 +69,28 @@ app.use(
 // Storefront Swagger Documentation
 app.use(
   "/api/storefront/docs",
-  swaggerUi.serve,
+  swaggerUi.serveFiles(storefrontSwaggerSpecs),
   swaggerUi.setup(storefrontSwaggerSpecs, {
     customSiteTitle: "Storefront API Documentation",
+    customCss: ".swagger-ui .topbar { display: none }",
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: "none",
+      filter: true,
+      showExtensions: true,
+      showCommonExtensions: true,
+      tryItOutEnabled: true,
+    },
+  })
+);
+
+// Leadgen Swagger Documentation
+app.use(
+  "/api/leadgen/docs",
+  swaggerUi.serveFiles(leadgenSwaggerSpecs),
+  swaggerUi.setup(leadgenSwaggerSpecs, {
+    customSiteTitle: "Leadgen (Excel) API Documentation",
     customCss: ".swagger-ui .topbar { display: none }",
     swaggerOptions: {
       persistAuthorization: true,
@@ -111,6 +132,8 @@ app.get("/", (req, res) => {
       <li><a href="/api/api-routes/pdf-chat/docs">/api/api-routes/pdf-chat/docs</a> - 📄 PDF Chat API Documentation (Swagger)</li>
       <li><a href="/api/storefront">/api/storefront</a> - Storefront system</li>
       <li><a href="/api/storefront/docs">/api/storefront/docs</a> - 🛒 Storefront API Documentation (Swagger)</li>
+      <li><a href="/api/leadgen">/api/leadgen</a> - Leadgen (Excel) system</li>
+      <li><a href="/api/leadgen/docs">/api/leadgen/docs</a> - 📊 Leadgen (Excel) API Documentation (Swagger)</li>
     </ul>
   `);
 });
@@ -120,6 +143,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
 app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
 app.use("/api/storefront", storefrontRoutes);
+app.use("/api/leadgen", leadgenRoutes);
 
 // Error handling middleware (should be last)
 app.use(errorHandler);
@@ -139,6 +163,12 @@ app.listen(PORT, () => {
     "📖 Storefront API Documentation: http://localhost:" +
       PORT +
       "/api/storefront/docs"
+  );
+  console.log("📊 Leadgen (Excel) API is available at /api/leadgen");
+  console.log(
+    "📖 Leadgen (Excel) API Documentation: http://localhost:" +
+      PORT +
+      "/api/leadgen/docs"
   );
 });
 

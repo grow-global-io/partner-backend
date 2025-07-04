@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const DocumentModel = require("../models/DocumentModel");
 const MessageModel = require("../models/MessageModel");
-const DeepseekService = require("../services/OpenAIService");
+const DeepseekService = require("../../services/OpenAIService");
 const S3Service = require("../services/S3Service");
 const PDFService = require("../services/PDFService");
 

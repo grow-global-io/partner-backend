@@ -222,3 +222,38 @@ model Product {
   @@index([storeId])
   @@index([category])
 }
+
+// Excel Processing feature models
+model ExcelDocument {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  fileName  String
+  fileKey   String     @unique
+  s3Url     String?
+  status    String     @default("pending") // pending, processing, completed, error
+  progress  Int        @default(0)
+  error     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  rows      ExcelRow[]
+}
+
+model ExcelRow {
+  id         String        @id @default(auto()) @map("_id") @db.ObjectId
+  documentId String        @db.ObjectId
+  document   ExcelDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String
+  embedding  Json // Stored as array in MongoDB
+  rowData    Json
+  rowIndex   Int
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  // Note: Vector search index will be created manually in MongoDB Atlas
+  // using the following command:
+  // db.ExcelRow.createIndex({ embedding: "vector" }, { 
+  //   name: "vector_search_index",
+  //   vectorSearchOptions: { numDimensions: 1536 }
+  // })
+
+  @@index([documentId])
+}
