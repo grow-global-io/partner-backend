@@ -38,7 +38,10 @@ const getMyBalance = async (email) => {
             where: { email }
         });
         if (!tempUser) {
-            return res.status(400).json({ error: "Email not found. Please login to gll.one first." });
+            throw new Error("Email not found. Please login to gll.one first.");
+        }
+        if (!tempUser.walletAddress) {
+            throw new Error("Wallet address not found for this user.");
         }
         const balance = await tokenContract.balanceOf(tempUser.walletAddress);
         return formatUnits(balance, 'ether');
@@ -47,9 +50,23 @@ const getMyBalance = async (email) => {
     }
 };
 
+/**
+ * Gets the contract's GLL token balance
+ * @returns {Promise<string>} The contract's token balance in ether units
+ */
+const getContractBalance = async () => {
+    try {
+        const balance = await tokenContract.balanceOf(process.env.CONTRACT_ADDRESS);
+        return formatUnits(balance, 'ether');
+    } catch (error) {
+        throw new Error(`Error getting contract balance: ${error.message}`);
+    }
+};
+
 module.exports = {
     tokenContract,
     phoneLinkContract,
     convertToEtherAmount,
-    getMyBalance
+    getMyBalance,
+    getContractBalance
 }

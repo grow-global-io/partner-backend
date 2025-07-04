@@ -38,13 +38,15 @@ model User {
   telegramId              String? // Telegram chat ID for the user
   notificationPreferences Json? // Store notification preferences as JSON
   lastInteraction         DateTime? // Last time user interacted with the bot
+  securelinkscount        Int       @default(0) // Track number of secure links generated
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
-  rewards Rewards[] @relation("UserRewards")
-  stores  Store[]   @relation("UserStores")
+  rewards  Rewards[]      @relation("UserRewards")
+  stores   Store[]        @relation("UserStores")
+  checkins HotelCheckin[] // Relation to hotel check-ins
 
   // storeConnections  storeConnection[]
   // files             File[]
@@ -55,6 +57,38 @@ model User {
   // businessStories   BusinessStory[]
   // products          Product[]
   // socialAccounts    SocialAccount[]
+
+  // @@index([apiKey], unique: true, sparse: true)
+}
+
+model Creator {
+  id            String  @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  username      String? @unique
+  email         String  @unique
+  phone         String?
+  nationality   String?
+  walletAddress String? // Add wallet address field for blockchain transactions
+  terms         Boolean @default(false)
+
+  // Instagram fields
+  instagramId       String?
+  instagramUsername String?
+  profilePicture    String?
+
+  // Bank and payment fields
+  bankBranch    String?
+  bankName      String?
+  accountNumber String?
+  accountName   String?
+  ifscCode      String?
+  apiKey        String?
+  aboutMe       String?
+
+  // System fields
+  gllBalance Float    @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Rewards {
@@ -256,4 +290,41 @@ model ExcelRow {
   // })
 
   @@index([documentId])
+}
+
+model WalletDocuments {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  walletId      String   @unique
+  noOfDocuments Int      @default(3)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// Add new model for hotel check-ins
+model HotelCheckin {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  email      String
+  whatsapp   String
+  dob        DateTime
+  address    String
+  country    String
+  bookingID  String
+  hotelID    String
+  hotelName  String
+  entryDate  DateTime
+  exitDate   DateTime
+  noOfPerson Int
+  secureKey  String   @unique
+  secureLink String   @unique
+  status     String   @default("Pending") // Pending or Checked-IN
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relation to User
+  // user User @relation(fields: [hotelID], references: [apiKey])
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @db.ObjectId
+
+  @@index([hotelID])
 }

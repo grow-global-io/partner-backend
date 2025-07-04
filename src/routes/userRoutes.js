@@ -42,6 +42,34 @@ const upload = multer({
     }
 });
 
+// Function to synchronize GLL balance between User and Creator tables
+async function syncGLLBalance(email) {
+    try {
+        // Find user by email
+        const user = await prisma.user.findUnique({
+            where: { email }
+        });
+        
+        // Find creator by email
+        const creator = await prisma.Creator.findUnique({
+            where: { email }
+        });
+        
+        if (user && creator) {
+            // If both exist, update creator's balance to match user's balance
+            await prisma.Creator.update({
+                where: { email },
+                data: {
+                    gllBalance: user.gllBalance
+                }
+            });
+        }
+    } catch (error) {
+        console.error(`Error syncing GLL balance for email ${email}:`, error);
+        throw error;
+    }
+}
+
 router.post('/save-connect-wallet', async (req, res) => {
     const { name, email, walletAddress, glltag } = req.body;
 
@@ -138,6 +166,60 @@ router.post('/personal-details', async (req, res) => {
     }
 });
 
+// Save personal details from step 1 registration for creator
+router.post('/personal-details-creator', async (req, res) => {
+    const { name, username, email, phone, nationality } = req.body;
+
+    const tempCreator = await prisma.Creator.findUnique({
+        where: { email }
+    });
+    try {
+        if (!tempCreator) {
+            const creator = await prisma.Creator.create({
+                data: {
+                    name: name,
+                    username: username,
+                    email: email,
+                    phone: phone,
+                    nationality: nationality,
+                    gllBalance: 0, // Initially set to 0, will be updated in the final step
+                    accountName: "",
+                    accountNumber: "",
+                    ifscCode: "",
+                    bankBranch: "",
+                    bankName: "",
+                    apiKey: "",
+                    terms: true
+                }
+            });
+            const responseData = {
+                message: "Email added successfully"
+            };
+            res.send(encryptJSON(responseData));
+        } else {
+            // Don't update GLL balance if the creator already exists
+            const updatedCreator = await prisma.Creator.update({
+                where: { id: tempCreator.id },
+                data: {
+                    name: name,
+                    username: username,
+                    email: email,
+                    phone: phone,
+                    nationality: nationality
+                    // Don't update gllBalance here
+                }
+            });
+            const responseData = {
+                message: "Details updated successfully"
+            };
+            res.send(encryptJSON(responseData));
+        }
+    } catch (error) {
+        // console.log("Error completing registration:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Step 3: Complete registration after email verification
 router.post('/register', async (req, res) => {
     try {
@@ -218,22 +300,153 @@ router.post('/register', async (req, res) => {
                 }
             }
         });
+        // console.log("User updated successfully");
+        // console.log("tempUser", tempUser);
+        // console.log("updatedUser", updatedUser);
+        // res.send(updatedUser);
 
         /** Code to send GLL to email wallet *******/
-        // amount = 100.0
-        // const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()),tempUser.walletAddress);
-        // await sendTx.wait();
-        /** ************* */
-
+        
+        amount = process.env.REGISTER_REWARD
+        if (process.env.SWITCH === 'true') {
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Registration GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Registration blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+        // } else {
+        //     // console.log("SWITCH is not 'true' or user has no wallet address, skipping blockchain transaction");
+        // }
+        // await syncGLLBalance(email);
         /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
         // const myBalance = await getMyBalance(email);
         // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
         /** *********** */
 
         const responseData = {
             message: "Registration completed successfully."
         };
         res.send(encryptJSON(responseData));
+    } catch (error) {
+        // console.log("Error completing registration:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+router.post('/register-creator', async (req, res) => {
+    try {
+        const {
+            name,
+            username,
+            email,
+            phone,
+            nationality,
+            accountName,
+            accountNumber,
+            ifscCode,
+            bankName,
+            bankBranch,
+            instagramId,
+            instagramUsername,
+            profilePicture,
+            terms,
+            apiKey,
+            aboutMe, // Optional: Allow setting aboutMe during registration
+        } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: "Email is required" });
+        }
+        
+        // Find the temporary creator record
+        const tempCreator = await prisma.Creator.findUnique({
+            where: { email }
+        });
+
+        if (!tempCreator) {
+            return res.status(400).json({ error: "Email not found. Please request verification first." });
+        }
+        
+        // Validate that all required fields are provided for a complete registration
+        if (!name || !phone || !instagramUsername || !nationality) {
+            return res.status(400).json({ 
+                error: "Incomplete registration. Please provide all required information." 
+            });
+        }
+
+        // Validate aboutMe if provided
+        if (aboutMe && typeof aboutMe === 'string' && aboutMe.length > 500) {
+            return res.status(400).json({ 
+                error: "About me cannot exceed 500 characters" 
+            });
+        }
+
+        // Update the creator with complete registration information
+        // Set GLL balance to 100.0 only when all steps are completed
+        const updatedCreator = await prisma.Creator.update({
+            where: { id: tempCreator.id },
+            data: {
+                name,
+                username,
+                phone,
+                nationality,
+                accountName,
+                accountNumber,
+                ifscCode,
+                bankName,
+                bankBranch,
+                instagramId,
+                instagramUsername,
+                profilePicture,
+                terms,
+                apiKey,
+                aboutMe: aboutMe ? aboutMe.trim() : '', // Add aboutMe field
+                // Set GLL balance to 100.0 upon successful completion of all steps
+                gllBalance: {
+                    increment: parseFloat(process.env.REGISTER_REWARD)
+                }
+            }
+        });
+
+
+         /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.REGISTER_REWARD
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Creator registration GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Creator registration blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+        
+        // await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
+        // const myBalance = await getMyBalance(email);
+        // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
+        /** *********** */
+
+        
+
+        // console.log(`Creator registration completed. Synced GLL balance: ${updatedCreator.gllBalance}`);
+        
+        const responseData = {
+            message: "Registration completed successfully."
+        };
+        res.send(encryptJSON(responseData));
+        
     } catch (error) {
         // console.log("Error completing registration:", error);
         res.status(500).json({ error: error.message });
@@ -296,7 +509,8 @@ async function getUserByIdOrEmail(userId, email) {
                 id: true,
                 email: true,
                 name: true,
-                gllBalance: true
+                gllBalance: true,
+                walletAddress: true
             }
         });
         
@@ -315,19 +529,10 @@ async function getUserByIdOrEmail(userId, email) {
                 id: true,
                 email: true,
                 name: true,
-                gllBalance: true
+                gllBalance: true,
+                walletAddress: true
             }
         });
-        
-        // If user found by email, use email from database
-        if (user) {
-            userEmail = user.email;
-            // console.log("User found by email. Using email from database:", userEmail);
-        } else {
-            // If no user found but email provided, use the provided email
-            userEmail = email;
-            // console.log("No user found. Using provided email:", userEmail);
-        }
     }
     
     return { user, userEmail };
@@ -407,6 +612,28 @@ router.post('/save-reward-card1', upload.single('document'), async (req, res) =>
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD1_REWARD
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Card 1 GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Card 1 blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+
+        // await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
+        // const myBalance = await getMyBalance(email);
+        // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         const responseData = {
@@ -501,6 +728,28 @@ router.post('/save-reward-card2', upload.none(), async (req, res) => {
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD2_REWARD
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Card 2 GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Card 2 blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+
+        // await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
+        // const myBalance = await getMyBalance(email);
+        // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         // Create response object
@@ -559,6 +808,7 @@ router.post('/user-by-email', async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: "User not found" });
         }
+        
         // res.send(user);
         res.send(encryptJSON(user));
         // console.log("user.gllBalance", user.gllBalance)
@@ -654,6 +904,28 @@ router.post('/save-reward-card3', upload.single('certificate'), async (req, res)
                     }
                 }
             });
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD3_REWARD
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Card 3 GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Card 3 blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+
+        // await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
+        // const myBalance = await getMyBalance(email);
+        // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
+        /** *********** */
         }
         
         // Create response object
@@ -996,15 +1268,15 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
             }
         });
         
-        console.log("MSME Registration saved:", reward);
+        // console.log("MSME Registration saved:", reward);
         
         // If user exists, update GLL balance
         if (user) {
-            console.log('Current GLL Balance:', user.gllBalance);
-            console.log('CARD4_REWARD value:', process.env.CARD4_REWARD);
+            // console.log('Current GLL Balance:', user.gllBalance);
+            // console.log('CARD4_REWARD value:', process.env.CARD4_REWARD);
             
             const rewardAmount = process.env.CARD4_REWARD ? parseFloat(process.env.CARD4_REWARD) : 100;
-            console.log('Reward amount to be added:', rewardAmount);
+            // console.log('Reward amount to be added:', rewardAmount);
 
             const updatedUser = await prisma.user.update({
                 where: { id: user.id },
@@ -1014,8 +1286,29 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
                     }
                 }
             });
-            console.log('Updated GLL Balance:', updatedUser.gllBalance);
+
+             /** Code to send GLL to email wallet *******/
+        
+        amount = process.env.CARD4_REWARD
+        if(process.env.SWITCH === 'true'){
+            try {
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
+                await sendTx.wait();
+                // console.log("✅ Card 4 GLL transaction completed");
+            } catch (blockchainError) {
+                console.error("❌ Card 4 blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
         }
+
+        // await syncGLLBalance(email);
+        /** Code to get GLL balance from email wallet ***** */
+        // console.log("About to get balance for email:", email);
+        // const myBalance = await getMyBalance(email);
+        // console.log("My Balance:", myBalance);
+        // console.log("Balance retrieved successfully");
+        /** *********** */
+            }
         
         // Create response object
         const responseData = {
@@ -1030,7 +1323,7 @@ router.post('/save-reward-card4', upload.single('certificate'), async (req, res)
         // Send encrypted response
         res.send(encryptJSON(responseData));
     } catch (error) {
-        console.log("Error completing MSME registration:", error);
+        // console.log("Error completing MSME registration:", error);
         // Clean up temporary file if it exists and there was an error
         try {
             if (req.file && req.file.path && fs.existsSync(req.file.path)) {
@@ -1125,6 +1418,191 @@ router.post('/ifscCode-verify', async (req, res) => {
     }
 });
 
+
+router.put('/creator-profile/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { aboutMe } = req.body;
+        
+        // Decode URL-encoded email
+        const decodedEmail = decodeURIComponent(email);
+        
+        // console.log('Updating creator about me for email:', decodedEmail);
+        
+        // Validation
+        if (!decodedEmail) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Email is required" 
+            });
+        }
+
+        if (aboutMe === undefined || aboutMe === null) {
+            return res.status(400).json({ 
+                success: false,
+                message: "aboutMe field is required" 
+            });
+        }
+
+        if (typeof aboutMe !== 'string') {
+            return res.status(400).json({ 
+                success: false,
+                message: "aboutMe must be a string" 
+            });
+        }
+
+        if (aboutMe.length > 500) {
+            return res.status(400).json({ 
+                success: false,
+                message: "About me cannot exceed 500 characters" 
+            });
+        }
+
+        // Check if creator exists
+        const existingCreator = await prisma.Creator.findUnique({
+            where: { email: decodedEmail }
+        });
+
+        if (!existingCreator) {
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
+        }
+
+        // Update the aboutMe field
+        const updatedCreator = await prisma.Creator.update({
+            where: { email: decodedEmail },
+            data: {
+                aboutMe: aboutMe.trim() // Trim whitespace
+            }
+        });
+
+        // Check if IFSC code exists to determine KYC completion status
+        const hasIfscCode = updatedCreator.ifscCode && updatedCreator.ifscCode.trim() !== '';
+        const isKycComplete = hasIfscCode;
+
+        // Format response to match frontend expectations
+        const profileData = {
+            email: updatedCreator.email,
+            name: updatedCreator.name || 'User',
+            username: updatedCreator.username || 'user',
+            instagramUsername: updatedCreator.instagramUsername || '',
+            profilePicture: updatedCreator.profilePicture || '',
+            aboutMe: updatedCreator.aboutMe || '',
+            isKycComplete: isKycComplete,
+            phone: updatedCreator.phone || '',
+            nationality: updatedCreator.nationality || '',
+            instagramId: updatedCreator.instagramId || '',
+            bankDetails: {
+                ifscCode: updatedCreator.ifscCode || '',
+                bankName: updatedCreator.bankName || '',
+                bankBranch: updatedCreator.bankBranch || '',
+                accountNumber: updatedCreator.accountNumber || '',
+                accountName: updatedCreator.accountName || ''
+            },
+            registrationTimestamp: updatedCreator.createdAt,
+            apiKey: updatedCreator.apiKey || '',
+            gllBalance: updatedCreator.gllBalance || 0,
+            terms: updatedCreator.terms || false
+        };
+
+        // console.log(`About me updated successfully for ${decodedEmail}`);
+
+        const responseData = {
+            success: true,
+            message: "About me updated successfully",
+            data: profileData
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+        
+    } catch (error) {
+        console.error("Error updating about me:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while updating about me",
+            error: error.message
+        });
+    }
+});
+
+// GET route for fetching creator profile data
+router.get('/creator-profile/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        // Decode URL-encoded email
+        const decodedEmail = decodeURIComponent(email);
+        
+        // console.log('Fetching creator profile for email:', decodedEmail);
+        
+        if (!decodedEmail) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Email is required" 
+            });
+        }
+
+        const creator = await prisma.Creator.findUnique({
+            where: { email: decodedEmail }
+        });
+
+        if (!creator) {
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
+        }
+
+        // Check if IFSC code exists to determine KYC completion status
+        const hasIfscCode = creator.ifscCode && creator.ifscCode.trim() !== '';
+        const isKycComplete = hasIfscCode;
+
+        // Format response to match frontend expectations
+        const profileData = {
+            email: creator.email,
+            name: creator.name || 'User',
+            username: creator.username || 'user',
+            instagramUsername: creator.instagramUsername || '',
+            profilePicture: creator.profilePicture || '',
+            aboutMe: creator.aboutMe || '',
+            isKycComplete: isKycComplete,
+            phone: creator.phone || '',
+            nationality: creator.nationality || '',
+            instagramId: creator.instagramId || '',
+            bankDetails: {
+                ifscCode: creator.ifscCode || '',
+                bankName: creator.bankName || '',
+                bankBranch: creator.bankBranch || '',
+                accountNumber: creator.accountNumber || '',
+                accountName: creator.accountName || ''
+            },
+            registrationTimestamp: creator.createdAt,
+            apiKey: creator.apiKey || '',
+            gllBalance: creator.gllBalance || 0,
+            terms: creator.terms || false
+        };
+
+        // console.log(`Creator profile for ${decodedEmail}:`, {
+        //     hasIfscCode,
+        //     isKycComplete,
+        //     gllBalance: creator.gllBalance
+        // });
+
+        // Send encrypted response
+        res.send(encryptJSON(profileData));
+        
+    } catch (error) {
+        console.error("Error fetching creator data:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while fetching creator data",
+            error: error.message
+        });
+    }
+});
 
 // // Save data from Reward Card5 - Invoice Upload
 // router.post('/save-reward-card5', upload.array('multipleFiles'), async (req, res) => {
