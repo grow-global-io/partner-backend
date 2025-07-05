@@ -39,6 +39,9 @@ model User {
   notificationPreferences Json? // Store notification preferences as JSON
   lastInteraction         DateTime? // Last time user interacted with the bot
   securelinkscount        Int       @default(0) // Track number of secure links generated
+  description             String?
+  userPhotos              String[]  @default([])
+  userVideos              String[]  @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -89,6 +92,8 @@ model Creator {
   gllBalance Float    @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  userPhotos String[] @default([])
+  userVideos String[] @default([])
 }
 
 model Rewards {

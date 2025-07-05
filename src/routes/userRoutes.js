@@ -10,6 +10,18 @@ const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
 
+// Health check endpoint
+router.get('/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'User API is working',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        switch: process.env.SWITCH || 'Not set',
+        card4Reward: process.env.CARD4_REWARD || 'Not set'
+    });
+});
+
 // AWS S3 configuration 
 const s3 = new AWS.S3({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -35,10 +47,19 @@ const storage = multer.diskStorage({
 const upload = multer({
     dest: 'uploads/',
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    limits: { fileSize: 50 * 1024 * 1024 }, // Increased to 50MB for video files
     fileFilter: (req, file, cb) => {
-        // You can add file type validation here if needed
-        cb(null, true);
+        // Allow images and videos
+        const allowedMimes = [
+            'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+            'video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm'
+        ];
+        
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only images and videos are allowed.'), false);
+        }
     }
 });
 
@@ -113,7 +134,20 @@ router.post('/save-connect-wallet', async (req, res) => {
 
 // Save personal details from step 1 registration
 router.post('/personal-details', async (req, res) => {
-    const { name, email, designation, phone, international } = req.body;
+    const { name, email, designation, phone, international, businessDescription, businessPhotos, businessVideo } = req.body;
+
+    // console.log('=== PERSONAL DETAILS DEBUG ===');
+        // console.log('Received data:', {
+        //     name,
+        //     email,
+        //     designation,
+        //     phone,
+        //     international,
+        //     businessDescription: businessDescription || 'NOT PROVIDED',
+        //     businessPhotos: businessPhotos ? `Array with ${businessPhotos.length} items: ${JSON.stringify(businessPhotos)}` : 'NOT PROVIDED',
+        //     businessVideo: businessVideo ? `${Array.isArray(businessVideo) ? 'Array' : 'String'} with value: ${JSON.stringify(businessVideo)}` : 'NOT PROVIDED'
+        // });
+    // console.log('=== END DEBUG ===');
 
     const tempUser = await prisma.user.findUnique({
         where: { email }
@@ -127,6 +161,9 @@ router.post('/personal-details', async (req, res) => {
                     designation: designation,
                     phone: phone,
                     international: international,
+                    description: businessDescription || "",
+                    userPhotos: businessPhotos || [],
+                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : [],
                     gllBalance: 0, // Initially set to 0, will be updated in the final step
                     accountName: "",
                     accountNumber: "",
@@ -138,6 +175,11 @@ router.post('/personal-details', async (req, res) => {
                     terms: true
                 }
             });
+            // console.log('User created with media:', {
+            //     userPhotos: user.userPhotos,
+            //     userVideos: user.userVideos,
+            //     description: user.description
+            // });
             const responseData = {
                 message: "Email added successfully"
             };
@@ -151,10 +193,18 @@ router.post('/personal-details', async (req, res) => {
                     email: email,
                     designation: designation,
                     phone: phone,
-                    international: international
+                    international: international,
+                    description: businessDescription || tempUser.description || "",
+                    userPhotos: businessPhotos || tempUser.userPhotos || [],
+                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempUser.userVideos || [])
                     // Don't update gllBalance here
                 }
             });
+            // console.log('User updated with media:', {
+            //     userPhotos: updatedUser.userPhotos,
+            //     userVideos: updatedUser.userVideos,
+            //     description: updatedUser.description
+            // });
             const responseData = {
                 message: "Details updated successfully"
             };
@@ -168,7 +218,7 @@ router.post('/personal-details', async (req, res) => {
 
 // Save personal details from step 1 registration for creator
 router.post('/personal-details-creator', async (req, res) => {
-    const { name, username, email, phone, nationality } = req.body;
+    const { name, username, email, phone, nationality, businessDescription, businessPhotos, businessVideo } = req.body;
 
     const tempCreator = await prisma.Creator.findUnique({
         where: { email }
@@ -182,6 +232,9 @@ router.post('/personal-details-creator', async (req, res) => {
                     email: email,
                     phone: phone,
                     nationality: nationality,
+                    description: businessDescription || "",
+                    userPhotos: businessPhotos || [],
+                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : [],
                     gllBalance: 0, // Initially set to 0, will be updated in the final step
                     accountName: "",
                     accountNumber: "",
@@ -205,7 +258,10 @@ router.post('/personal-details-creator', async (req, res) => {
                     username: username,
                     email: email,
                     phone: phone,
-                    nationality: nationality
+                    nationality: nationality,
+                    description: businessDescription || tempCreator.description || "",
+                    userPhotos: businessPhotos || tempCreator.userPhotos || [],
+                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || [])
                     // Don't update gllBalance here
                 }
             });
@@ -244,7 +300,19 @@ router.post('/register', async (req, res) => {
             apiKey,
             bankName,
             bankBranch,
+            businessDescription,
+            businessPhotos,
+            businessVideo,
         } = req.body;
+
+        // console.log('=== REGISTER ENDPOINT DEBUG ===');
+        // console.log('Received data:', {
+        //     name,
+        //     email,
+        //     businessDescription: businessDescription || 'NOT PROVIDED',
+        //     businessPhotos: businessPhotos ? `Array with ${businessPhotos.length} items: ${JSON.stringify(businessPhotos)}` : 'NOT PROVIDED',
+        //     businessVideo: businessVideo ? `${Array.isArray(businessVideo) ? 'Array' : 'String'} with value: ${JSON.stringify(businessVideo)}` : 'NOT PROVIDED'
+        // });
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
@@ -255,55 +323,60 @@ router.post('/register', async (req, res) => {
             where: { email }
         });
 
-        // console.log("tempUser", tempUser);
+        // console.log('Existing user data:', {
+        //     email: tempUser?.email,
+        //     description: tempUser?.description || 'NOT SET',
+        //     userPhotos: tempUser?.userPhotos || 'NOT SET',
+        //     userVideos: tempUser?.userVideos || 'NOT SET'
+        // });
 
         if (!tempUser) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
         }
         
-        // Validate that all required fields are provided for a complete registration
-        if (!name || !phone || !companyName || !companyType) {
-            return res.status(400).json({ 
-                error: "Incomplete registration. Please provide all required information." 
-            });
-        }
-
         // Update the user with complete registration information
         // Set GLL balance to 100.0 only when all steps are completed
         const updatedUser = await prisma.user.update({
             where: { id: tempUser.id },
             data: {
-                name,
-                designation,
-                phone,
-                accountName:null,
-                accountNumber:null,
-                ifscCode,
-                gstNumber,
-                companyAddress,
-                companyType,
-                international,
-                terms,
+                name: name || tempUser.name,
+                designation: designation || tempUser.designation,
+                phone: phone || tempUser.phone,
+                accountName: accountName || tempUser.accountName,
+                accountNumber: accountNumber || tempUser.accountNumber,
+                ifscCode: ifscCode || tempUser.ifscCode,
+                gstNumber: gstNumber || tempUser.gstNumber,
+                companyAddress: companyAddress || tempUser.companyAddress,
+                companyType: companyType || tempUser.companyType,
+                companyName: companyName || tempUser.companyName,
+                international: international !== undefined ? international : tempUser.international,
+                terms: terms !== undefined ? terms : tempUser.terms,
                 verificationOTP: null,
                 otpExpiry: null,
-                msmeCertificate,
-                oemCertificate,
-                fy2324Data,
-                fy2425Data,
-                companyName,
-                apiKey,
-                bankName,
-                bankBranch,
+                msmeCertificate: msmeCertificate || tempUser.msmeCertificate,
+                oemCertificate: oemCertificate || tempUser.oemCertificate,
+                fy2324Data: fy2324Data || tempUser.fy2324Data,
+                fy2425Data: fy2425Data || tempUser.fy2425Data,
+                apiKey: apiKey || tempUser.apiKey,
+                bankName: bankName || tempUser.bankName,
+                bankBranch: bankBranch || tempUser.bankBranch,
+                description: businessDescription || tempUser.description || "",
+                userPhotos: businessPhotos || tempUser.userPhotos || [],
+                userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempUser.userVideos || []),
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
                 }
             }
         });
-        // console.log("User updated successfully");
-        // console.log("tempUser", tempUser);
-        // console.log("updatedUser", updatedUser);
-        // res.send(updatedUser);
+
+        // console.log('Final user data saved:', {
+        //     email: updatedUser.email,
+        //     description: updatedUser.description,
+        //     userPhotos: updatedUser.userPhotos,
+        //     userVideos: updatedUser.userVideos
+        // });
+        // console.log('=== END REGISTER DEBUG ===');
 
         /** Code to send GLL to email wallet *******/
         
@@ -358,8 +431,21 @@ router.post('/register-creator', async (req, res) => {
             profilePicture,
             terms,
             apiKey,
-            aboutMe, // Optional: Allow setting aboutMe during registration
+            aboutMe,
+            businessDescription,
+            businessPhotos,
+            businessVideo,
         } = req.body;
+
+        // console.log('=== CREATOR REGISTER DEBUG ===');
+        // console.log('Received data:', {
+        //     name,
+        //     email,
+        //     aboutMe: aboutMe || 'NOT PROVIDED',
+        //     businessDescription: businessDescription || 'NOT PROVIDED',
+        //     businessPhotos: businessPhotos ? `Array with ${businessPhotos.length} items: ${JSON.stringify(businessPhotos)}` : 'NOT PROVIDED',
+        //     businessVideo: businessVideo ? `${Array.isArray(businessVideo) ? 'Array' : 'String'} with value: ${JSON.stringify(businessVideo)}` : 'NOT PROVIDED'
+        // });
 
         if (!email) {
             return res.status(400).json({ error: "Email is required" });
@@ -370,44 +456,41 @@ router.post('/register-creator', async (req, res) => {
             where: { email }
         });
 
+        // console.log('Existing creator data:', {
+        //     email: tempCreator?.email,
+        //     aboutMe: tempCreator?.aboutMe || 'NOT SET',
+        //     description: tempCreator?.description || 'NOT SET',
+        //     userPhotos: tempCreator?.userPhotos || 'NOT SET',
+        //     userVideos: tempCreator?.userVideos || 'NOT SET'
+        // });
+
         if (!tempCreator) {
             return res.status(400).json({ error: "Email not found. Please request verification first." });
         }
         
-        // Validate that all required fields are provided for a complete registration
-        if (!name || !phone || !instagramUsername || !nationality) {
-            return res.status(400).json({ 
-                error: "Incomplete registration. Please provide all required information." 
-            });
-        }
-
-        // Validate aboutMe if provided
-        if (aboutMe && typeof aboutMe === 'string' && aboutMe.length > 500) {
-            return res.status(400).json({ 
-                error: "About me cannot exceed 500 characters" 
-            });
-        }
-
         // Update the creator with complete registration information
         // Set GLL balance to 100.0 only when all steps are completed
         const updatedCreator = await prisma.Creator.update({
             where: { id: tempCreator.id },
             data: {
-                name,
-                username,
-                phone,
-                nationality,
-                accountName,
-                accountNumber,
-                ifscCode,
-                bankName,
-                bankBranch,
-                instagramId,
-                instagramUsername,
-                profilePicture,
-                terms,
-                apiKey,
-                aboutMe: aboutMe ? aboutMe.trim() : '', // Add aboutMe field
+                name: name || tempCreator.name,
+                username: username || tempCreator.username,
+                phone: phone || tempCreator.phone,
+                nationality: nationality || tempCreator.nationality,
+                accountName: accountName || tempCreator.accountName,
+                accountNumber: accountNumber || tempCreator.accountNumber,
+                ifscCode: ifscCode || tempCreator.ifscCode,
+                bankName: bankName || tempCreator.bankName,
+                bankBranch: bankBranch || tempCreator.bankBranch,
+                instagramId: instagramId || tempCreator.instagramId,
+                instagramUsername: instagramUsername || tempCreator.instagramUsername,
+                profilePicture: profilePicture || tempCreator.profilePicture,
+                terms: terms !== undefined ? terms : tempCreator.terms,
+                apiKey: apiKey || tempCreator.apiKey,
+                aboutMe: aboutMe ? aboutMe.trim() : tempCreator.aboutMe || '', // Add aboutMe field
+                description: businessDescription || tempCreator.description || "",
+                userPhotos: businessPhotos || tempCreator.userPhotos || [],
+                userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
@@ -415,8 +498,16 @@ router.post('/register-creator', async (req, res) => {
             }
         });
 
+        // console.log('Final creator data saved:', {
+        //     email: updatedCreator.email,
+        //     aboutMe: updatedCreator.aboutMe,
+        //     description: updatedCreator.description,
+        //     userPhotos: updatedCreator.userPhotos,
+        //     userVideos: updatedCreator.userVideos
+        // });
+        // console.log('=== END CREATOR DEBUG ===');
 
-         /** Code to send GLL to email wallet *******/
+        /** Code to send GLL to email wallet *******/
         
         amount = process.env.REGISTER_REWARD
         if(process.env.SWITCH === 'true'){
@@ -1604,406 +1695,86 @@ router.get('/creator-profile/:email', async (req, res) => {
     }
 });
 
-// // Save data from Reward Card5 - Invoice Upload
-// router.post('/save-reward-card5', upload.array('multipleFiles'), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { 
-//             invoiceNumber, 
-//             amount, 
-//             dueDate, 
-//             customerName, 
-//             singleFileUrl, 
-//             multipleFileUrls, 
-//             userId 
-//         } = req.body;
+// AWS bucket code for uploading user media (photos and videos) to S3
+router.post('/upload-user-media', upload.array('media', 8), async (req, res) => {
+    let photoUrls = [];
+    let videoUrls = [];
+    try {
+        const { userId, email } = req.body;
         
-//         // Validate required fields
-//         if (!invoiceNumber || !amount || !dueDate || !customerName) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Invoice details are required." 
-//             });
-//         }
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ error: "No media files uploaded" });
+        }
 
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
+        // Process each uploaded file
+        for (const file of req.files) {
+            const fileContent = fs.readFileSync(file.path);
+            let folderName = '';
+            let urlArray = null;
 
-//         // Initialize array to store all file URLs
-//         let fileUrls = [];
+            // Determine file type and folder
+            if (file.mimetype.startsWith('image/')) {
+                folderName = 'user-photos';
+                urlArray = photoUrls;
+            } else if (file.mimetype.startsWith('video/')) {
+                folderName = 'user-videos';
+                urlArray = videoUrls;
+            } else {
+                return res.status(400).json({ 
+                    error: `Invalid file type: ${file.originalname}. Only images and videos are allowed.` 
+                });
+            }
 
-//         // Add pre-uploaded files if available
-//         if (singleFileUrl) {
-//             fileUrls.push(singleFileUrl);
-//         }
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `${folderName}/${Date.now()}-${file.originalname}`,
+                Body: fileContent,
+                ContentType: file.mimetype,
+                // ACL: 'public-read'
+            };
 
-//         if (multipleFileUrls) {
-//             try {
-//                 const parsedUrls = JSON.parse(multipleFileUrls);
-//                 if (Array.isArray(parsedUrls)) {
-//                     fileUrls = [...fileUrls, ...parsedUrls];
-//                 }
-//             } catch (e) {
-//                 console.error("Error parsing multipleFileUrls:", e);
-//             }
-//         }
+            const uploadResult = await s3.upload(params).promise();
+            urlArray.push(uploadResult.Location);
 
-//         // Handle single file upload if present
-//         if (req.files && req.files.length > 0) {
-//             // Process all files in the request
-//             for (const file of req.files) {
-//                 const fileContent = fs.readFileSync(file.path);
-//                 const params = {
-//                     Bucket: process.env.AWS_BUCKET_NAME,
-//                     Key: `invoices/${Date.now()}-${file.originalname}`,
-//                     Body: fileContent,
-//                     ContentType: file.mimetype,
-//                 };
-    
-//                 const uploadResult = await s3.upload(params).promise();
-//                 fileUrls.push(uploadResult.Location);
-    
-//                 // Delete the temporary file
-//                 fs.unlinkSync(file.path);
-//             }
-//         }
+            // Delete the temporary file
+            try {
+                if (fs.existsSync(file.path)) {
+                    fs.unlinkSync(file.path);
+                }
+            } catch (unlinkError) {
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
 
-//         // Check if we have at least one file
-//         if (fileUrls.length === 0) {
-//             return res.status(400).json({ error: "At least one invoice file is required" });
-//         }
+        const responseData = {
+            message: "Media uploaded successfully",
+            photoUrls: photoUrls,
+            videoUrls: videoUrls,
+            totalCount: photoUrls.length + videoUrls.length
+        };
+        res.send(encryptJSON(responseData));
 
-//         // Create invoice record in database
-//         const invoice = await prisma.invoice.create({
-//             data: {
-//                 invoiceNumber,
-//                 amount,
-//                 dueDate: new Date(dueDate),
-//                 customerName,
-//                 fileUrls,
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
+    } catch (error) {
+        // console.log("Error uploading media:", error);
         
-//         console.log("Invoice saved:", invoice);
+        // Clean up temporary files if they exist and there was an error
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
         
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: 100 // Add 100 GLL Ions to the user's balance as reward
-//                     }
-//                 }
-//             });
-//         }
-        
-//         res.status(200).json({
-//             message: "Invoice uploaded successfully",
-//             reward: "100 GLL Ions",
-//             invoiceId: invoice.id,
-//             fileUrls
-//         });
-//     } catch (error) {
-//         console.log("Error uploading invoice:", error);
-//         // Clean up temporary files if they exist and there was an error
-//         if (req.files && req.files.length > 0) {
-//             for (const file of req.files) {
-//                 if (fs.existsSync(file.path)) {
-//                     fs.unlinkSync(file.path);
-//                 }
-//             }
-//         }
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
-// // Save data from Reward Card6 - MSME Referral
-// router.post('/save-reward-card6', upload.none(), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { uciNumber, msmeUciId, customerId, city, state, status, userId } = req.body;
-        
-//         // Validate required fields
-//         if (!uciNumber || !msmeUciId || !customerId || !city || !state) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Referral details are required." 
-//             });
-//         }
-
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // Create or update MSME referral record in database
-//         const msmeReferral = await prisma.msmeReferral.create({
-//             data: {
-//                 uciNumber,
-//                 msmeUciId,
-//                 customerId,
-//                 city,
-//                 state,
-//                 status: status || "pending",
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
-        
-//         console.log("MSME Referral saved:", msmeReferral);
-        
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: status === 'completed' ? 200 : 100
-//                         // Add more GLL Ions if marked as completed
-//                     }
-//                 }
-//             });
-//         }
-        
-//         res.status(200).json({
-//             message: status === 'completed' 
-//                 ? "MSME referral marked as completed successfully" 
-//                 : "MSME referral submitted successfully",
-//             reward: status === 'completed' ? "200 GLL Ions" : "100 GLL Ions",
-//             referralId: msmeReferral.id,
-//             status: msmeReferral.status
-//         });
-//     } catch (error) {
-//         console.log("Error processing MSME referral:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
-// // Save data from Reward Card7 - Business Story
-// router.post('/save-reward-card7', upload.none(), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { imageUrl, story, userId } = req.body;
-        
-//         // Validate required fields
-//         if (!imageUrl || !story) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. Image URL and story are required." 
-//             });
-//         }
-
-//         // Validate story length
-//         if (story.length > 280) {
-//             return res.status(400).json({ 
-//                 error: "Story exceeds maximum length of 280 characters." 
-//             });
-//         }
-
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // Create business story record in database
-//         const businessStory = await prisma.businessStory.create({
-//             data: {
-//                 imageUrl,
-//                 story,
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
-        
-//         console.log("Business Story saved:", businessStory);
-        
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: 100 // Add 100 GLL Ions to the user's balance as reward
-//                     }
-//                 }
-//             });
-//         }
-        
-//         res.status(200).json({
-//             message: "Business story submitted successfully",
-//             reward: "100 GLL Ions",
-//             storyId: businessStory.id
-//         });
-//     } catch (error) {
-//         console.log("Error submitting business story:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
-// // Save data from Reward Card8 - Product
-// router.post('/save-reward-card8', upload.none(), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { 
-//             productName, 
-//             gstInNumber, 
-//             uciCode, 
-//             productCategory, 
-//             productMaterial, 
-//             originCountry, 
-//             imageUrl, 
-//             status, 
-//             userId 
-//         } = req.body;
-        
-//         // Validate required fields
-//         if (!productName || !gstInNumber || !uciCode || !productCategory || 
-//             !productMaterial || !originCountry || !imageUrl) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. All product details and certificate image are required." 
-//             });
-//         }
-
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // Create product record in database
-//         const product = await prisma.product.create({
-//             data: {
-//                 productName,
-//                 gstInNumber,
-//                 uciCode,
-//                 productCategory,
-//                 productMaterial,
-//                 originCountry,
-//                 imageUrl,
-//                 status: status || "pending",
-//                 ...(user && { user: { connect: { id: userId } } })
-//             }
-//         });
-        
-//         console.log("Product saved:", product);
-        
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: status === 'completed' ? 180 : 90
-//                         // Double reward if product is marked as completed
-//                     }
-//                 }
-//             });
-//         }
-        
-//         res.status(200).json({
-//             message: status === 'completed' 
-//                 ? "Product marked as completed successfully" 
-//                 : "Product added successfully",
-//             reward: status === 'completed' ? "180 GLL Ions" : "90 GLL Ions",
-//             productId: product.id,
-//             status: product.status
-//         });
-//     } catch (error) {
-//         console.log("Error processing product:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
-
-// // Save data from Reward Card9 - Social Media Accounts
-// router.post('/save-reward-card9', upload.none(), async (req, res) => {
-//     try {
-//         console.log("Request body:", req.body);
-//         const { platform, userId } = req.body;
-        
-//         // Validate required fields
-//         if (!platform || Object.keys(platform).length === 0) {
-//             return res.status(400).json({ 
-//                 error: "Missing required fields. At least one social media platform must be connected." 
-//             });
-//         }
-
-//         // Check if user ID was provided and user exists
-//         let user = null;
-//         if (userId) {
-//             user = await prisma.user.findUnique({
-//                 where: { id: userId }
-//             });
-//         }
-
-//         // Extract platform data from the form
-//         const platforms = [];
-//         // Handle the array-like structure from FormData
-//         for (let i = 0; i < Object.keys(platform).length / 2; i++) {
-//             if (platform[i] && platform[i].name && platform[i].url) {
-//                 platforms.push({
-//                     name: platform[i].name,
-//                     url: platform[i].url
-//                 });
-//             }
-//         }
-
-//         if (platforms.length === 0) {
-//             return res.status(400).json({ 
-//                 error: "No valid platforms provided. Each platform must have a name and URL." 
-//             });
-//         }
-
-//         // Create social account record in database
-//         const socialAccount = await prisma.socialAccount.create({
-//             data: {
-//                 ...(user && { user: { connect: { id: userId } } }),
-//                 platforms: {
-//                     create: platforms.map(p => ({
-//                         name: p.name,
-//                         url: p.url,
-//                         connected: true
-//                     }))
-//                 }
-//             },
-//             include: {
-//                 platforms: true
-//             }
-//         });
-        
-//         console.log("Social Account saved:", socialAccount);
-        
-//         // If user exists, update GLL balance
-//         if (user) {
-//             await prisma.user.update({
-//                 where: { id: userId },
-//                 data: {
-//                     gllBalance: {
-//                         increment: 300 // Add 300 GLL Ions to the user's balance as reward
-//                     }
-//                 }
-//             });
-//         }
-        
-//         res.status(200).json({
-//             message: "Social accounts connected successfully",
-//             reward: "300 GLL Ions",
-//             socialAccountId: socialAccount.id,
-//             connectedPlatforms: socialAccount.platforms.length
-//         });
-//     } catch (error) {
-//         console.log("Error connecting social accounts:", error);
-//         res.status(500).json({ error: error.message });
-//     }
-// });
+        const errorResponse = {
+            error: error.message || "Error uploading media"
+        };
+        res.status(500).send(encryptJSON(errorResponse));
+    }
+});
 
 module.exports = router;

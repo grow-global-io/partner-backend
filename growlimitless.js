@@ -42,6 +42,11 @@ app.use(
       "Authorization",
       "X-Requested-With",
       "Accept",
+      "Cache-Control",
+      "Pragma",
+      "Expires",
+      "If-Modified-Since",
+      "If-None-Match"
     ],
     exposedHeaders: ["Content-Range", "X-Content-Range"],
     credentials: false, // Set to false since we're allowing all origins
@@ -191,6 +196,25 @@ app.use("/api/hotel-checkin", hotelCheckinRoutes);
 
 // Error handling middleware
 app.use(errorHandler);
+
+// 404 handler - must be last
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({
+      success: false,
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(404).send(`
+      <h1>404 - Page Not Found</h1>
+      <p>The requested page ${req.path} was not found.</p>
+      <a href="/">Go back to API home</a>
+    `);
+  }
+});
 
 // Start server
 app.listen(PORT, () => {
