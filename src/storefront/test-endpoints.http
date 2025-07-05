@@ -1,0 +1,98 @@
+### Storefront API Test Endpoints
+
+@baseUrl = http://localhost:8000/api/storefront
+@walletId = 0x1234567890abcdef1234567890abcdef12345678
+
+### Create a new store
+POST {{baseUrl}}/stores
+Content-Type: application/json
+
+{
+  "name": "Test Store",
+  "description": "This is a test store",
+  "walletId": "{{walletId}}"
+}
+
+### Get stores by wallet ID
+GET {{baseUrl}}/stores?walletId={{walletId}}
+
+### Get store by ID (replace with actual store ID)
+GET {{baseUrl}}/stores/store_id_here
+
+### Get store by slug (replace with actual slug)
+GET {{baseUrl}}/stores/slug/test-store-slug
+
+### Update store (replace with actual store ID)
+PUT {{baseUrl}}/stores/store_id_here
+Content-Type: application/json
+
+{
+  "name": "Updated Test Store",
+  "description": "This is an updated test store",
+  "isActive": true,
+  "walletId": "{{walletId}}"
+}
+
+### Create a new product (replace with actual store ID)
+POST {{baseUrl}}/stores/store_id_here/products
+Content-Type: application/json
+
+{
+  "name": "Test Product",
+  "description": "This is a test product",
+  "price": 19.99,
+  "category": "Electronics",
+  "inStock": true,
+  "sku": "PROD-001",
+  "walletId": "{{walletId}}"
+}
+
+### Get products by store ID (replace with actual store ID)
+GET {{baseUrl}}/stores/store_id_here/products
+
+### Get products by store ID with category filter (replace with actual store ID)
+GET {{baseUrl}}/stores/store_id_here/products?category=Electronics
+
+### Get product by ID (replace with actual product ID)
+GET {{baseUrl}}/products/product_id_here
+
+### Update product (replace with actual product ID)
+PUT {{baseUrl}}/products/product_id_here
+Content-Type: application/json
+
+{
+  "name": "Updated Test Product",
+  "description": "This is an updated test product",
+  "price": 29.99,
+  "category": "Electronics",
+  "inStock": true,
+  "sku": "PROD-001-UPD",
+  "walletId": "{{walletId}}"
+}
+
+### Delete product (replace with actual product ID)
+DELETE {{baseUrl}}/products/product_id_here
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}"
+}
+
+### Get product categories for a store (replace with actual store ID)
+GET {{baseUrl}}/stores/store_id_here/categories
+
+### Delete store (replace with actual store ID)
+DELETE {{baseUrl}}/stores/store_id_here
+Content-Type: application/json
+
+{
+  "walletId": "{{walletId}}"
+}
+
+### Upload store logo (replace with actual store ID)
+# Note: This requires a multipart form with an image file and walletId
+# Use a REST client that supports file uploads
+
+### Upload product image (replace with actual product ID)
+# Note: This requires a multipart form with an image file and walletId
+# Use a REST client that supports file uploads 

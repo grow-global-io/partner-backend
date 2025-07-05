@@ -39,12 +39,16 @@ model User {
   notificationPreferences Json? // Store notification preferences as JSON
   lastInteraction         DateTime? // Last time user interacted with the bot
   securelinkscount        Int       @default(0) // Track number of secure links generated
+  description             String?
+  userPhotos              String[]  @default([])
+  userVideos              String[]  @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
   rewards  Rewards[]      @relation("UserRewards")
+  stores   Store[]        @relation("UserStores")
   checkins HotelCheckin[] // Relation to hotel check-ins
 
   // storeConnections  storeConnection[]
@@ -88,6 +92,8 @@ model Creator {
   gllBalance Float    @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  userPhotos String[] @default([])
+  userVideos String[] @default([])
 }
 
 model Rewards {
@@ -213,6 +219,82 @@ model WeeklyMissionCompletion {
   @@unique([userEmail, missionType, weekNumber, year], name: "unique_weekly_mission")
   @@index([userEmail])
   @@index([weekNumber, year])
+}
+
+// Storefront feature models
+model Store {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  slug        String   @unique
+  logoUrl     String?
+  bannerUrl   String?
+  walletId    String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  products Product[] @relation("StoreProducts")
+  userId   String?   @db.ObjectId
+  user     User?     @relation("UserStores", fields: [userId], references: [id])
+
+  @@index([walletId])
+}
+
+model Product {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  price       Float
+  category    String?
+  imageUrls   String[] @default([])
+  inStock     Boolean  @default(true)
+  sku         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  storeId String @db.ObjectId
+  store   Store  @relation("StoreProducts", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@index([category])
+}
+
+// Excel Processing feature models
+model ExcelDocument {
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  fileName  String
+  fileKey   String     @unique
+  s3Url     String?
+  status    String     @default("pending") // pending, processing, completed, error
+  progress  Int        @default(0)
+  error     String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  rows      ExcelRow[]
+}
+
+model ExcelRow {
+  id         String        @id @default(auto()) @map("_id") @db.ObjectId
+  documentId String        @db.ObjectId
+  document   ExcelDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String
+  embedding  Json // Stored as array in MongoDB
+  rowData    Json
+  rowIndex   Int
+  metadata   Json?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  // Note: Vector search index will be created manually in MongoDB Atlas
+  // using the following command:
+  // db.ExcelRow.createIndex({ embedding: "vector" }, { 
+  //   name: "vector_search_index",
+  //   vectorSearchOptions: { numDimensions: 1536 }
+  // })
+
+  @@index([documentId])
 }
 
 model WalletDocuments {

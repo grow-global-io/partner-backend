@@ -6,14 +6,18 @@ const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./src/pdf-chat/config/swagger");
+const storefrontSwaggerSpecs = require("./src/storefront/config/swagger");
 // Import routes
 const userRoutes = require("./src/routes/userRoutes");
 const botRoutes = require("./src/routes/botRoutes");
 const paymentRoutes = require("./src/routes/paymentRoutes");
 const pdfChatRoutes = require("./src/pdf-chat/routes/pdfChatRoutes");
+const storefrontRoutes = require("./src/storefront/routes/storefrontRoutes");
 const hotelCheckinRoutes = require("./src/routes/hotelCheckinRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
 const { MongoClient } = require("mongodb");
+const leadgenRoutes = require("./src/leadgen/routes/leadgenRoutes");
+const leadgenSwaggerSpecs = require("./src/leadgen/config/swagger");
 
 // Create Express app
 const app = express();
@@ -38,6 +42,11 @@ app.use(
       "Authorization",
       "X-Requested-With",
       "Accept",
+      "Cache-Control",
+      "Pragma",
+      "Expires",
+      "If-Modified-Since",
+      "If-None-Match"
     ],
     exposedHeaders: ["Content-Range", "X-Content-Range"],
     credentials: false, // Set to false since we're allowing all origins
@@ -46,7 +55,7 @@ app.use(
 );
 app.use(express.json());
 
-// Unified Swagger Documentation - Both PDF Chat & Payment APIs
+// Unified Swagger Documentation - All APIs
 app.use(
   "/api/docs",
   swaggerUi.serve,
@@ -70,9 +79,47 @@ app.use(
 // Legacy PDF Chat documentation route (for backward compatibility)
 app.use(
   "/api/api-routes/pdf-chat/docs",
-  swaggerUi.serve,
+  swaggerUi.serveFiles(swaggerSpecs),
   swaggerUi.setup(swaggerSpecs, {
     customSiteTitle: "PDF Chat API Documentation",
+    customCss: ".swagger-ui .topbar { display: none }",
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: "none",
+      filter: true,
+      showExtensions: true,
+      showCommonExtensions: true,
+      tryItOutEnabled: true,
+    },
+  })
+);
+
+// Storefront Swagger Documentation
+app.use(
+  "/api/storefront/docs",
+  swaggerUi.serveFiles(storefrontSwaggerSpecs),
+  swaggerUi.setup(storefrontSwaggerSpecs, {
+    customSiteTitle: "Storefront API Documentation",
+    customCss: ".swagger-ui .topbar { display: none }",
+    swaggerOptions: {
+      persistAuthorization: true,
+      displayRequestDuration: true,
+      docExpansion: "none",
+      filter: true,
+      showExtensions: true,
+      showCommonExtensions: true,
+      tryItOutEnabled: true,
+    },
+  })
+);
+
+// Leadgen Swagger Documentation
+app.use(
+  "/api/leadgen/docs",
+  swaggerUi.serveFiles(leadgenSwaggerSpecs),
+  swaggerUi.setup(leadgenSwaggerSpecs, {
+    customSiteTitle: "Leadgen (Excel) API Documentation",
     customCss: ".swagger-ui .topbar { display: none }",
     swaggerOptions: {
       persistAuthorization: true,
@@ -112,11 +159,16 @@ app.get("/", (req, res) => {
       <li><a href="/api/bot">/api/bot</a> - Telegram bot</li>
       <li><a href="/api/payments">/api/payments</a> - Payment processing & wallet management</li>
       <li><a href="/api/api-routes/pdf-chat">/api/api-routes/pdf-chat</a> - PDF Chat system</li>
+      <li><a href="/api/storefront">/api/storefront</a> - Storefront system</li>
+      <li><a href="/api/leadgen">/api/leadgen</a> - Leadgen (Excel) system</li>
+      <li><a href="/api/hotel-checkin">/api/hotel-checkin</a> - Hotel check-in system</li>
     </ul>
     <h2>📖 API Documentation:</h2>
     <ul>
       <li><a href="/api/docs" style="font-weight: bold; color: #007bff;">📄 Complete API Documentation (Swagger)</a> - Payment & PDF Chat APIs</li>
       <li><a href="/api/api-routes/pdf-chat/docs">/api/api-routes/pdf-chat/docs</a> - PDF Chat API Documentation (Legacy)</li>
+      <li><a href="/api/storefront/docs">/api/storefront/docs</a> - 🛒 Storefront API Documentation (Swagger)</li>
+      <li><a href="/api/leadgen/docs">/api/leadgen/docs</a> - 📊 Leadgen (Excel) API Documentation (Swagger)</li>
     </ul>
     <h2>🔧 Features:</h2>
     <ul>
@@ -125,6 +177,9 @@ app.get("/", (req, res) => {
       <li>✅ PDF upload and AI-powered chat system</li>
       <li>✅ User management and authentication</li>
       <li>✅ Telegram bot integration</li>
+      <li>✅ Storefront management system</li>
+      <li>✅ Excel processing with AI-powered search</li>
+      <li>✅ Hotel check-in management</li>
       <li>✅ Comprehensive API documentation</li>
     </ul>
   `);
@@ -135,30 +190,48 @@ app.use("/api/users", userRoutes);
 app.use("/api/bot", botRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/api-routes/pdf-chat", pdfChatRoutes);
+app.use("/api/storefront", storefrontRoutes);
+app.use("/api/leadgen", leadgenRoutes);
 app.use("/api/hotel-checkin", hotelCheckinRoutes);
 
-// Error handling middleware (should be last)
+// Error handling middleware
 app.use(errorHandler);
 
-// Start the Express server
+// 404 handler - must be last
+app.use((req, res) => {
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({
+      success: false,
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString()
+    });
+  } else {
+    res.status(404).send(`
+      <h1>404 - Page Not Found</h1>
+      <p>The requested page ${req.path} was not found.</p>
+      <a href="/">Go back to API home</a>
+    `);
+  }
+});
+
+// Start server
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log("🤖 Telegram bot is active and listening for messages...");
-  console.log("💳 Payment API is available at /api/payments");
   console.log("📄 PDF Chat API is available at /api/api-routes/pdf-chat");
   console.log(
-    "📖 Complete API Documentation: http://localhost:" + PORT + "/api/docs"
+    "📖 PDF Chat API Documentation: http://localhost:8000/api/api-routes/pdf-chat/docs"
   );
+  console.log("🛒 Storefront API is available at /api/storefront");
   console.log(
-    "📖 PDF Chat API Documentation: http://localhost:" +
-      PORT +
-      "/api/api-routes/pdf-chat/docs"
+    "📖 Storefront API Documentation: http://localhost:8000/api/storefront/docs"
+  );
+  console.log("📊 Leadgen (Excel) API is available at /api/leadgen");
+  console.log(
+    "📖 Leadgen (Excel) API Documentation: http://localhost:8000/api/leadgen/docs"
   );
 });
 
-// Handle unhandled promise rejections
-process.on("unhandledRejection", (err) => {
-  console.error("UNHANDLED REJECTION! 💥 Shutting down...");
-  console.error(err.name, err.message);
-  process.exit(1);
-});
+module.exports = app;
