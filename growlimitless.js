@@ -35,6 +35,9 @@ app.use(
       "https://partner.growlimitless.app",
       "https://gll.one",
       "https://dev.gll.one",
+      "https://www.gll.one",
+      'https://gll-gateway.growlimitless.app',
+      "http://localhost:8000"
     ], // Allow only specific localhost ports
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: [
