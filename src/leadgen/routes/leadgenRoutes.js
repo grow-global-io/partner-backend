@@ -340,4 +340,226 @@ router.post("/reprocess", (req, res) =>
   excelController.reprocessFile(req, res)
 );
 
+/**
+ * @swagger
+ * /api/leadgen/delete:
+ *   post:
+ *     summary: Delete Excel file and its embeddings
+ *     tags: [Excel Processing]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fileKey
+ *             properties:
+ *               fileKey:
+ *                 type: string
+ *                 description: File key to delete
+ *               deleteFromS3:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Whether to delete from S3 storage
+ *     responses:
+ *       200:
+ *         description: File deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     fileKey:
+ *                       type: string
+ *                     fileName:
+ *                       type: string
+ *                     deletedFromDatabase:
+ *                       type: boolean
+ *                     deletedFromS3:
+ *                       type: boolean
+ *                     s3DeletionResult:
+ *                       type: object
+ *                     deletedAt:
+ *                       type: string
+ *                       format: date-time
+ *       400:
+ *         description: Missing fileKey parameter
+ *       404:
+ *         description: File not found
+ *       500:
+ *         description: Server error
+ */
+router.post("/delete", (req, res) => excelController.deleteFile(req, res));
+
+/**
+ * @swagger
+ * /api/leadgen/find-leads:
+ *   post:
+ *     summary: Find and score leads based on matchmaking criteria
+ *     tags: [Lead Matching]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - product
+ *               - industry
+ *             properties:
+ *               product:
+ *                 type: string
+ *                 description: Product or Service name
+ *                 example: "Women garments"
+ *               industry:
+ *                 type: string
+ *                 description: Industry name
+ *                 example: "Textiles"
+ *               region:
+ *                 type: string
+ *                 description: Region or Country (optional)
+ *                 example: "India"
+ *               keywords:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Keywords array (optional)
+ *                 example: ["Sari", "Lehenga", "Fashion"]
+ *               limit:
+ *                 type: integer
+ *                 default: 10
+ *                 description: Maximum number of results
+ *               minScore:
+ *                 type: integer
+ *                 default: 50
+ *                 description: Minimum score threshold (0-100)
+ *     responses:
+ *       200:
+ *         description: Leads found and scored successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     searchCriteria:
+ *                       type: object
+ *                       properties:
+ *                         product:
+ *                           type: string
+ *                         industry:
+ *                           type: string
+ *                         region:
+ *                           type: string
+ *                         keywords:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                         searchQuery:
+ *                           type: string
+ *                     totalMatches:
+ *                       type: integer
+ *                       description: Total matches found before filtering
+ *                     qualifiedLeads:
+ *                       type: integer
+ *                       description: Number of leads meeting minimum score
+ *                     leads:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           companyName:
+ *                             type: string
+ *                           country:
+ *                             type: string
+ *                           industry:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                           website:
+ *                             type: string
+ *                           finalScore:
+ *                             type: integer
+ *                             description: Final weighted score (0-100)
+ *                           scoreBreakdown:
+ *                             type: object
+ *                             properties:
+ *                               industryMatch:
+ *                                 type: integer
+ *                               geographicMatch:
+ *                                 type: integer
+ *                               contactCompleteness:
+ *                                 type: integer
+ *                               leadActivity:
+ *                                 type: integer
+ *                               exportReadiness:
+ *                                 type: integer
+ *                               engagement:
+ *                                 type: integer
+ *                               dataFreshness:
+ *                                 type: integer
+ *                           vectorSimilarity:
+ *                             type: number
+ *                             description: Vector similarity score
+ *                           fileName:
+ *                             type: string
+ *                           rowIndex:
+ *                             type: integer
+ *                           priority:
+ *                             type: string
+ *                             enum: [High, Medium, Low]
+ *                     insights:
+ *                       type: object
+ *                       properties:
+ *                         summary:
+ *                           type: string
+ *                         totalAnalyzed:
+ *                           type: integer
+ *                         averageScore:
+ *                           type: integer
+ *                         topCountries:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               country:
+ *                                 type: string
+ *                               count:
+ *                                 type: integer
+ *                         recommendedAction:
+ *                           type: string
+ *                     responseTime:
+ *                       type: integer
+ *                       description: Response time in milliseconds
+ *                     minScore:
+ *                       type: integer
+ *                     limit:
+ *                       type: integer
+ *                     model:
+ *                       type: string
+ *       400:
+ *         description: Missing required parameters (product, industry)
+ *       401:
+ *         description: Invalid API key
+ *       404:
+ *         description: No relevant leads found
+ *       500:
+ *         description: Server error
+ */
+router.post("/find-leads", (req, res) => excelController.findLeads(req, res));
+
 module.exports = router;

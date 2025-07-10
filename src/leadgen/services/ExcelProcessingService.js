@@ -225,6 +225,38 @@ class ExcelProcessingService {
   }
 
   /**
+   * @description Delete Excel file from S3
+   * @param {string} s3Key - S3 object key
+   * @returns {Promise<Object>} Deletion result
+   */
+  async deleteExcelFromS3(s3Key) {
+    try {
+      const deleteParams = {
+        Bucket: this.bucketName,
+        Key: s3Key,
+      };
+
+      const result = await this.s3.deleteObject(deleteParams).promise();
+
+      console.log(
+        `ExcelProcessingService: Successfully deleted file from S3: ${s3Key}`
+      );
+
+      return {
+        success: true,
+        deletedKey: s3Key,
+        result: result,
+      };
+    } catch (error) {
+      console.error(
+        "ExcelProcessingService: Error deleting Excel from S3:",
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
    * @description Extract text content from row data for embedding
    * @param {Object} rowData - Row data object
    * @returns {string} Concatenated text content

@@ -138,6 +138,22 @@ class ExcelModel {
   }
 
   /**
+   * @description Get a single Excel document by fileKey
+   * @param {string} fileKey - File key
+   * @returns {Promise<Object>} Document data
+   */
+  async getDocumentByFileKey(fileKey) {
+    try {
+      return await this.prisma.excelDocument.findFirst({
+        where: { fileKey },
+      });
+    } catch (error) {
+      console.error("ExcelModel: Error getting document by fileKey:", error);
+      throw error;
+    }
+  }
+
+  /**
    * @description Delete an Excel document and its rows
    * @param {string} id - Document ID
    * @returns {Promise<Object>} Deleted document

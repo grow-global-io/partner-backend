@@ -760,6 +760,856 @@ class ExcelController {
   }
 
   /**
+   * @description Find and score leads based on matchmaking criteria
+   * @param {Object} req - Express request object
+   * @param {string} req.body.product - Product/Service name (required)
+   * @param {string} req.body.industry - Industry name (required)
+   * @param {string} req.body.region - Region/Country (optional)
+   * @param {Array<string>} req.body.keywords - Keywords array (optional)
+   * @param {number} req.body.limit - Maximum results (default: 10)
+   * @param {number} req.body.minScore - Minimum score threshold (default: 50)
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with scored leads
+   */
+  async findLeads(req, res) {
+    const startTime = Date.now();
+
+    try {
+      const {
+        product,
+        industry,
+        region,
+        keywords = [],
+        limit = 10,
+        minScore = 50,
+      } = req.body;
+
+      // Validate required fields
+      if (!product || !industry) {
+        return res.status(400).json({
+          success: false,
+          error: "Product/Service and Industry are required fields",
+        });
+      }
+
+      // Validate API key before proceeding
+      const isValidApiKey = await this.openAIService.validateApiKey();
+      if (!isValidApiKey) {
+        return res.status(401).json({
+          success: false,
+          error: "Failed to generate LLM response",
+          details:
+            "Invalid API key. Please check your DEEPSEEK_API_KEY environment variable.",
+        });
+      }
+
+      // Build comprehensive search query
+      const searchQuery = this.buildSearchQuery(
+        product,
+        industry,
+        region,
+        keywords
+      );
+
+      console.log(`ExcelController: Finding leads for query: ${searchQuery}`);
+
+      // Generate query embedding
+      let queryEmbedding;
+      try {
+        queryEmbedding = await this.openAIService.generateEmbedding(
+          searchQuery
+        );
+      } catch (embeddingError) {
+        console.error("Error generating query embedding:", embeddingError);
+        return this.handleDeepseekError(embeddingError, res);
+      }
+
+      // Search for relevant rows across all documents with larger initial set
+      let relevantRows;
+      try {
+        relevantRows = await this.excelModel.vectorSearch(
+          queryEmbedding,
+          null, // fileKey - search all files
+          Math.max(50, limit * 5), // Get more results for better scoring
+          0.1 // Lower similarity threshold for initial search
+        );
+      } catch (searchError) {
+        console.error("Error searching vectors:", searchError);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to search lead data",
+          details: searchError.message,
+        });
+      }
+
+      if (!relevantRows.length) {
+        return res.status(404).json({
+          success: false,
+          error: "No relevant leads found for the specified criteria",
+          data: {
+            searchQuery,
+            totalResults: 0,
+            leads: [],
+          },
+        });
+      }
+
+      // Apply advanced scoring logic
+      const scoredLeads = await this.scoreLeads(
+        relevantRows,
+        product,
+        industry,
+        region,
+        keywords
+      );
+
+      // Filter by minimum score and limit results
+      const filteredLeads = scoredLeads
+        .filter((lead) => lead.finalScore >= minScore)
+        .slice(0, parseInt(limit));
+
+      // Generate AI insights about the lead matching
+      let aiInsights = null;
+      if (filteredLeads.length > 0) {
+        try {
+          aiInsights = await this.generateLeadInsights(
+            searchQuery,
+            filteredLeads.slice(0, 5), // Top 5 for insights
+            product,
+            industry,
+            region
+          );
+        } catch (insightError) {
+          console.error("Error generating AI insights:", insightError);
+          // Continue without insights if this fails
+        }
+      }
+
+      const responseTime = Date.now() - startTime;
+
+      return res.json({
+        success: true,
+        data: {
+          searchCriteria: {
+            product,
+            industry,
+            region,
+            keywords,
+            searchQuery,
+          },
+          totalMatches: relevantRows.length,
+          qualifiedLeads: filteredLeads.length,
+          leads: filteredLeads.map((lead) => ({
+            companyName: this.extractCompanyName(lead.rowData),
+            country: this.extractCountry(lead.rowData),
+            industry: this.extractIndustry(lead.rowData),
+            email: this.extractEmail(lead.rowData),
+            phone: this.extractPhone(lead.rowData),
+            website: this.extractWebsite(lead.rowData),
+
+            // Scoring details
+            finalScore: Math.round(lead.finalScore),
+            scoreBreakdown: {
+              industryMatch: Math.round(lead.industryScore * 30),
+              geographicMatch: Math.round(lead.regionScore * 15),
+              contactCompleteness: Math.round(lead.completenessScore * 10),
+              leadActivity: Math.round(lead.activityScore * 15),
+              exportReadiness: Math.round(lead.exportScore * 10),
+              engagement: Math.round(lead.engagementScore * 10),
+              dataFreshness: Math.round(lead.freshnessScore * 10),
+            },
+
+            // Metadata
+            vectorSimilarity: lead.score,
+            fileName: lead.fileName,
+            rowIndex: lead.rowIndex,
+            priority: this.getLeadPriority(lead.finalScore),
+          })),
+
+          // AI Insights
+          insights: aiInsights,
+
+          // Metadata
+          responseTime,
+          minScore,
+          limit: parseInt(limit),
+          model: "advanced-scoring-engine-v1",
+        },
+      });
+    } catch (error) {
+      console.error("ExcelController: Error in findLeads:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to find leads",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * @description Build comprehensive search query from criteria
+   * @param {string} product - Product/Service name
+   * @param {string} industry - Industry name
+   * @param {string} region - Region/Country
+   * @param {Array<string>} keywords - Keywords array
+   * @returns {string} Combined search query
+   * @private
+   */
+  buildSearchQuery(product, industry, region, keywords) {
+    const components = [product, industry];
+
+    if (region) {
+      components.push(region);
+    }
+
+    if (keywords && keywords.length > 0) {
+      components.push(...keywords);
+    }
+
+    return components.join(" ");
+  }
+
+  /**
+   * @description Apply advanced scoring logic to leads
+   * @param {Array} leads - Array of lead objects
+   * @param {string} product - Product/Service name
+   * @param {string} industry - Industry name
+   * @param {string} region - Region/Country
+   * @param {Array<string>} keywords - Keywords array
+   * @returns {Promise<Array>} Scored leads
+   * @private
+   */
+  async scoreLeads(leads, product, industry, region, keywords) {
+    return leads
+      .map((lead) => {
+        const rowData = lead.rowData;
+        const content = lead.content || JSON.stringify(rowData);
+
+        // Industry Match (30% weight)
+        const industryScore = this.calculateIndustryMatch(
+          content,
+          industry,
+          keywords
+        );
+
+        // Geographic Match (15% weight)
+        const regionScore = this.calculateRegionMatch(content, region);
+
+        // Contact Completeness (10% weight)
+        const completenessScore = this.calculateCompleteness(rowData);
+
+        // Lead Activity Tier (15% weight)
+        const activityScore = this.calculateActivityScore(rowData);
+
+        // Export Readiness (10% weight)
+        const exportScore = this.calculateExportReadiness(content);
+
+        // Prior Engagement (10% weight)
+        const engagementScore = this.calculateEngagementScore(rowData);
+
+        // Data Freshness (10% weight)
+        const freshnessScore = this.calculateFreshnessScore(lead);
+
+        // Calculate final weighted score
+        const finalScore =
+          (industryScore * 0.3 +
+            regionScore * 0.15 +
+            completenessScore * 0.1 +
+            activityScore * 0.15 +
+            exportScore * 0.1 +
+            engagementScore * 0.1 +
+            freshnessScore * 0.1) *
+          100; // Convert to 0-100 scale
+
+        return {
+          ...lead,
+          industryScore,
+          regionScore,
+          completenessScore,
+          activityScore,
+          exportScore,
+          engagementScore,
+          freshnessScore,
+          finalScore,
+        };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore);
+  }
+
+  /**
+   * @description Calculate industry matching score
+   * @param {string} content - Lead content
+   * @param {string} industry - Target industry
+   * @param {Array<string>} keywords - Keywords
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateIndustryMatch(content, industry, keywords) {
+    const lowerContent = content.toLowerCase();
+    const lowerIndustry = industry.toLowerCase();
+
+    let score = 0;
+
+    // Direct industry match
+    if (lowerContent.includes(lowerIndustry)) {
+      score += 0.6;
+    }
+
+    // Keyword matches
+    if (keywords && keywords.length > 0) {
+      const keywordMatches = keywords.filter((keyword) =>
+        lowerContent.includes(keyword.toLowerCase())
+      ).length;
+      score += (keywordMatches / keywords.length) * 0.4;
+    }
+
+    // Industry-related terms
+    const industryTerms = this.getIndustryTerms(industry);
+    const termMatches = industryTerms.filter((term) =>
+      lowerContent.includes(term.toLowerCase())
+    ).length;
+
+    if (industryTerms.length > 0) {
+      score += (termMatches / industryTerms.length) * 0.3;
+    }
+
+    return Math.min(score, 1);
+  }
+
+  /**
+   * @description Calculate geographic matching score
+   * @param {string} content - Lead content
+   * @param {string} region - Target region
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateRegionMatch(content, region) {
+    if (!region) return 0.5; // Neutral score if no region specified
+
+    const lowerContent = content.toLowerCase();
+    const lowerRegion = region.toLowerCase();
+
+    // Direct region match
+    if (lowerContent.includes(lowerRegion)) {
+      return 1.0;
+    }
+
+    // Country code matches (if region is a country)
+    const countryCodes = this.getCountryCodes(region);
+    const hasCountryCode = countryCodes.some((code) =>
+      lowerContent.includes(code.toLowerCase())
+    );
+
+    if (hasCountryCode) {
+      return 0.8;
+    }
+
+    // Regional variations
+    const regionalTerms = this.getRegionalTerms(region);
+    const hasRegionalTerm = regionalTerms.some((term) =>
+      lowerContent.includes(term.toLowerCase())
+    );
+
+    return hasRegionalTerm ? 0.6 : 0.2;
+  }
+
+  /**
+   * @description Calculate contact completeness score
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateCompleteness(rowData) {
+    const fields = ["email", "phone", "whatsapp", "website", "company", "name"];
+    let completedFields = 0;
+
+    fields.forEach((field) => {
+      const value = this.findFieldValue(rowData, field);
+      if (value && value.trim().length > 0) {
+        completedFields++;
+      }
+    });
+
+    return completedFields / fields.length;
+  }
+
+  /**
+   * @description Calculate activity/tier score
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateActivityScore(rowData) {
+    const tierField =
+      this.findFieldValue(rowData, "tier") ||
+      this.findFieldValue(rowData, "level") ||
+      this.findFieldValue(rowData, "category");
+
+    if (tierField) {
+      const tier = tierField.toLowerCase();
+      if (
+        tier.includes("premium") ||
+        tier.includes("gold") ||
+        tier.includes("tier 1")
+      ) {
+        return 1.0;
+      }
+      if (tier.includes("silver") || tier.includes("tier 2")) {
+        return 0.7;
+      }
+      if (tier.includes("bronze") || tier.includes("tier 3")) {
+        return 0.4;
+      }
+    }
+
+    // Default based on data quality
+    const content = JSON.stringify(rowData).toLowerCase();
+    if (content.includes("verified") || content.includes("certified")) {
+      return 0.8;
+    }
+
+    return 0.5;
+  }
+
+  /**
+   * @description Calculate export readiness score
+   * @param {string} content - Lead content
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateExportReadiness(content) {
+    const lowerContent = content.toLowerCase();
+    const exportTerms = [
+      "export",
+      "international",
+      "global",
+      "worldwide",
+      "overseas",
+      "trade",
+      "shipping",
+      "customs",
+      "fob",
+      "cif",
+      "export license",
+    ];
+
+    const matches = exportTerms.filter((term) =>
+      lowerContent.includes(term)
+    ).length;
+    return Math.min(matches / 3, 1); // Normalize to 0-1
+  }
+
+  /**
+   * @description Calculate engagement score
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateEngagementScore(rowData) {
+    const engagementField =
+      this.findFieldValue(rowData, "engagement") ||
+      this.findFieldValue(rowData, "status") ||
+      this.findFieldValue(rowData, "activity");
+
+    if (engagementField) {
+      const engagement = engagementField.toLowerCase();
+      if (engagement.includes("active") || engagement.includes("high")) {
+        return 1.0;
+      }
+      if (engagement.includes("medium") || engagement.includes("regular")) {
+        return 0.6;
+      }
+      if (engagement.includes("low") || engagement.includes("inactive")) {
+        return 0.2;
+      }
+    }
+
+    return 0.5; // Default neutral score
+  }
+
+  /**
+   * @description Calculate data freshness score
+   * @param {Object} lead - Lead object with metadata
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateFreshnessScore(lead) {
+    // For now, use document creation date as proxy for freshness
+    if (lead.document && lead.document.createdAt) {
+      const createdDate = new Date(lead.document.createdAt);
+      const now = new Date();
+      const daysDiff = (now - createdDate) / (1000 * 60 * 60 * 24);
+
+      if (daysDiff <= 30) return 1.0; // Very fresh (last month)
+      if (daysDiff <= 90) return 0.8; // Fresh (last 3 months)
+      if (daysDiff <= 180) return 0.6; // Moderately fresh (last 6 months)
+      if (daysDiff <= 365) return 0.4; // Older (last year)
+      return 0.2; // Very old (over a year)
+    }
+
+    return 0.5; // Default if no date available
+  }
+
+  /**
+   * @description Generate AI insights about lead matches
+   * @param {string} searchQuery - Original search query
+   * @param {Array} topLeads - Top scored leads
+   * @param {string} product - Product name
+   * @param {string} industry - Industry name
+   * @param {string} region - Region name
+   * @returns {Promise<Object>} AI insights
+   * @private
+   */
+  async generateLeadInsights(searchQuery, topLeads, product, industry, region) {
+    try {
+      const leadsContext = topLeads
+        .map(
+          (lead, index) =>
+            `Lead ${index + 1}: ${this.extractCompanyName(
+              lead.rowData
+            )} (Score: ${Math.round(
+              lead.finalScore
+            )}) - ${lead.content.substring(0, 200)}...`
+        )
+        .join("\n\n");
+
+      const prompt = `Based on these lead matching results for "${product}" in "${industry}"${
+        region ? ` in ${region}` : ""
+      }:
+
+${leadsContext}
+
+Provide insights on:
+1. Quality of matches found
+2. Geographic distribution
+3. Industry alignment
+4. Recommendations for outreach strategy
+5. Potential challenges or opportunities
+
+Keep the response concise and actionable.`;
+
+      const response = await this.openAIService.generateChatResponse(
+        prompt,
+        topLeads.map((lead) => ({
+          text: lead.content,
+          metadata: { score: lead.finalScore },
+        })),
+        "Lead Matching Analysis"
+      );
+
+      return {
+        summary: response.answer,
+        totalAnalyzed: topLeads.length,
+        averageScore: Math.round(
+          topLeads.reduce((sum, lead) => sum + lead.finalScore, 0) /
+            topLeads.length
+        ),
+        topCountries: this.getTopCountries(topLeads),
+        recommendedAction: this.getRecommendedAction(topLeads),
+      };
+    } catch (error) {
+      console.error("Error generating lead insights:", error);
+      return null;
+    }
+  }
+
+  // Utility methods for data extraction and analysis
+
+  /**
+   * @description Extract company name from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Company name
+   * @private
+   */
+  extractCompanyName(rowData) {
+    return (
+      this.findFieldValue(rowData, "company") ||
+      this.findFieldValue(rowData, "business") ||
+      this.findFieldValue(rowData, "organization") ||
+      this.findFieldValue(rowData, "firm") ||
+      "Unknown Company"
+    );
+  }
+
+  /**
+   * @description Extract country from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Country
+   * @private
+   */
+  extractCountry(rowData) {
+    return (
+      this.findFieldValue(rowData, "country") ||
+      this.findFieldValue(rowData, "location") ||
+      this.findFieldValue(rowData, "region") ||
+      "Unknown"
+    );
+  }
+
+  /**
+   * @description Extract industry from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Industry
+   * @private
+   */
+  extractIndustry(rowData) {
+    return (
+      this.findFieldValue(rowData, "industry") ||
+      this.findFieldValue(rowData, "sector") ||
+      this.findFieldValue(rowData, "category") ||
+      "Unknown"
+    );
+  }
+
+  /**
+   * @description Extract email from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Email
+   * @private
+   */
+  extractEmail(rowData) {
+    return (
+      this.findFieldValue(rowData, "email") ||
+      this.findFieldValue(rowData, "contact") ||
+      null
+    );
+  }
+
+  /**
+   * @description Extract phone from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Phone
+   * @private
+   */
+  extractPhone(rowData) {
+    return (
+      this.findFieldValue(rowData, "phone") ||
+      this.findFieldValue(rowData, "mobile") ||
+      this.findFieldValue(rowData, "whatsapp") ||
+      this.findFieldValue(rowData, "contact") ||
+      null
+    );
+  }
+
+  /**
+   * @description Extract website from row data
+   * @param {Object} rowData - Row data object
+   * @returns {string} Website
+   * @private
+   */
+  extractWebsite(rowData) {
+    return (
+      this.findFieldValue(rowData, "website") ||
+      this.findFieldValue(rowData, "url") ||
+      this.findFieldValue(rowData, "web") ||
+      null
+    );
+  }
+
+  /**
+   * @description Find field value by partial name matching
+   * @param {Object} rowData - Row data object
+   * @param {string} fieldName - Field name to search for
+   * @returns {string|null} Field value
+   * @private
+   */
+  findFieldValue(rowData, fieldName) {
+    const lowerFieldName = fieldName.toLowerCase();
+
+    // Direct match
+    if (rowData[fieldName]) return rowData[fieldName];
+    if (rowData[lowerFieldName]) return rowData[lowerFieldName];
+
+    // Partial match
+    const matchingKey = Object.keys(rowData).find((key) =>
+      key.toLowerCase().includes(lowerFieldName)
+    );
+
+    return matchingKey ? rowData[matchingKey] : null;
+  }
+
+  /**
+   * @description Get industry-related terms
+   * @param {string} industry - Industry name
+   * @returns {Array<string>} Related terms
+   * @private
+   */
+  getIndustryTerms(industry) {
+    const termMap = {
+      textiles: ["fabric", "clothing", "garment", "fashion", "apparel"],
+      spices: ["herbs", "seasoning", "condiment", "flavor"],
+      technology: ["software", "hardware", "IT", "digital", "tech"],
+      manufacturing: ["production", "factory", "industrial", "assembly"],
+      agriculture: ["farming", "crops", "food", "organic", "produce"],
+    };
+
+    return termMap[industry.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get country codes for region
+   * @param {string} region - Region name
+   * @returns {Array<string>} Country codes
+   * @private
+   */
+  getCountryCodes(region) {
+    const codeMap = {
+      india: ["IN", "IND"],
+      china: ["CN", "CHN"],
+      usa: ["US", "USA"],
+      germany: ["DE", "DEU"],
+      japan: ["JP", "JPN"],
+    };
+
+    return codeMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get regional terms
+   * @param {string} region - Region name
+   * @returns {Array<string>} Regional terms
+   * @private
+   */
+  getRegionalTerms(region) {
+    const termMap = {
+      india: ["indian", "delhi", "mumbai", "bangalore", "asia"],
+      china: ["chinese", "beijing", "shanghai", "asia"],
+      usa: ["american", "america", "us"],
+      europe: ["european", "eu"],
+    };
+
+    return termMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get lead priority based on score
+   * @param {number} score - Final score
+   * @returns {string} Priority level
+   * @private
+   */
+  getLeadPriority(score) {
+    if (score >= 75) return "High";
+    if (score >= 50) return "Medium";
+    return "Low";
+  }
+
+  /**
+   * @description Get top countries from leads
+   * @param {Array} leads - Array of leads
+   * @returns {Array} Top countries
+   * @private
+   */
+  getTopCountries(leads) {
+    const countryCount = {};
+    leads.forEach((lead) => {
+      const country = this.extractCountry(lead.rowData);
+      countryCount[country] = (countryCount[country] || 0) + 1;
+    });
+
+    return Object.entries(countryCount)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([country, count]) => ({ country, count }));
+  }
+
+  /**
+   * @description Get recommended action based on lead analysis
+   * @param {Array} leads - Array of leads
+   * @returns {string} Recommended action
+   * @private
+   */
+  getRecommendedAction(leads) {
+    const avgScore =
+      leads.reduce((sum, lead) => sum + lead.finalScore, 0) / leads.length;
+
+    if (avgScore >= 75) {
+      return "Immediate outreach recommended - high-quality matches found";
+    } else if (avgScore >= 50) {
+      return "Targeted outreach with personalized messaging recommended";
+    } else {
+      return "Further market research recommended - consider refining search criteria";
+    }
+  }
+
+  /**
+   * @description Delete Excel file and its embeddings
+   * @param {Object} req - Express request object
+   * @param {string} req.body.fileKey - File key to delete (required)
+   * @param {boolean} req.body.deleteFromS3 - Whether to delete from S3 (default: true)
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with deletion status
+   */
+  async deleteFile(req, res) {
+    try {
+      const { fileKey, deleteFromS3 = true } = req.body;
+
+      if (!fileKey) {
+        return res.status(400).json({
+          success: false,
+          error: "fileKey is required",
+        });
+      }
+
+      // Get existing document
+      const document = await this.excelModel.getDocumentByFileKey(fileKey);
+      if (!document) {
+        return res.status(404).json({
+          success: false,
+          error: "File not found",
+        });
+      }
+
+      let s3DeletionResult = null;
+
+      // Delete from S3 if requested
+      if (deleteFromS3 && document.s3Url) {
+        try {
+          s3DeletionResult = await this.excelService.deleteExcelFromS3(fileKey);
+          console.log(
+            `ExcelController: Successfully deleted file from S3: ${fileKey}`
+          );
+        } catch (s3Error) {
+          console.error(
+            `ExcelController: Failed to delete from S3: ${s3Error.message}`
+          );
+          // Continue with database deletion even if S3 deletion fails
+          s3DeletionResult = {
+            success: false,
+            error: s3Error.message,
+          };
+        }
+      }
+
+      // Delete from database (this also deletes associated rows/embeddings)
+      await this.excelModel.deleteDocument(document.id);
+
+      console.log(
+        `ExcelController: Successfully deleted file and embeddings: ${fileKey}`
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "File and embeddings deleted successfully",
+        data: {
+          fileKey: fileKey,
+          fileName: document.fileName,
+          deletedFromDatabase: true,
+          deletedFromS3: deleteFromS3,
+          s3DeletionResult: s3DeletionResult,
+          deletedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error("ExcelController: Error deleting file:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to delete file",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
    * @description Get upload middleware
    * @returns {Function} Multer middleware
    */

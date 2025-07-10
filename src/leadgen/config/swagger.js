@@ -13,6 +13,10 @@ const options = {
         url: "http://localhost:8000",
         description: "Development server",
       },
+      {
+        url: "https://backend.gll.one",
+        description: "Production server",
+      },
     ],
     components: {
       schemas: {
