@@ -13,6 +13,19 @@ const path = require("path");
  */
 class ExcelProcessingService {
   constructor() {
+    // Validate required environment variables
+    if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+      console.warn(
+        "ExcelProcessingService: AWS credentials not fully configured. S3 operations may fail."
+      );
+    }
+
+    if (!process.env.AWS_BUCKET_NAME) {
+      console.warn(
+        "ExcelProcessingService: AWS_BUCKET_NAME not configured. S3 operations will fail."
+      );
+    }
+
     // Configure AWS S3
     this.s3 = new AWS.S3({
       accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -225,12 +238,47 @@ class ExcelProcessingService {
   }
 
   /**
-   * @description Delete Excel file from S3
+   * @description Check if S3 delete permissions are available
+   * @param {string} s3Key - S3 object key to test
+   * @returns {Promise<boolean>} True if delete permissions are available
+   */
+  async checkS3DeletePermissions(s3Key) {
+    try {
+      // Try to get object metadata first (lighter operation)
+      const headParams = {
+        Bucket: this.bucketName,
+        Key: s3Key,
+      };
+
+      await this.s3.headObject(headParams).promise();
+      return true; // If we can access the object, likely we can delete it
+    } catch (error) {
+      console.warn(
+        `ExcelProcessingService: Cannot access S3 object ${s3Key}:`,
+        error.code
+      );
+      return false;
+    }
+  }
+
+  /**
+   * @description Delete Excel file from S3 with improved error handling
    * @param {string} s3Key - S3 object key
    * @returns {Promise<Object>} Deletion result
    */
   async deleteExcelFromS3(s3Key) {
     try {
+      // Check if we have access to the object first
+      const hasAccess = await this.checkS3DeletePermissions(s3Key);
+      if (!hasAccess) {
+        return {
+          success: false,
+          deletedKey: s3Key,
+          error: "No access to S3 object or object doesn't exist",
+          errorType: "ACCESS_DENIED",
+        };
+      }
+
       const deleteParams = {
         Bucket: this.bucketName,
         Key: s3Key,
@@ -252,7 +300,30 @@ class ExcelProcessingService {
         "ExcelProcessingService: Error deleting Excel from S3:",
         error
       );
-      throw error;
+
+      // Categorize the error for better handling
+      let errorType = "UNKNOWN_ERROR";
+      let userFriendlyMessage = "Failed to delete file from S3";
+
+      if (error.code === "AccessDenied") {
+        errorType = "ACCESS_DENIED";
+        userFriendlyMessage =
+          "Insufficient permissions to delete file from S3 storage";
+      } else if (error.code === "NoSuchKey") {
+        errorType = "FILE_NOT_FOUND";
+        userFriendlyMessage = "File not found in S3 storage";
+      } else if (error.code === "NoSuchBucket") {
+        errorType = "BUCKET_NOT_FOUND";
+        userFriendlyMessage = "S3 bucket not found";
+      }
+
+      return {
+        success: false,
+        deletedKey: s3Key,
+        error: userFriendlyMessage,
+        errorType: errorType,
+        originalError: error.message,
+      };
     }
   }
 
@@ -406,6 +477,68 @@ class ExcelProcessingService {
       .trim()
       .split(/\s+/)
       .filter((word) => word.length > 0).length;
+  }
+
+  /**
+   * @description Test S3 connectivity and permissions
+   * @returns {Promise<Object>} Health check result
+   */
+  async healthCheck() {
+    const healthResult = {
+      s3Connection: false,
+      bucketAccess: false,
+      uploadPermission: false,
+      deletePermission: false,
+      errors: [],
+    };
+
+    try {
+      // Test basic S3 connection
+      await this.s3.headBucket({ Bucket: this.bucketName }).promise();
+      healthResult.s3Connection = true;
+      healthResult.bucketAccess = true;
+
+      // Test upload permission by creating a small test file
+      const testKey = `health-check/test-${Date.now()}.txt`;
+      const testContent = "Health check test file";
+
+      try {
+        await this.s3
+          .putObject({
+            Bucket: this.bucketName,
+            Key: testKey,
+            Body: testContent,
+            ContentType: "text/plain",
+          })
+          .promise();
+        healthResult.uploadPermission = true;
+
+        // Test delete permission
+        try {
+          await this.s3
+            .deleteObject({
+              Bucket: this.bucketName,
+              Key: testKey,
+            })
+            .promise();
+          healthResult.deletePermission = true;
+        } catch (deleteError) {
+          healthResult.errors.push(
+            `Delete permission test failed: ${deleteError.message}`
+          );
+        }
+      } catch (uploadError) {
+        healthResult.errors.push(
+          `Upload permission test failed: ${uploadError.message}`
+        );
+      }
+    } catch (connectionError) {
+      healthResult.errors.push(
+        `S3 connection test failed: ${connectionError.message}`
+      );
+    }
+
+    return healthResult;
   }
 }
 
