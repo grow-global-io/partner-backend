@@ -1565,17 +1565,36 @@ Keep the response concise and actionable.`;
       if (deleteFromS3 && document.s3Url) {
         try {
           s3DeletionResult = await this.excelService.deleteExcelFromS3(fileKey);
-          console.log(
-            `ExcelController: Successfully deleted file from S3: ${fileKey}`
-          );
-        } catch (s3Error) {
+
+          if (s3DeletionResult.success) {
+            console.log(
+              `ExcelController: Successfully deleted file from S3: ${fileKey}`
+            );
+          } else {
+            console.warn(
+              `ExcelController: Failed to delete from S3: ${s3DeletionResult.error}`
+            );
+            console.warn(
+              `ExcelController: Error type: ${s3DeletionResult.errorType}`
+            );
+
+            // Provide helpful suggestions based on error type
+            if (s3DeletionResult.errorType === "ACCESS_DENIED") {
+              console.warn(
+                `ExcelController: Suggestion: Check AWS IAM permissions for s3:DeleteObject on bucket ${this.excelService.bucketName}`
+              );
+            }
+          }
+        } catch (unexpectedError) {
           console.error(
-            `ExcelController: Failed to delete from S3: ${s3Error.message}`
+            `ExcelController: Unexpected error during S3 deletion: ${unexpectedError.message}`
           );
-          // Continue with database deletion even if S3 deletion fails
+          // Handle any unexpected errors that weren't caught by the service
           s3DeletionResult = {
             success: false,
-            error: s3Error.message,
+            error: "Unexpected error during S3 deletion",
+            errorType: "UNEXPECTED_ERROR",
+            originalError: unexpectedError.message,
           };
         }
       }
@@ -1587,16 +1606,43 @@ Keep the response concise and actionable.`;
         `ExcelController: Successfully deleted file and embeddings: ${fileKey}`
       );
 
+      // Determine overall success and appropriate message
+      const overallSuccess = true; // Database deletion always succeeds if we reach here
+      let message = "File and embeddings deleted successfully from database";
+
+      if (deleteFromS3) {
+        if (s3DeletionResult && s3DeletionResult.success) {
+          message =
+            "File and embeddings deleted successfully from both database and S3 storage";
+        } else {
+          message =
+            "File and embeddings deleted from database, but S3 deletion failed";
+        }
+      }
+
       return res.status(200).json({
-        success: true,
-        message: "File and embeddings deleted successfully",
+        success: overallSuccess,
+        message: message,
         data: {
           fileKey: fileKey,
           fileName: document.fileName,
           deletedFromDatabase: true,
-          deletedFromS3: deleteFromS3,
+          deletedFromS3:
+            deleteFromS3 && s3DeletionResult && s3DeletionResult.success,
           s3DeletionResult: s3DeletionResult,
           deletedAt: new Date(),
+          // Add helpful information for troubleshooting
+          troubleshooting:
+            s3DeletionResult && !s3DeletionResult.success
+              ? {
+                  issue: "S3 deletion failed",
+                  errorType: s3DeletionResult.errorType,
+                  suggestion:
+                    s3DeletionResult.errorType === "ACCESS_DENIED"
+                      ? "Contact your AWS administrator to grant s3:DeleteObject permissions"
+                      : "Check S3 configuration and try again",
+                }
+              : null,
         },
       });
     } catch (error) {
