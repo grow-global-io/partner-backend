@@ -765,9 +765,9 @@ class ExcelController {
    * @param {string} req.body.product - Product/Service name (required)
    * @param {string} req.body.industry - Industry name (required)
    * @param {string} req.body.region - Region/Country (optional)
-   * @param {Array<string>} req.body.keywords - Keywords array (optional)
+   * @param {Array<string>|string} req.body.keywords - Keywords array or comma-separated string (optional)
    * @param {number} req.body.limit - Maximum results (default: 10)
-   * @param {number} req.body.minScore - Minimum score threshold (default: 50)
+   * @param {number} req.body.minScore - Minimum score threshold (default: 30)
    * @param {Object} res - Express response object
    * @returns {Object} Response with scored leads
    */
@@ -779,9 +779,9 @@ class ExcelController {
         product,
         industry,
         region,
-        keywords = [],
+        keywords: rawKeywords = [],
         limit = 10,
-        minScore = 50,
+        minScore = 30, // Lowered default threshold
       } = req.body;
 
       // Validate required fields
@@ -791,6 +791,18 @@ class ExcelController {
           error: "Product/Service and Industry are required fields",
         });
       }
+
+      // Process keywords flexibly - handle both string and array inputs
+      const keywords = this.processKeywords(rawKeywords);
+
+      console.log(`ExcelController: Processing lead search:`, {
+        product,
+        industry,
+        region,
+        keywords,
+        limit,
+        minScore,
+      });
 
       // Validate API key before proceeding
       const isValidApiKey = await this.openAIService.validateApiKey();
@@ -803,64 +815,114 @@ class ExcelController {
         });
       }
 
-      // Build comprehensive search query
-      const searchQuery = this.buildSearchQuery(
+      // Build multiple search queries for better coverage
+      const searchQueries = this.buildMultipleSearchQueries(
         product,
         industry,
         region,
         keywords
       );
 
-      console.log(`ExcelController: Finding leads for query: ${searchQuery}`);
+      console.log(`ExcelController: Built search queries:`, searchQueries);
 
-      // Generate query embedding
-      let queryEmbedding;
-      try {
-        queryEmbedding = await this.openAIService.generateEmbedding(
-          searchQuery
-        );
-      } catch (embeddingError) {
-        console.error("Error generating query embedding:", embeddingError);
-        return this.handleDeepseekError(embeddingError, res);
+      // Try multiple search strategies
+      let allRelevantRows = [];
+      const searchResults = [];
+
+      for (const query of searchQueries) {
+        try {
+          console.log(`ExcelController: Searching with query: "${query}"`);
+
+          const queryEmbedding = await this.openAIService.generateEmbedding(
+            query
+          );
+
+          // Use very low threshold for maximum recall
+          const rows = await this.excelModel.vectorSearch(
+            queryEmbedding,
+            null, // search all files
+            Math.max(100, limit * 10), // Get many more results
+            0.0 // Very low threshold - we'll filter with scoring later
+          );
+
+          console.log(
+            `ExcelController: Query "${query}" found ${rows.length} rows`
+          );
+
+          searchResults.push({
+            query,
+            resultsCount: rows.length,
+          });
+
+          allRelevantRows.push(...rows);
+        } catch (embeddingError) {
+          console.error(`Error with search query "${query}":`, embeddingError);
+          // Continue with other queries
+        }
       }
 
-      // Search for relevant rows across all documents with larger initial set
-      let relevantRows;
-      try {
-        relevantRows = await this.excelModel.vectorSearch(
-          queryEmbedding,
-          null, // fileKey - search all files
-          Math.max(50, limit * 5), // Get more results for better scoring
-          0.1 // Lower similarity threshold for initial search
+      // Remove duplicates based on row content/index
+      const uniqueRows = this.deduplicateRows(allRelevantRows);
+
+      console.log(
+        `ExcelController: Found ${allRelevantRows.length} total rows, ${uniqueRows.length} unique rows`
+      );
+
+      if (!uniqueRows.length) {
+        // Try a final fallback search with just product name
+        console.log(
+          `ExcelController: No results found, trying fallback search with product only`
         );
-      } catch (searchError) {
-        console.error("Error searching vectors:", searchError);
-        return res.status(500).json({
-          success: false,
-          error: "Failed to search lead data",
-          details: searchError.message,
-        });
+
+        try {
+          const fallbackEmbedding = await this.openAIService.generateEmbedding(
+            product
+          );
+          const fallbackRows = await this.excelModel.vectorSearch(
+            fallbackEmbedding,
+            null,
+            50,
+            0.0 // Extremely low threshold
+          );
+
+          console.log(
+            `ExcelController: Fallback search found ${fallbackRows.length} rows`
+          );
+          uniqueRows.push(...fallbackRows);
+        } catch (fallbackError) {
+          console.error("Fallback search failed:", fallbackError);
+        }
       }
 
-      if (!relevantRows.length) {
+      if (!uniqueRows.length) {
         return res.status(404).json({
           success: false,
           error: "No relevant leads found for the specified criteria",
           data: {
-            searchQuery,
+            searchQueries,
+            searchResults,
             totalResults: 0,
             leads: [],
+            debugInfo: {
+              message: "No rows found even with fallback searches",
+              suggestion:
+                "Check if data is properly embedded or try broader search terms",
+            },
           },
         });
       }
 
-      // Apply advanced scoring logic
-      const scoredLeads = await this.scoreLeads(
-        relevantRows,
+      // Apply enhanced scoring logic
+      const scoredLeads = await this.scoreLeadsEnhanced(
+        uniqueRows,
         product,
         industry,
         region,
         keywords
+      );
+
+      console.log(
+        `ExcelController: Scored ${scoredLeads.length} leads, filtering by minScore: ${minScore}`
       );
 
       // Filter by minimum score and limit results
@@ -868,20 +930,52 @@ class ExcelController {
         .filter((lead) => lead.finalScore >= minScore)
         .slice(0, parseInt(limit));
 
+      console.log(
+        `ExcelController: ${filteredLeads.length} leads passed score threshold`
+      );
+
+      // If no leads pass the threshold, return top results anyway with warning
+      if (filteredLeads.length === 0 && scoredLeads.length > 0) {
+        const topLeads = scoredLeads.slice(0, Math.min(5, parseInt(limit)));
+
+        return res.json({
+          success: true,
+          warning: `No leads met the minimum score of ${minScore}. Showing top ${topLeads.length} results with lower scores.`,
+          data: {
+            searchCriteria: {
+              product,
+              industry,
+              region,
+              keywords,
+              searchQueries,
+            },
+            totalMatches: uniqueRows.length,
+            qualifiedLeads: 0,
+            topLeads: topLeads.length,
+            leads: this.formatLeadResults(topLeads),
+            searchResults,
+            responseTime: Date.now() - startTime,
+            minScore,
+            actualMinScore: Math.min(...topLeads.map((l) => l.finalScore)),
+            limit: parseInt(limit),
+            model: "enhanced-scoring-engine-v2",
+          },
+        });
+      }
+
       // Generate AI insights about the lead matching
       let aiInsights = null;
       if (filteredLeads.length > 0) {
         try {
           aiInsights = await this.generateLeadInsights(
-            searchQuery,
-            filteredLeads.slice(0, 5), // Top 5 for insights
+            searchQueries[0], // Use primary search query
+            filteredLeads.slice(0, 5),
             product,
             industry,
             region
           );
         } catch (insightError) {
           console.error("Error generating AI insights:", insightError);
-          // Continue without insights if this fails
         }
       }
 
@@ -895,45 +989,17 @@ class ExcelController {
             industry,
             region,
             keywords,
-            searchQuery,
+            searchQueries,
           },
-          totalMatches: relevantRows.length,
+          totalMatches: uniqueRows.length,
           qualifiedLeads: filteredLeads.length,
-          leads: filteredLeads.map((lead) => ({
-            companyName: this.extractCompanyName(lead.rowData),
-            country: this.extractCountry(lead.rowData),
-            industry: this.extractIndustry(lead.rowData),
-            email: this.extractEmail(lead.rowData),
-            phone: this.extractPhone(lead.rowData),
-            website: this.extractWebsite(lead.rowData),
-
-            // Scoring details
-            finalScore: Math.round(lead.finalScore),
-            scoreBreakdown: {
-              industryMatch: Math.round(lead.industryScore * 30),
-              geographicMatch: Math.round(lead.regionScore * 15),
-              contactCompleteness: Math.round(lead.completenessScore * 10),
-              leadActivity: Math.round(lead.activityScore * 15),
-              exportReadiness: Math.round(lead.exportScore * 10),
-              engagement: Math.round(lead.engagementScore * 10),
-              dataFreshness: Math.round(lead.freshnessScore * 10),
-            },
-
-            // Metadata
-            vectorSimilarity: lead.score,
-            fileName: lead.fileName,
-            rowIndex: lead.rowIndex,
-            priority: this.getLeadPriority(lead.finalScore),
-          })),
-
-          // AI Insights
+          leads: this.formatLeadResults(filteredLeads),
           insights: aiInsights,
-
-          // Metadata
+          searchResults,
           responseTime,
           minScore,
           limit: parseInt(limit),
-          model: "advanced-scoring-engine-v1",
+          model: "enhanced-scoring-engine-v2",
         },
       });
     } catch (error) {
@@ -947,7 +1013,99 @@ class ExcelController {
   }
 
   /**
-   * @description Build comprehensive search query from criteria
+   * @description Process keywords from various input formats
+   * @param {Array<string>|string} rawKeywords - Keywords in various formats
+   * @returns {Array<string>} Processed keywords array
+   * @private
+   */
+  processKeywords(rawKeywords) {
+    if (!rawKeywords) return [];
+
+    if (Array.isArray(rawKeywords)) {
+      return rawKeywords.filter((k) => k && k.trim().length > 0);
+    }
+
+    if (typeof rawKeywords === "string") {
+      // Split by common delimiters and clean up
+      return rawKeywords
+        .split(/[,;\n\r]+/)
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0);
+    }
+
+    return [];
+  }
+
+  /**
+   * @description Build multiple search queries for better coverage
+   * @param {string} product - Product/Service name
+   * @param {string} industry - Industry name
+   * @param {string} region - Region/Country
+   * @param {Array<string>} keywords - Keywords array
+   * @returns {Array<string>} Array of search queries
+   * @private
+   */
+  buildMultipleSearchQueries(product, industry, region, keywords) {
+    const queries = [];
+
+    // Primary comprehensive query
+    const primaryComponents = [product, industry];
+    if (region) primaryComponents.push(region);
+    if (keywords.length > 0) primaryComponents.push(...keywords.slice(0, 3)); // Limit keywords
+    queries.push(primaryComponents.join(" "));
+
+    // Product + Industry only (core match)
+    queries.push(`${product} ${industry}`);
+
+    // Product + Region (if region specified)
+    if (region) {
+      queries.push(`${product} ${region}`);
+    }
+
+    // Product + Keywords (if keywords specified)
+    if (keywords.length > 0) {
+      queries.push(`${product} ${keywords.slice(0, 2).join(" ")}`);
+    }
+
+    // Industry + Region (if region specified)
+    if (region) {
+      queries.push(`${industry} ${region}`);
+    }
+
+    // Just product (fallback)
+    queries.push(product);
+
+    // Remove duplicates while preserving order
+    return [...new Set(queries)];
+  }
+
+  /**
+   * @description Remove duplicate rows based on content similarity
+   * @param {Array} rows - Array of row objects
+   * @returns {Array} Deduplicated rows
+   * @private
+   */
+  deduplicateRows(rows) {
+    const seen = new Set();
+    const unique = [];
+
+    for (const row of rows) {
+      // Create a fingerprint based on row content and index
+      const fingerprint = `${row.rowIndex || ""}-${(
+        row.content || ""
+      ).substring(0, 100)}`;
+
+      if (!seen.has(fingerprint)) {
+        seen.add(fingerprint);
+        unique.push(row);
+      }
+    }
+
+    return unique;
+  }
+
+  /**
+   * @description Build comprehensive search query from criteria (legacy method)
    * @param {string} product - Product/Service name
    * @param {string} industry - Industry name
    * @param {string} region - Region/Country
@@ -970,7 +1128,91 @@ class ExcelController {
   }
 
   /**
-   * @description Apply advanced scoring logic to leads
+   * @description Apply enhanced scoring logic to leads with flexible field matching
+   * @param {Array} leads - Array of lead objects
+   * @param {string} product - Product/Service name
+   * @param {string} industry - Industry name
+   * @param {string} region - Region/Country
+   * @param {Array<string>} keywords - Keywords array
+   * @returns {Promise<Array>} Scored leads
+   * @private
+   */
+  async scoreLeadsEnhanced(leads, product, industry, region, keywords) {
+    return leads
+      .map((lead) => {
+        const rowData = lead.rowData;
+        const content = lead.content || JSON.stringify(rowData);
+
+        // Enhanced Industry Match (35% weight) - more important
+        const industryScore = this.calculateIndustryMatchEnhanced(
+          content,
+          rowData,
+          industry,
+          keywords
+        );
+
+        // Enhanced Geographic Match (20% weight) - increased importance
+        const regionScore = this.calculateRegionMatchEnhanced(
+          content,
+          rowData,
+          region
+        );
+
+        // Enhanced Contact Completeness (15% weight) - increased importance
+        const completenessScore = this.calculateCompletenessEnhanced(rowData);
+
+        // Lead Activity/Business Size (10% weight)
+        const activityScore = this.calculateActivityScoreEnhanced(
+          rowData,
+          content
+        );
+
+        // Export/Business Readiness (10% weight)
+        const exportScore = this.calculateExportReadinessEnhanced(
+          content,
+          rowData
+        );
+
+        // Engagement/Quality Score (5% weight)
+        const engagementScore = this.calculateEngagementScoreEnhanced(
+          rowData,
+          content
+        );
+
+        // Data Quality/Freshness (5% weight)
+        const freshnessScore = this.calculateFreshnessScoreEnhanced(
+          lead,
+          rowData
+        );
+
+        // Calculate final weighted score
+        const finalScore =
+          (industryScore * 0.35 +
+            regionScore * 0.2 +
+            completenessScore * 0.15 +
+            activityScore * 0.1 +
+            exportScore * 0.1 +
+            engagementScore * 0.05 +
+            freshnessScore * 0.05) *
+          100; // Convert to 0-100 scale
+
+        return {
+          ...lead,
+          industryScore,
+          regionScore,
+          completenessScore,
+          activityScore,
+          exportScore,
+          engagementScore,
+          freshnessScore,
+          finalScore,
+        };
+      })
+      .sort((a, b) => b.finalScore - a.finalScore);
+  }
+
+  /**
+   * @description Apply advanced scoring logic to leads (legacy method)
    * @param {Array} leads - Array of lead objects
    * @param {string} product - Product/Service name
    * @param {string} industry - Industry name
@@ -1037,7 +1279,75 @@ class ExcelController {
   }
 
   /**
-   * @description Calculate industry matching score
+   * @description Enhanced industry matching with flexible field detection
+   * @param {string} content - Lead content
+   * @param {Object} rowData - Row data object
+   * @param {string} industry - Target industry
+   * @param {Array<string>} keywords - Keywords
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateIndustryMatchEnhanced(content, rowData, industry, keywords) {
+    const lowerContent = content.toLowerCase();
+    const lowerIndustry = industry.toLowerCase();
+    let score = 0;
+
+    // Check specific industry-related fields first
+    const industryFields = this.findAllFieldValues(rowData, [
+      "industry",
+      "sector",
+      "category",
+      "business",
+      "type",
+      "field",
+      "domain",
+    ]);
+
+    for (const fieldValue of industryFields) {
+      if (fieldValue && fieldValue.toLowerCase().includes(lowerIndustry)) {
+        score += 0.8; // High score for direct field match
+        break;
+      }
+    }
+
+    // Direct industry match in content
+    if (lowerContent.includes(lowerIndustry)) {
+      score += 0.6;
+    }
+
+    // Enhanced keyword matching
+    if (keywords && keywords.length > 0) {
+      const keywordMatches = keywords.filter((keyword) =>
+        lowerContent.includes(keyword.toLowerCase())
+      ).length;
+      score += (keywordMatches / keywords.length) * 0.5;
+    }
+
+    // Industry-related terms with better mapping
+    const industryTerms = this.getIndustryTermsEnhanced(industry);
+    const termMatches = industryTerms.filter((term) =>
+      lowerContent.includes(term.toLowerCase())
+    ).length;
+
+    if (industryTerms.length > 0) {
+      score += (termMatches / industryTerms.length) * 0.4;
+    }
+
+    // Partial industry matching (e.g., "fashion" matches "apparel")
+    const partialMatches = this.getIndustryPartialMatches(industry);
+    const partialScore = partialMatches.filter((term) =>
+      lowerContent.includes(term.toLowerCase())
+    ).length;
+
+    if (partialMatches.length > 0) {
+      score += (partialScore / partialMatches.length) * 0.3;
+    }
+
+    return Math.min(score, 1);
+  }
+
+  /**
+   * @description Calculate industry matching score (legacy method)
    * @param {string} content - Lead content
    * @param {string} industry - Target industry
    * @param {Array<string>} keywords - Keywords
@@ -1077,7 +1387,76 @@ class ExcelController {
   }
 
   /**
-   * @description Calculate geographic matching score
+   * @description Enhanced geographic matching with field-specific detection
+   * @param {string} content - Lead content
+   * @param {Object} rowData - Row data object
+   * @param {string} region - Target region
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateRegionMatchEnhanced(content, rowData, region) {
+    if (!region) return 0.7; // Higher neutral score if no region specified
+
+    const lowerContent = content.toLowerCase();
+    const lowerRegion = region.toLowerCase();
+    let score = 0;
+
+    // Check specific location fields first
+    const locationFields = this.findAllFieldValues(rowData, [
+      "country",
+      "region",
+      "location",
+      "city",
+      "state",
+      "address",
+      "area",
+      "zone",
+    ]);
+
+    for (const fieldValue of locationFields) {
+      if (fieldValue && fieldValue.toLowerCase().includes(lowerRegion)) {
+        score = 1.0; // Perfect match in location field
+        break;
+      }
+    }
+
+    if (score === 0) {
+      // Direct region match in content
+      if (lowerContent.includes(lowerRegion)) {
+        score = 0.9;
+      }
+
+      // Country code matches
+      const countryCodes = this.getCountryCodesEnhanced(region);
+      const hasCountryCode = countryCodes.some((code) =>
+        lowerContent.includes(code.toLowerCase())
+      );
+
+      if (hasCountryCode && score < 0.8) {
+        score = 0.8;
+      }
+
+      // Regional variations and cities
+      const regionalTerms = this.getRegionalTermsEnhanced(region);
+      const hasRegionalTerm = regionalTerms.some((term) =>
+        lowerContent.includes(term.toLowerCase())
+      );
+
+      if (hasRegionalTerm && score < 0.6) {
+        score = 0.6;
+      }
+
+      // Fallback for no match
+      if (score === 0) {
+        score = 0.3;
+      }
+    }
+
+    return score;
+  }
+
+  /**
+   * @description Calculate geographic matching score (legacy method)
    * @param {string} content - Lead content
    * @param {string} region - Target region
    * @returns {number} Score between 0-1
@@ -1114,7 +1493,85 @@ class ExcelController {
   }
 
   /**
-   * @description Calculate contact completeness score
+   * @description Enhanced contact completeness with flexible field detection
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateCompletenessEnhanced(rowData) {
+    // Define field groups with priorities
+    const criticalFields = this.findAllFieldValues(rowData, [
+      "email",
+      "mail",
+      "contact",
+      "e-mail",
+    ]);
+    const phoneFields = this.findAllFieldValues(rowData, [
+      "phone",
+      "mobile",
+      "tel",
+      "whatsapp",
+      "number",
+    ]);
+    const companyFields = this.findAllFieldValues(rowData, [
+      "company",
+      "business",
+      "organization",
+      "firm",
+      "name",
+    ]);
+    const websiteFields = this.findAllFieldValues(rowData, [
+      "website",
+      "url",
+      "web",
+      "site",
+      "domain",
+    ]);
+    const addressFields = this.findAllFieldValues(rowData, [
+      "address",
+      "location",
+      "city",
+      "country",
+    ]);
+
+    let score = 0;
+    let maxScore = 0;
+
+    // Email (critical - 30%)
+    maxScore += 0.3;
+    if (criticalFields.some((v) => v && this.isValidEmail(v))) {
+      score += 0.3;
+    }
+
+    // Phone (important - 25%)
+    maxScore += 0.25;
+    if (phoneFields.some((v) => v && this.isValidPhone(v))) {
+      score += 0.25;
+    }
+
+    // Company (important - 20%)
+    maxScore += 0.2;
+    if (companyFields.some((v) => v && v.trim().length > 2)) {
+      score += 0.2;
+    }
+
+    // Website (useful - 15%)
+    maxScore += 0.15;
+    if (websiteFields.some((v) => v && this.isValidWebsite(v))) {
+      score += 0.15;
+    }
+
+    // Address/Location (useful - 10%)
+    maxScore += 0.1;
+    if (addressFields.some((v) => v && v.trim().length > 2)) {
+      score += 0.1;
+    }
+
+    return score / maxScore;
+  }
+
+  /**
+   * @description Calculate contact completeness score (legacy method)
    * @param {Object} rowData - Lead row data
    * @returns {number} Score between 0-1
    * @private
@@ -1513,6 +1970,253 @@ Keep the response concise and actionable.`;
   }
 
   /**
+   * @description Enhanced activity/business size scoring
+   * @param {Object} rowData - Lead row data
+   * @param {string} content - Lead content
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateActivityScoreEnhanced(rowData, content) {
+    let score = 0.5; // Default neutral score
+
+    const businessSizeFields = this.findAllFieldValues(rowData, [
+      "size",
+      "employees",
+      "revenue",
+      "turnover",
+      "tier",
+      "level",
+      "category",
+    ]);
+
+    for (const field of businessSizeFields) {
+      if (!field) continue;
+      const fieldLower = field.toLowerCase();
+
+      // Large business indicators
+      if (
+        fieldLower.includes("large") ||
+        fieldLower.includes("enterprise") ||
+        fieldLower.includes("multinational") ||
+        fieldLower.includes("500+")
+      ) {
+        score = 1.0;
+        break;
+      }
+
+      // Medium business indicators
+      if (
+        fieldLower.includes("medium") ||
+        fieldLower.includes("mid") ||
+        fieldLower.includes("100") ||
+        fieldLower.includes("50+")
+      ) {
+        score = 0.7;
+      }
+
+      // Premium/Gold tier
+      if (
+        fieldLower.includes("premium") ||
+        fieldLower.includes("gold") ||
+        fieldLower.includes("tier 1") ||
+        fieldLower.includes("verified")
+      ) {
+        score = Math.max(score, 0.8);
+      }
+    }
+
+    return score;
+  }
+
+  /**
+   * @description Enhanced export/business readiness scoring
+   * @param {string} content - Lead content
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateExportReadinessEnhanced(content, rowData) {
+    const lowerContent = content.toLowerCase();
+    let score = 0.3; // Default base score
+
+    const exportTerms = [
+      "export",
+      "international",
+      "global",
+      "worldwide",
+      "overseas",
+      "import",
+      "trade",
+      "shipping",
+      "logistics",
+      "customs",
+      "fob",
+      "cif",
+    ];
+
+    const businessTerms = [
+      "manufacturer",
+      "distributor",
+      "wholesale",
+      "trader",
+      "supplier",
+      "exporter",
+      "importer",
+      "dealer",
+      "retailer",
+    ];
+
+    // Check for export-related terms
+    const exportMatches = exportTerms.filter((term) =>
+      lowerContent.includes(term)
+    ).length;
+
+    if (exportMatches > 0) {
+      score += Math.min(exportMatches * 0.2, 0.6);
+    }
+
+    // Check for business type terms
+    const businessMatches = businessTerms.filter((term) =>
+      lowerContent.includes(term)
+    ).length;
+
+    if (businessMatches > 0) {
+      score += Math.min(businessMatches * 0.15, 0.4);
+    }
+
+    return Math.min(score, 1);
+  }
+
+  /**
+   * @description Enhanced engagement scoring
+   * @param {Object} rowData - Lead row data
+   * @param {string} content - Lead content
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateEngagementScoreEnhanced(rowData, content) {
+    let score = 0.5; // Default neutral score
+
+    const statusFields = this.findAllFieldValues(rowData, [
+      "status",
+      "engagement",
+      "activity",
+      "priority",
+      "quality",
+    ]);
+
+    for (const field of statusFields) {
+      if (!field) continue;
+      const fieldLower = field.toLowerCase();
+
+      if (
+        fieldLower.includes("active") ||
+        fieldLower.includes("high") ||
+        fieldLower.includes("premium") ||
+        fieldLower.includes("verified")
+      ) {
+        score = 1.0;
+        break;
+      }
+
+      if (fieldLower.includes("medium") || fieldLower.includes("regular")) {
+        score = 0.6;
+      }
+
+      if (fieldLower.includes("low") || fieldLower.includes("inactive")) {
+        score = 0.2;
+      }
+    }
+
+    return score;
+  }
+
+  /**
+   * @description Enhanced freshness/quality scoring
+   * @param {Object} lead - Lead object
+   * @param {Object} rowData - Lead row data
+   * @returns {number} Score between 0-1
+   * @private
+   */
+  calculateFreshnessScoreEnhanced(lead, rowData) {
+    let score = 0.5; // Default score
+
+    // Check for data quality indicators
+    const content = JSON.stringify(rowData).toLowerCase();
+
+    // Quality indicators
+    if (
+      content.includes("verified") ||
+      content.includes("updated") ||
+      content.includes("confirmed") ||
+      content.includes("active")
+    ) {
+      score += 0.3;
+    }
+
+    // Data completeness as freshness indicator
+    const fieldCount = Object.keys(rowData).length;
+    if (fieldCount > 10) score += 0.2;
+    else if (fieldCount > 5) score += 0.1;
+
+    // Document freshness
+    if (lead.document && lead.document.createdAt) {
+      const createdDate = new Date(lead.document.createdAt);
+      const now = new Date();
+      const daysDiff = (now - createdDate) / (1000 * 60 * 60 * 24);
+
+      if (daysDiff <= 30) score += 0.3;
+      else if (daysDiff <= 90) score += 0.2;
+      else if (daysDiff <= 180) score += 0.1;
+    }
+
+    return Math.min(score, 1);
+  }
+
+  /**
+   * @description Format lead results consistently
+   * @param {Array} leads - Array of scored leads
+   * @returns {Array} Formatted lead results
+   * @private
+   */
+  formatLeadResults(leads) {
+    return leads.map((lead) => ({
+      companyName: this.extractCompanyNameEnhanced(lead.rowData),
+      country: this.extractCountryEnhanced(lead.rowData),
+      industry: this.extractIndustryEnhanced(lead.rowData),
+      email: this.extractEmailEnhanced(lead.rowData),
+      phone: this.extractPhoneEnhanced(lead.rowData),
+      website: this.extractWebsiteEnhanced(lead.rowData),
+
+      // Additional extracted fields
+      contactPerson: this.extractContactPersonEnhanced(lead.rowData),
+      businessType: this.extractBusinessTypeEnhanced(lead.rowData),
+      productCategories: this.extractProductCategoriesEnhanced(lead.rowData),
+
+      // Scoring details
+      finalScore: Math.round(lead.finalScore),
+      scoreBreakdown: {
+        industryMatch: Math.round(lead.industryScore * 35),
+        geographicMatch: Math.round(lead.regionScore * 20),
+        contactCompleteness: Math.round(lead.completenessScore * 15),
+        businessSize: Math.round(lead.activityScore * 10),
+        exportReadiness: Math.round(lead.exportScore * 10),
+        engagement: Math.round(lead.engagementScore * 5),
+        dataQuality: Math.round(lead.freshnessScore * 5),
+      },
+
+      // Raw data for reference
+      rawData: lead.rowData,
+
+      // Metadata
+      vectorSimilarity: Math.round((lead.score || 0) * 100) / 100,
+      fileName: lead.fileName,
+      rowIndex: lead.rowIndex,
+      priority: this.getLeadPriority(lead.finalScore),
+    }));
+  }
+
+  /**
    * @description Get recommended action based on lead analysis
    * @param {Array} leads - Array of leads
    * @returns {string} Recommended action
@@ -1565,17 +2269,36 @@ Keep the response concise and actionable.`;
       if (deleteFromS3 && document.s3Url) {
         try {
           s3DeletionResult = await this.excelService.deleteExcelFromS3(fileKey);
-          console.log(
-            `ExcelController: Successfully deleted file from S3: ${fileKey}`
-          );
-        } catch (s3Error) {
+
+          if (s3DeletionResult.success) {
+            console.log(
+              `ExcelController: Successfully deleted file from S3: ${fileKey}`
+            );
+          } else {
+            console.warn(
+              `ExcelController: Failed to delete from S3: ${s3DeletionResult.error}`
+            );
+            console.warn(
+              `ExcelController: Error type: ${s3DeletionResult.errorType}`
+            );
+
+            // Provide helpful suggestions based on error type
+            if (s3DeletionResult.errorType === "ACCESS_DENIED") {
+              console.warn(
+                `ExcelController: Suggestion: Check AWS IAM permissions for s3:DeleteObject on bucket ${this.excelService.bucketName}`
+              );
+            }
+          }
+        } catch (unexpectedError) {
           console.error(
-            `ExcelController: Failed to delete from S3: ${s3Error.message}`
+            `ExcelController: Unexpected error during S3 deletion: ${unexpectedError.message}`
           );
-          // Continue with database deletion even if S3 deletion fails
+          // Handle any unexpected errors that weren't caught by the service
           s3DeletionResult = {
             success: false,
-            error: s3Error.message,
+            error: "Unexpected error during S3 deletion",
+            errorType: "UNEXPECTED_ERROR",
+            originalError: unexpectedError.message,
           };
         }
       }
@@ -1587,16 +2310,43 @@ Keep the response concise and actionable.`;
         `ExcelController: Successfully deleted file and embeddings: ${fileKey}`
       );
 
+      // Determine overall success and appropriate message
+      const overallSuccess = true; // Database deletion always succeeds if we reach here
+      let message = "File and embeddings deleted successfully from database";
+
+      if (deleteFromS3) {
+        if (s3DeletionResult && s3DeletionResult.success) {
+          message =
+            "File and embeddings deleted successfully from both database and S3 storage";
+        } else {
+          message =
+            "File and embeddings deleted from database, but S3 deletion failed";
+        }
+      }
+
       return res.status(200).json({
-        success: true,
-        message: "File and embeddings deleted successfully",
+        success: overallSuccess,
+        message: message,
         data: {
           fileKey: fileKey,
           fileName: document.fileName,
           deletedFromDatabase: true,
-          deletedFromS3: deleteFromS3,
+          deletedFromS3:
+            deleteFromS3 && s3DeletionResult && s3DeletionResult.success,
           s3DeletionResult: s3DeletionResult,
           deletedAt: new Date(),
+          // Add helpful information for troubleshooting
+          troubleshooting:
+            s3DeletionResult && !s3DeletionResult.success
+              ? {
+                  issue: "S3 deletion failed",
+                  errorType: s3DeletionResult.errorType,
+                  suggestion:
+                    s3DeletionResult.errorType === "ACCESS_DENIED"
+                      ? "Contact your AWS administrator to grant s3:DeleteObject permissions"
+                      : "Check S3 configuration and try again",
+                }
+              : null,
         },
       });
     } catch (error) {
@@ -1607,6 +2357,468 @@ Keep the response concise and actionable.`;
         details: error.message,
       });
     }
+  }
+
+  /**
+   * @description Find all field values matching any of the specified field names
+   * @param {Object} rowData - Row data object
+   * @param {Array<string>} fieldNames - Array of field names to search for
+   * @returns {Array<string>} Array of found values
+   * @private
+   */
+  findAllFieldValues(rowData, fieldNames) {
+    const values = [];
+
+    for (const fieldName of fieldNames) {
+      const value = this.findFieldValue(rowData, fieldName);
+      if (value && value.trim().length > 0) {
+        values.push(value.trim());
+      }
+    }
+
+    return values;
+  }
+
+  /**
+   * @description Enhanced industry terms mapping
+   * @param {string} industry - Industry name
+   * @returns {Array<string>} Related terms
+   * @private
+   */
+  getIndustryTermsEnhanced(industry) {
+    const termMap = {
+      fashion: [
+        "apparel",
+        "clothing",
+        "garment",
+        "textile",
+        "fabric",
+        "designer",
+        "boutique",
+        "fashion",
+        "style",
+        "wear",
+      ],
+      textiles: [
+        "fabric",
+        "clothing",
+        "garment",
+        "fashion",
+        "apparel",
+        "yarn",
+        "cotton",
+        "silk",
+        "weaving",
+      ],
+      spices: [
+        "herbs",
+        "seasoning",
+        "condiment",
+        "flavor",
+        "masala",
+        "curry",
+        "pepper",
+        "turmeric",
+      ],
+      technology: [
+        "software",
+        "hardware",
+        "IT",
+        "digital",
+        "tech",
+        "computer",
+        "programming",
+        "development",
+      ],
+      manufacturing: [
+        "production",
+        "factory",
+        "industrial",
+        "assembly",
+        "processing",
+        "machinery",
+      ],
+      agriculture: [
+        "farming",
+        "crops",
+        "food",
+        "organic",
+        "produce",
+        "cultivation",
+        "harvest",
+      ],
+      healthcare: [
+        "medical",
+        "pharmaceutical",
+        "hospital",
+        "clinic",
+        "health",
+        "medicine",
+      ],
+      finance: [
+        "banking",
+        "investment",
+        "financial",
+        "insurance",
+        "accounting",
+        "credit",
+      ],
+      education: [
+        "school",
+        "university",
+        "training",
+        "learning",
+        "academic",
+        "educational",
+      ],
+      retail: ["store", "shop", "sales", "commerce", "merchant", "trading"],
+      automotive: ["car", "vehicle", "automobile", "motor", "parts", "garage"],
+      "real-estate": [
+        "property",
+        "real estate",
+        "housing",
+        "construction",
+        "building",
+      ],
+      food: [
+        "restaurant",
+        "catering",
+        "beverage",
+        "nutrition",
+        "cooking",
+        "culinary",
+      ],
+    };
+
+    const normalizedIndustry = industry.toLowerCase().replace(/[^a-z]/g, "");
+    return termMap[normalizedIndustry] || termMap[industry.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get partial industry matches
+   * @param {string} industry - Industry name
+   * @returns {Array<string>} Partial matches
+   * @private
+   */
+  getIndustryPartialMatches(industry) {
+    const partialMap = {
+      fashion: ["apparel", "clothing", "wear", "style"],
+      technology: ["tech", "IT", "software", "digital"],
+      manufacturing: ["production", "factory", "industrial"],
+      healthcare: ["medical", "health", "pharma"],
+      finance: ["banking", "financial", "money"],
+      education: ["learning", "academic", "training"],
+      food: ["restaurant", "catering", "nutrition"],
+      textiles: ["fabric", "cloth", "textile"],
+    };
+
+    const normalizedIndustry = industry.toLowerCase().replace(/[^a-z]/g, "");
+    return (
+      partialMap[normalizedIndustry] || partialMap[industry.toLowerCase()] || []
+    );
+  }
+
+  /**
+   * @description Enhanced country codes mapping
+   * @param {string} region - Region name
+   * @returns {Array<string>} Country codes
+   * @private
+   */
+  getCountryCodesEnhanced(region) {
+    const codeMap = {
+      india: ["IN", "IND", "+91"],
+      china: ["CN", "CHN", "+86"],
+      usa: ["US", "USA", "+1"],
+      "united states": ["US", "USA", "+1"],
+      germany: ["DE", "DEU", "+49"],
+      japan: ["JP", "JPN", "+81"],
+      uk: ["GB", "GBR", "+44"],
+      "united kingdom": ["GB", "GBR", "+44"],
+      france: ["FR", "FRA", "+33"],
+      italy: ["IT", "ITA", "+39"],
+      spain: ["ES", "ESP", "+34"],
+      brazil: ["BR", "BRA", "+55"],
+      canada: ["CA", "CAN", "+1"],
+      australia: ["AU", "AUS", "+61"],
+    };
+
+    return codeMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Enhanced regional terms mapping
+   * @param {string} region - Region name
+   * @returns {Array<string>} Regional terms
+   * @private
+   */
+  getRegionalTermsEnhanced(region) {
+    const termMap = {
+      india: [
+        "indian",
+        "delhi",
+        "mumbai",
+        "bangalore",
+        "chennai",
+        "kolkata",
+        "pune",
+        "hyderabad",
+        "asia",
+        "south asia",
+      ],
+      china: [
+        "chinese",
+        "beijing",
+        "shanghai",
+        "guangzhou",
+        "shenzhen",
+        "asia",
+        "east asia",
+      ],
+      usa: [
+        "american",
+        "america",
+        "new york",
+        "california",
+        "texas",
+        "florida",
+        "north america",
+      ],
+      "united states": [
+        "american",
+        "america",
+        "new york",
+        "california",
+        "texas",
+        "florida",
+        "north america",
+      ],
+      europe: ["european", "eu", "germany", "france", "italy", "spain", "uk"],
+      germany: ["german", "berlin", "munich", "hamburg", "european"],
+      japan: ["japanese", "tokyo", "osaka", "kyoto", "asia", "east asia"],
+      uk: ["british", "england", "london", "manchester", "european"],
+      "united kingdom": [
+        "british",
+        "england",
+        "london",
+        "manchester",
+        "european",
+      ],
+      asia: ["asian", "india", "china", "japan", "singapore", "thailand"],
+      "north america": ["usa", "canada", "america", "american", "canadian"],
+      "south america": [
+        "brazil",
+        "argentina",
+        "chile",
+        "colombia",
+        "latin america",
+      ],
+    };
+
+    return termMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Validate email format
+   * @param {string} email - Email to validate
+   * @returns {boolean} Is valid email
+   * @private
+   */
+  isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  /**
+   * @description Validate phone format
+   * @param {string} phone - Phone to validate
+   * @returns {boolean} Is valid phone
+   * @private
+   */
+  isValidPhone(phone) {
+    const phoneRegex = /[\d\+\-\(\)\s]{8,}/;
+    return phoneRegex.test(phone);
+  }
+
+  /**
+   * @description Validate website format
+   * @param {string} website - Website to validate
+   * @returns {boolean} Is valid website
+   * @private
+   */
+  isValidWebsite(website) {
+    const websiteRegex =
+      /(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?/;
+    return websiteRegex.test(website);
+  }
+
+  // Enhanced extraction methods
+  /**
+   * @description Enhanced company name extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Company name
+   * @private
+   */
+  extractCompanyNameEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "company",
+        "business",
+        "organization",
+        "firm",
+        "enterprise",
+        "corp",
+        "ltd",
+        "inc",
+      ])[0] || "Unknown Company"
+    );
+  }
+
+  /**
+   * @description Enhanced country extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Country
+   * @private
+   */
+  extractCountryEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "country",
+        "nation",
+        "location",
+        "region",
+        "address",
+      ])[0] || "Unknown"
+    );
+  }
+
+  /**
+   * @description Enhanced industry extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Industry
+   * @private
+   */
+  extractIndustryEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "industry",
+        "sector",
+        "category",
+        "business_type",
+        "field",
+        "domain",
+      ])[0] || "Unknown"
+    );
+  }
+
+  /**
+   * @description Enhanced email extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Email
+   * @private
+   */
+  extractEmailEnhanced(rowData) {
+    const emails = this.findAllFieldValues(rowData, [
+      "email",
+      "mail",
+      "e-mail",
+      "contact",
+      "email_address",
+    ]);
+
+    return emails.find((email) => this.isValidEmail(email)) || null;
+  }
+
+  /**
+   * @description Enhanced phone extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Phone
+   * @private
+   */
+  extractPhoneEnhanced(rowData) {
+    const phones = this.findAllFieldValues(rowData, [
+      "phone",
+      "mobile",
+      "tel",
+      "telephone",
+      "whatsapp",
+      "contact_number",
+    ]);
+
+    return phones.find((phone) => this.isValidPhone(phone)) || null;
+  }
+
+  /**
+   * @description Enhanced website extraction
+   * @param {Object} rowData - Row data object
+   * @returns {string} Website
+   * @private
+   */
+  extractWebsiteEnhanced(rowData) {
+    const websites = this.findAllFieldValues(rowData, [
+      "website",
+      "url",
+      "web",
+      "site",
+      "domain",
+      "homepage",
+    ]);
+
+    return websites.find((website) => this.isValidWebsite(website)) || null;
+  }
+
+  /**
+   * @description Extract contact person name
+   * @param {Object} rowData - Row data object
+   * @returns {string} Contact person
+   * @private
+   */
+  extractContactPersonEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "contact_person",
+        "name",
+        "person",
+        "contact_name",
+        "representative",
+      ])[0] || null
+    );
+  }
+
+  /**
+   * @description Extract business type
+   * @param {Object} rowData - Row data object
+   * @returns {string} Business type
+   * @private
+   */
+  extractBusinessTypeEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "business_type",
+        "type",
+        "category",
+        "classification",
+        "nature",
+      ])[0] || null
+    );
+  }
+
+  /**
+   * @description Extract product categories
+   * @param {Object} rowData - Row data object
+   * @returns {string} Product categories
+   * @private
+   */
+  extractProductCategoriesEnhanced(rowData) {
+    return (
+      this.findAllFieldValues(rowData, [
+        "products",
+        "categories",
+        "product_category",
+        "items",
+        "goods",
+        "services",
+      ])[0] || null
+    );
   }
 
   /**

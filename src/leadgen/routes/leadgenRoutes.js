@@ -562,4 +562,90 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  */
 router.post("/find-leads", (req, res) => excelController.findLeads(req, res));
 
+/**
+ * @swagger
+ * /api/leadgen/health:
+ *   get:
+ *     summary: Check S3 connectivity and permissions
+ *     tags: [System Health]
+ *     responses:
+ *       200:
+ *         description: Health check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     s3Connection:
+ *                       type: boolean
+ *                     bucketAccess:
+ *                       type: boolean
+ *                     uploadPermission:
+ *                       type: boolean
+ *                     deletePermission:
+ *                       type: boolean
+ *                     errors:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     recommendations:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       500:
+ *         description: Health check failed
+ */
+router.get("/health", async (req, res) => {
+  try {
+    const healthResult = await excelController.excelService.healthCheck();
+
+    // Generate recommendations based on health check results
+    const recommendations = [];
+
+    if (!healthResult.s3Connection) {
+      recommendations.push("Check AWS credentials and region configuration");
+    }
+
+    if (!healthResult.bucketAccess) {
+      recommendations.push(
+        "Verify bucket name and basic S3 access permissions"
+      );
+    }
+
+    if (!healthResult.uploadPermission) {
+      recommendations.push(
+        "Grant s3:PutObject permission for Excel file uploads"
+      );
+    }
+
+    if (!healthResult.deletePermission) {
+      recommendations.push(
+        "Grant s3:DeleteObject permission for file deletion feature"
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Health check completed",
+      data: {
+        ...healthResult,
+        recommendations,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("ExcelController: Health check error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Health check failed",
+      details: error.message,
+    });
+  }
+});
+
 module.exports = router;
