@@ -804,6 +804,55 @@ class ExcelController {
         minScore,
       });
 
+      // DEBUG: Check if target records exist in database at all
+      try {
+        console.log(`\n=== DATABASE DEBUGGING ===`);
+
+        // Try to find any record containing our target terms by doing a broad search
+        const broadSearchEmbedding = await this.openAIService.generateEmbedding(
+          "Godhra Gujarat Sunil Gandhi Dilip garments"
+        );
+        const broadResults = await this.excelModel.vectorSearch(
+          broadSearchEmbedding,
+          null, // all files
+          200, // get many results
+          0.0 // very low threshold
+        );
+
+        console.log(`Broad search found ${broadResults.length} total records`);
+
+        // Direct text search through the results
+        const targetTerms = ["godhra", "sunil", "gandhi", "dilip", "gujarat"];
+
+        for (const term of targetTerms) {
+          const textMatches = broadResults.filter((row) => {
+            const content = (
+              row.content || JSON.stringify(row.rowData || {})
+            ).toLowerCase();
+            return content.includes(term);
+          });
+
+          console.log(`Records containing "${term}": ${textMatches.length}`);
+
+          if (textMatches.length > 0) {
+            textMatches.slice(0, 2).forEach((match, idx) => {
+              const company = this.extractCompanyNameEnhanced(match.rowData);
+              const person =
+                match.rowData?.Name || match.rowData?.name || "Unknown";
+              const city =
+                match.rowData?.City || match.rowData?.city || "Unknown";
+              console.log(
+                `  [${idx + 1}] Found: ${company} - ${person} - ${city}`
+              );
+            });
+          }
+        }
+
+        console.log(`=== END DATABASE DEBUG ===\n`);
+      } catch (dbError) {
+        console.log(`Database debug error: ${dbError.message}`);
+      }
+
       // Validate API key before proceeding
       const isValidApiKey = await this.openAIService.validateApiKey();
       if (!isValidApiKey) {
@@ -849,6 +898,23 @@ class ExcelController {
             `ExcelController: Query "${query}" found ${rows.length} rows`
           );
 
+          // Debug: Log some sample results to see what we're getting
+          if (rows.length > 0) {
+            console.log(
+              `ExcelController: Sample results for query "${query}":`
+            );
+            rows.slice(0, 3).forEach((row, idx) => {
+              const sampleContent = (
+                row.content || JSON.stringify(row.rowData)
+              ).substring(0, 200);
+              console.log(
+                `  [${idx}] Score: ${row.score?.toFixed(
+                  3
+                )}, Content: ${sampleContent}...`
+              );
+            });
+          }
+
           searchResults.push({
             query,
             resultsCount: rows.length,
@@ -861,12 +927,118 @@ class ExcelController {
         }
       }
 
+      // ADDITIONAL STRATEGY: Direct location-based search if region specified
+      if (region) {
+        try {
+          console.log(
+            `ExcelController: Performing direct location search for "${region}"`
+          );
+
+          // Create a pure location embedding
+          const locationEmbedding = await this.openAIService.generateEmbedding(
+            region
+          );
+
+          const locationRows = await this.excelModel.vectorSearch(
+            locationEmbedding,
+            null,
+            50, // Get substantial results
+            0.0 // Very low threshold
+          );
+
+          console.log(
+            `ExcelController: Direct location search found ${locationRows.length} additional rows`
+          );
+
+          // Debug location-specific results
+          if (locationRows.length > 0) {
+            console.log(
+              `ExcelController: Location-specific results for "${region}":`
+            );
+            locationRows.slice(0, 5).forEach((row, idx) => {
+              const sampleContent = (
+                row.content || JSON.stringify(row.rowData)
+              ).substring(0, 200);
+              console.log(
+                `  [${idx}] Location Score: ${row.score?.toFixed(
+                  3
+                )}, Content: ${sampleContent}...`
+              );
+            });
+          }
+
+          allRelevantRows.push(...locationRows);
+
+          searchResults.push({
+            query: `Direct location: ${region}`,
+            resultsCount: locationRows.length,
+          });
+        } catch (locationError) {
+          console.error(
+            `Error with direct location search for "${region}":`,
+            locationError
+          );
+        }
+      }
+
       // Remove duplicates based on row content/index
       const uniqueRows = this.deduplicateRows(allRelevantRows);
 
       console.log(
         `ExcelController: Found ${allRelevantRows.length} total rows, ${uniqueRows.length} unique rows`
       );
+
+      // DEBUG: Let's see if we can find any records with "Sunil", "Gandhi", "Godhra", or "Dilip"
+      console.log(`\n=== DEBUGGING: SEARCHING FOR SPECIFIC RECORDS ===`);
+      const debugSearchTerms = [
+        "sunil",
+        "gandhi",
+        "godhra",
+        "dilip",
+        "gujarat",
+      ];
+
+      for (const term of debugSearchTerms) {
+        const matchingRows = uniqueRows.filter((row) => {
+          const content = (
+            row.content || JSON.stringify(row.rowData)
+          ).toLowerCase();
+          return content.includes(term);
+        });
+
+        console.log(`Records containing "${term}": ${matchingRows.length}`);
+        if (matchingRows.length > 0) {
+          matchingRows.slice(0, 3).forEach((row, idx) => {
+            const companyName = this.extractCompanyNameEnhanced(row.rowData);
+            const personName =
+              row.rowData?.Name || row.rowData?.name || "Unknown";
+            const location = this.extractCountryEnhanced(row.rowData);
+            console.log(
+              `  [${idx + 1}] ${companyName} - ${personName} - ${location}`
+            );
+          });
+        }
+      }
+
+      // DEBUG: Show sample of what we DID find
+      console.log(`\n=== SAMPLE OF FOUND RECORDS ===`);
+      uniqueRows.slice(0, 5).forEach((row, idx) => {
+        const companyName = this.extractCompanyNameEnhanced(row.rowData);
+        const personName = row.rowData?.Name || row.rowData?.name || "Unknown";
+        const location = this.extractCountryEnhanced(row.rowData);
+        const content = (row.content || JSON.stringify(row.rowData)).substring(
+          0,
+          100
+        );
+        console.log(
+          `[${
+            idx + 1
+          }] Company: ${companyName}, Person: ${personName}, Location: ${location}`
+        );
+        console.log(`    Content: ${content}...`);
+        console.log(`    Vector Score: ${row.score?.toFixed(3)}`);
+      });
+      console.log(`=== END SAMPLE ===\n`);
 
       if (!uniqueRows.length) {
         // Try a final fallback search with just product name
@@ -921,12 +1093,15 @@ class ExcelController {
         keywords
       );
 
+      // Final deduplication after scoring to ensure we keep highest-scoring duplicates
+      const finalUniqueLeads = this.deduplicateScoredLeads(scoredLeads);
+
       console.log(
-        `ExcelController: Scored ${scoredLeads.length} leads, filtering by minScore: ${minScore}`
+        `ExcelController: Scored ${scoredLeads.length} leads → ${finalUniqueLeads.length} unique leads after final deduplication, filtering by minScore: ${minScore}`
       );
 
       // Filter by minimum score and limit results
-      const filteredLeads = scoredLeads
+      const filteredLeads = finalUniqueLeads
         .filter((lead) => lead.finalScore >= minScore)
         .slice(0, parseInt(limit));
 
@@ -935,8 +1110,11 @@ class ExcelController {
       );
 
       // If no leads pass the threshold, return top results anyway with warning
-      if (filteredLeads.length === 0 && scoredLeads.length > 0) {
-        const topLeads = scoredLeads.slice(0, Math.min(5, parseInt(limit)));
+      if (filteredLeads.length === 0 && finalUniqueLeads.length > 0) {
+        const topLeads = finalUniqueLeads.slice(
+          0,
+          Math.min(5, parseInt(limit))
+        );
 
         return res.json({
           success: true,
@@ -1048,60 +1226,376 @@ class ExcelController {
   buildMultipleSearchQueries(product, industry, region, keywords) {
     const queries = [];
 
-    // Primary comprehensive query
-    const primaryComponents = [product, industry];
-    if (region) primaryComponents.push(region);
-    if (keywords.length > 0) primaryComponents.push(...keywords.slice(0, 3)); // Limit keywords
-    queries.push(primaryComponents.join(" "));
-
-    // Product + Industry only (core match)
-    queries.push(`${product} ${industry}`);
-
-    // Product + Region (if region specified)
+    // LOCATION-FIRST QUERIES (highest priority per user request)
     if (region) {
-      queries.push(`${product} ${region}`);
+      // Primary: Location + Product + Industry (most comprehensive with location first)
+      const primaryComponents = [region, product, industry];
+      if (keywords.length > 0) primaryComponents.push(...keywords.slice(0, 2));
+      queries.push(primaryComponents.join(" "));
+
+      // Location + Product (strong geographic + product match)
+      queries.push(`${region} ${product}`);
+
+      // Location + Industry (geographic industry focus)
+      queries.push(`${region} ${industry}`);
+
+      // Pure location query (maximum geographic relevance)
+      queries.push(region);
+
+      // Location + Keywords (if keywords specified)
+      if (keywords.length > 0) {
+        queries.push(`${region} ${keywords.slice(0, 2).join(" ")}`);
+      }
     }
+
+    // SECONDARY QUERIES (lower priority)
+    // Product + Industry only (fallback without location)
+    queries.push(`${product} ${industry}`);
 
     // Product + Keywords (if keywords specified)
     if (keywords.length > 0) {
       queries.push(`${product} ${keywords.slice(0, 2).join(" ")}`);
     }
 
-    // Industry + Region (if region specified)
-    if (region) {
-      queries.push(`${industry} ${region}`);
-    }
-
-    // Just product (fallback)
+    // Just product (final fallback)
     queries.push(product);
 
-    // Remove duplicates while preserving order
+    // Remove duplicates while preserving order (location-first queries stay at top)
     return [...new Set(queries)];
   }
 
   /**
-   * @description Remove duplicate rows based on content similarity
+   * @description Remove duplicate rows based on robust company/contact identification
    * @param {Array} rows - Array of row objects
-   * @returns {Array} Deduplicated rows
+   * @returns {Array} Deduplicated rows (keeping highest scoring duplicates)
    * @private
    */
   deduplicateRows(rows) {
-    const seen = new Set();
-    const unique = [];
+    const companyMap = new Map();
+    const contactMap = new Map();
+    const seenFingerprints = new Set();
+
+    console.log(`\n=== DEDUPLICATION: Processing ${rows.length} rows ===`);
 
     for (const row of rows) {
-      // Create a fingerprint based on row content and index
-      const fingerprint = `${row.rowIndex || ""}-${(
-        row.content || ""
-      ).substring(0, 100)}`;
+      // Extract key identifying information
+      const companyName = this.extractCompanyNameEnhanced(row.rowData);
+      const contactPerson =
+        this.extractContactPersonEnhanced(row.rowData) ||
+        row.rowData?.Name ||
+        row.rowData?.name ||
+        "";
+      const email = this.extractEmailEnhanced(row.rowData) || "";
+      const phone = this.extractPhoneEnhanced(row.rowData) || "";
 
-      if (!seen.has(fingerprint)) {
-        seen.add(fingerprint);
-        unique.push(row);
+      // Normalize for comparison (lowercase, trim, remove special chars)
+      const normalizedCompany = this.normalizeForComparison(companyName);
+      const normalizedContact = this.normalizeForComparison(contactPerson);
+      const normalizedEmail = email.toLowerCase().trim();
+      const normalizedPhone = phone.replace(/[^\d]/g, ""); // Keep only digits
+
+      // Create multiple fingerprints for robust deduplication
+      const fingerprints = [];
+
+      // 1. Company + Contact Person (strongest match)
+      if (normalizedCompany !== "unknown company" && normalizedContact) {
+        fingerprints.push(
+          `company_contact:${normalizedCompany}|${normalizedContact}`
+        );
+      }
+
+      // 2. Company + Email (strong match)
+      if (normalizedCompany !== "unknown company" && normalizedEmail) {
+        fingerprints.push(
+          `company_email:${normalizedCompany}|${normalizedEmail}`
+        );
+      }
+
+      // 3. Company + Phone (strong match)
+      if (
+        normalizedCompany !== "unknown company" &&
+        normalizedPhone.length >= 8
+      ) {
+        fingerprints.push(
+          `company_phone:${normalizedCompany}|${normalizedPhone}`
+        );
+      }
+
+      // 4. Email alone (for individual contacts)
+      if (normalizedEmail && this.isValidEmail(normalizedEmail)) {
+        fingerprints.push(`email:${normalizedEmail}`);
+      }
+
+      // 5. Phone alone (for individual contacts with same phone)
+      if (normalizedPhone.length >= 10) {
+        fingerprints.push(`phone:${normalizedPhone}`);
+      }
+
+      // 6. Contact + Email (for cases where company is NULL/unknown)
+      if (normalizedContact && normalizedEmail) {
+        fingerprints.push(
+          `contact_email:${normalizedContact}|${normalizedEmail}`
+        );
+      }
+
+      // Check if this is a duplicate
+      let isDuplicate = false;
+      let duplicateType = "";
+
+      for (const fingerprint of fingerprints) {
+        if (seenFingerprints.has(fingerprint)) {
+          isDuplicate = true;
+          duplicateType = fingerprint.split(":")[0];
+          console.log(
+            `  DUPLICATE FOUND: ${companyName} - ${contactPerson} (${duplicateType})`
+          );
+          break;
+        }
+      }
+
+      if (!isDuplicate) {
+        // Mark all fingerprints as seen
+        fingerprints.forEach((fp) => seenFingerprints.add(fp));
+
+        // Store the row with metadata
+        const rowWithMeta = {
+          ...row,
+          _dedup_meta: {
+            companyName,
+            contactPerson,
+            email,
+            phone,
+            fingerprints,
+          },
+        };
+
+        console.log(`  UNIQUE: ${companyName} - ${contactPerson} - ${email}`);
+
+        // Store in company and contact maps for further validation
+        if (normalizedCompany !== "unknown company") {
+          if (!companyMap.has(normalizedCompany)) {
+            companyMap.set(normalizedCompany, []);
+          }
+          companyMap.get(normalizedCompany).push(rowWithMeta);
+        }
+
+        if (normalizedEmail) {
+          contactMap.set(normalizedEmail, rowWithMeta);
+        }
+      } else {
+        console.log(
+          `  SKIPPED DUPLICATE: ${companyName} - ${contactPerson} (matched by ${duplicateType})`
+        );
       }
     }
 
-    return unique;
+    // Collect all unique rows
+    const uniqueRows = [];
+
+    // Add company-based unique rows
+    for (const [company, companyRows] of companyMap.entries()) {
+      if (companyRows.length === 1) {
+        uniqueRows.push(companyRows[0]);
+      } else {
+        // Multiple rows for same company - this shouldn't happen with our logic, but handle it
+        console.warn(
+          `  WARNING: Multiple rows found for company "${company}" after deduplication`
+        );
+        // Take the first one (could sort by score if available)
+        uniqueRows.push(companyRows[0]);
+      }
+    }
+
+    // Add contact-only rows (where company was NULL/unknown)
+    for (const [email, contactRow] of contactMap.entries()) {
+      const companyName = this.normalizeForComparison(
+        this.extractCompanyNameEnhanced(contactRow.rowData)
+      );
+      if (companyName === "unknown company") {
+        // Only add if not already added through company mapping
+        if (!uniqueRows.find((r) => r.rowIndex === contactRow.rowIndex)) {
+          uniqueRows.push(contactRow);
+        }
+      }
+    }
+
+    console.log(
+      `=== DEDUPLICATION COMPLETE: ${rows.length} → ${uniqueRows.length} unique rows ===\n`
+    );
+
+    // Final validation - check for any remaining duplicates by company name
+    const finalCompanyCheck = new Map();
+    const trulyUniqueRows = [];
+
+    for (const row of uniqueRows) {
+      const companyName = this.extractCompanyNameEnhanced(row.rowData);
+      const normalizedCompany = this.normalizeForComparison(companyName);
+
+      if (normalizedCompany === "unknown company") {
+        // For unknown companies, check by email/phone
+        const email = this.extractEmailEnhanced(row.rowData);
+        const phone = this.extractPhoneEnhanced(row.rowData);
+        const contactKey = email || phone || `unknown_${row.rowIndex}`;
+
+        if (!finalCompanyCheck.has(`contact_${contactKey}`)) {
+          finalCompanyCheck.set(`contact_${contactKey}`, row);
+          trulyUniqueRows.push(row);
+        }
+      } else {
+        if (!finalCompanyCheck.has(normalizedCompany)) {
+          finalCompanyCheck.set(normalizedCompany, row);
+          trulyUniqueRows.push(row);
+        } else {
+          console.warn(
+            `  FINAL CHECK: Duplicate company found: ${companyName}`
+          );
+        }
+      }
+    }
+
+    console.log(
+      `=== FINAL VALIDATION: ${uniqueRows.length} → ${trulyUniqueRows.length} truly unique rows ===\n`
+    );
+
+    return trulyUniqueRows;
+  }
+
+  /**
+   * @description Normalize text for comparison (handles case, special chars, etc.)
+   * @param {string} text - Text to normalize
+   * @returns {string} Normalized text
+   * @private
+   */
+  normalizeForComparison(text) {
+    if (!text || typeof text !== "string") return "";
+
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s]/g, "") // Remove special characters
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .replace(
+        /\b(ltd|limited|pvt|private|inc|corp|corporation|company|co)\b/g,
+        ""
+      ) // Remove company suffixes
+      .trim();
+  }
+
+  /**
+   * @description Final deduplication of scored leads, keeping highest-scoring duplicates
+   * @param {Array} scoredLeads - Array of scored lead objects
+   * @returns {Array} Deduplicated scored leads
+   * @private
+   */
+  deduplicateScoredLeads(scoredLeads) {
+    console.log(
+      `\n=== FINAL SCORED DEDUPLICATION: Processing ${scoredLeads.length} scored leads ===`
+    );
+
+    const companyLeadMap = new Map();
+    const contactLeadMap = new Map();
+
+    for (const lead of scoredLeads) {
+      const companyName = this.extractCompanyNameEnhanced(lead.rowData);
+      const contactPerson =
+        this.extractContactPersonEnhanced(lead.rowData) ||
+        lead.rowData?.Name ||
+        lead.rowData?.name ||
+        "";
+      const email = this.extractEmailEnhanced(lead.rowData) || "";
+      const phone = this.extractPhoneEnhanced(lead.rowData) || "";
+
+      const normalizedCompany = this.normalizeForComparison(companyName);
+      const normalizedContact = this.normalizeForComparison(contactPerson);
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Create identification keys
+      const companyKey =
+        normalizedCompany !== "unknown company" ? normalizedCompany : null;
+      const contactKey =
+        normalizedEmail || phone || `${normalizedContact}_${companyName}`;
+
+      console.log(
+        `  Processing: ${companyName} (${contactPerson}) - Score: ${lead.finalScore}`
+      );
+
+      if (companyKey) {
+        // Handle company-based deduplication
+        if (companyLeadMap.has(companyKey)) {
+          const existingLead = companyLeadMap.get(companyKey);
+          if (lead.finalScore > existingLead.finalScore) {
+            console.log(
+              `    REPLACING: Better score (${lead.finalScore} > ${existingLead.finalScore}) for company "${companyName}"`
+            );
+            companyLeadMap.set(companyKey, lead);
+          } else {
+            console.log(
+              `    SKIPPING: Lower score (${lead.finalScore} <= ${existingLead.finalScore}) for company "${companyName}"`
+            );
+          }
+        } else {
+          console.log(`    ADDING: New company "${companyName}"`);
+          companyLeadMap.set(companyKey, lead);
+        }
+      } else {
+        // Handle contact-based deduplication (for unknown companies)
+        if (contactLeadMap.has(contactKey)) {
+          const existingLead = contactLeadMap.get(contactKey);
+          if (lead.finalScore > existingLead.finalScore) {
+            console.log(
+              `    REPLACING: Better score (${lead.finalScore} > ${existingLead.finalScore}) for contact "${contactPerson}"`
+            );
+            contactLeadMap.set(contactKey, lead);
+          } else {
+            console.log(
+              `    SKIPPING: Lower score (${lead.finalScore} <= ${existingLead.finalScore}) for contact "${contactPerson}"`
+            );
+          }
+        } else {
+          console.log(
+            `    ADDING: New contact "${contactPerson}" (unknown company)`
+          );
+          contactLeadMap.set(contactKey, lead);
+        }
+      }
+    }
+
+    // Combine results
+    const uniqueLeads = [
+      ...companyLeadMap.values(),
+      ...contactLeadMap.values(),
+    ];
+
+    // Sort by score (highest first)
+    uniqueLeads.sort((a, b) => b.finalScore - a.finalScore);
+
+    console.log(
+      `=== FINAL DEDUPLICATION COMPLETE: ${scoredLeads.length} → ${uniqueLeads.length} truly unique leads ===\n`
+    );
+
+    // Final safety check - log the final companies to verify no duplicates
+    const finalCompanies = uniqueLeads.map((lead) =>
+      this.extractCompanyNameEnhanced(lead.rowData)
+    );
+    const duplicateCheck = finalCompanies.filter(
+      (company, index) =>
+        finalCompanies.indexOf(company) !== index &&
+        company !== "Unknown Company"
+    );
+
+    if (duplicateCheck.length > 0) {
+      console.error(
+        `⚠️  WARNING: Still found duplicate companies after final deduplication: ${duplicateCheck.join(
+          ", "
+        )}`
+      );
+    } else {
+      console.log(
+        `✅ VALIDATION PASSED: No duplicate companies in final results`
+      );
+    }
+
+    return uniqueLeads;
   }
 
   /**
@@ -1138,69 +1632,109 @@ class ExcelController {
    * @private
    */
   async scoreLeadsEnhanced(leads, product, industry, region, keywords) {
+    console.log(
+      `ExcelController: Scoring ${leads.length} leads for product: "${product}", industry: "${industry}", region: "${region}"`
+    );
+
     return leads
-      .map((lead) => {
+      .map((lead, index) => {
         const rowData = lead.rowData;
         const content = lead.content || JSON.stringify(rowData);
 
-        // Enhanced Industry Match (35% weight) - more important
+        // Extract key info for debugging
+        const companyName = this.extractCompanyNameEnhanced(rowData);
+        const leadLocation = this.extractCountryEnhanced(rowData);
+
+        console.log(`\n--- SCORING LEAD ${index + 1}: ${companyName} ---`);
+        console.log(`Location: ${leadLocation}`);
+        console.log(`Content preview: ${content.substring(0, 150)}...`);
+
+        // Debug: Show all available fields in this record
+        console.log(`Available fields in rowData:`, Object.keys(rowData || {}));
+        if (rowData && typeof rowData === "object") {
+          Object.entries(rowData).forEach(([key, value]) => {
+            if (value && typeof value === "string" && value.trim().length > 0) {
+              console.log(`  ${key}: "${value}"`);
+            }
+          });
+        }
+
+        // Enhanced Geographic Match (40% weight) - HIGHEST PRIORITY per user request
+        const regionScore = this.calculateRegionMatchEnhanced(
+          content,
+          rowData,
+          region
+        );
+        console.log(
+          `Geographic Score: ${regionScore.toFixed(3)} (${(
+            regionScore * 40
+          ).toFixed(1)}% of total)`
+        );
+
+        // Enhanced Industry Match (25% weight) - second priority
         const industryScore = this.calculateIndustryMatchEnhanced(
           content,
           rowData,
           industry,
           keywords
         );
-
-        // Enhanced Geographic Match (20% weight) - increased importance
-        const regionScore = this.calculateRegionMatchEnhanced(
-          content,
-          rowData,
-          region
+        console.log(
+          `Industry Score: ${industryScore.toFixed(3)} (${(
+            industryScore * 25
+          ).toFixed(1)}% of total)`
         );
 
-        // Enhanced Contact Completeness (15% weight) - increased importance
+        // Enhanced Contact Completeness (20% weight) - third priority (email, phone, etc.)
         const completenessScore = this.calculateCompletenessEnhanced(rowData);
+        console.log(
+          `Contact Completeness Score: ${completenessScore.toFixed(3)} (${(
+            completenessScore * 20
+          ).toFixed(1)}% of total)`
+        );
 
-        // Lead Activity/Business Size (10% weight)
+        // Lead Activity/Business Size (8% weight) - reduced
         const activityScore = this.calculateActivityScoreEnhanced(
           rowData,
           content
         );
 
-        // Export/Business Readiness (10% weight)
+        // Export/Business Readiness (5% weight) - reduced
         const exportScore = this.calculateExportReadinessEnhanced(
           content,
           rowData
         );
 
-        // Engagement/Quality Score (5% weight)
+        // Engagement/Quality Score (1% weight) - minimal
         const engagementScore = this.calculateEngagementScoreEnhanced(
           rowData,
           content
         );
 
-        // Data Quality/Freshness (5% weight)
+        // Data Quality/Freshness (1% weight) - minimal
         const freshnessScore = this.calculateFreshnessScoreEnhanced(
           lead,
           rowData
         );
 
-        // Calculate final weighted score
+        // Calculate final weighted score with location as highest priority
         const finalScore =
-          (industryScore * 0.35 +
-            regionScore * 0.2 +
-            completenessScore * 0.15 +
-            activityScore * 0.1 +
-            exportScore * 0.1 +
-            engagementScore * 0.05 +
-            freshnessScore * 0.05) *
+          (regionScore * 0.4 + // 40% - Location is TOP priority
+            industryScore * 0.25 + // 25% - Industry second
+            completenessScore * 0.2 + // 20% - Contact info third
+            activityScore * 0.08 + // 8%  - Business size
+            exportScore * 0.05 + // 5%  - Export readiness
+            engagementScore * 0.01 + // 1%  - Engagement
+            freshnessScore * 0.01) * // 1%  - Data quality
           100; // Convert to 0-100 scale
+
+        console.log(`FINAL SCORE: ${finalScore.toFixed(1)}`);
+        console.log(`--- END LEAD ${index + 1} ---\n`);
 
         return {
           ...lead,
-          industryScore,
-          regionScore,
-          completenessScore,
+          regionScore, // Now most important
+          industryScore, // Second most important
+          completenessScore, // Third most important
           activityScore,
           exportScore,
           engagementScore,
@@ -1395,63 +1929,195 @@ class ExcelController {
    * @private
    */
   calculateRegionMatchEnhanced(content, rowData, region) {
-    if (!region) return 0.7; // Higher neutral score if no region specified
+    if (!region) return 0.5; // Neutral score if no region specified
 
     const lowerContent = content.toLowerCase();
     const lowerRegion = region.toLowerCase();
     let score = 0;
 
-    // Check specific location fields first
-    const locationFields = this.findAllFieldValues(rowData, [
-      "country",
+    console.log(`    🌍 REGION MATCHING for "${region}"`);
+    console.log(`    Content: ${content.substring(0, 100)}...`);
+
+    // Check specific location fields first with HIGHEST priority
+    // Prioritize city/regional fields over country fields
+    const cityRegionFields = this.findAllFieldValues(rowData, [
+      "city",
       "region",
       "location",
-      "city",
-      "state",
-      "address",
       "area",
       "zone",
+      "place",
+      "district",
+      "locality",
+      "town",
     ]);
 
-    for (const fieldValue of locationFields) {
-      if (fieldValue && fieldValue.toLowerCase().includes(lowerRegion)) {
-        score = 1.0; // Perfect match in location field
-        break;
+    console.log(
+      `    City/Region fields found: [${cityRegionFields.join(", ")}]`
+    );
+
+    const countryStateFields = this.findAllFieldValues(rowData, [
+      "country",
+      "state",
+      "province",
+      "territory",
+    ]);
+
+    console.log(
+      `    Country/State fields found: [${countryStateFields.join(", ")}]`
+    );
+
+    const addressFields = this.findAllFieldValues(rowData, [
+      "address",
+      "full_address",
+      "location_address",
+    ]);
+
+    console.log(`    Address fields found: [${addressFields.join(", ")}]`);
+
+    // HIGHEST PRIORITY: City/Region field exact matches
+    for (const fieldValue of cityRegionFields) {
+      if (fieldValue) {
+        const fieldLower = fieldValue.toLowerCase();
+        console.log(
+          `    Checking city/region field: "${fieldValue}" vs "${region}"`
+        );
+
+        // Perfect match in city/region field = maximum score
+        if (fieldLower === lowerRegion || fieldLower.includes(lowerRegion)) {
+          score = 1.0;
+          console.log(
+            `    ✅ PERFECT city/region match found in field: "${fieldValue}" matches "${region}"`
+          );
+          break;
+        }
       }
     }
 
-    if (score === 0) {
-      // Direct region match in content
+    // HIGH PRIORITY: Address field matches (often contain city names)
+    if (score < 1.0) {
+      for (const fieldValue of addressFields) {
+        if (fieldValue) {
+          const fieldLower = fieldValue.toLowerCase();
+          console.log(
+            `    Checking address field: "${fieldValue}" for "${region}"`
+          );
+
+          if (fieldLower.includes(lowerRegion)) {
+            score = Math.max(score, 0.95);
+            console.log(
+              `    ✅ City/region match found in address: "${fieldValue}" contains "${region}"`
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    // MEDIUM PRIORITY: Country/State field matches (lower priority than city)
+    if (score < 0.95) {
+      for (const fieldValue of countryStateFields) {
+        if (fieldValue) {
+          const fieldLower = fieldValue.toLowerCase();
+          console.log(
+            `    Checking country/state field: "${fieldValue}" vs "${region}"`
+          );
+
+          if (fieldLower === lowerRegion || fieldLower.includes(lowerRegion)) {
+            score = Math.max(score, 0.85); // Lower than city matches
+            console.log(
+              `    ✅ Country/state match found in field: "${fieldValue}" matches "${region}"`
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    // If no perfect match in fields, check content with city-priority approach
+    if (score < 1.0) {
+      console.log(`    Checking content for direct "${region}" match...`);
+
+      // Direct exact region match in any content (high priority for city names)
       if (lowerContent.includes(lowerRegion)) {
-        score = 0.9;
+        score = Math.max(score, 0.92); // High score for direct content match
+        console.log(`    ✅ Direct city/region match in content: "${region}"`);
       }
 
-      // Country code matches
-      const countryCodes = this.getCountryCodesEnhanced(region);
-      const hasCountryCode = countryCodes.some((code) =>
-        lowerContent.includes(code.toLowerCase())
+      // Enhanced city and regional matching
+      const cityIndicators = this.getCityAndRegionalIndicators(region);
+      console.log(
+        `    City indicators for "${region}": [${cityIndicators.join(", ")}]`
       );
 
-      if (hasCountryCode && score < 0.8) {
-        score = 0.8;
+      // Check for city and regional indicators (highest priority)
+      for (const indicator of cityIndicators) {
+        if (lowerContent.includes(indicator.toLowerCase())) {
+          score = Math.max(score, 0.88); // High score for city indicators
+          console.log(
+            `    ✅ City/regional indicator match found: "${indicator}"`
+          );
+          break;
+        }
       }
 
-      // Regional variations and cities
-      const regionalTerms = this.getRegionalTermsEnhanced(region);
-      const hasRegionalTerm = regionalTerms.some((term) =>
-        lowerContent.includes(term.toLowerCase())
-      );
+      // Check for country codes and broader location terms (lower priority)
+      if (score < 0.88) {
+        const countryCodes = this.getCountryCodesEnhanced(region);
+        console.log(
+          `    Country codes for "${region}": [${countryCodes.join(", ")}]`
+        );
 
-      if (hasRegionalTerm && score < 0.6) {
-        score = 0.6;
+        for (const code of countryCodes) {
+          if (lowerContent.includes(code.toLowerCase())) {
+            score = Math.max(score, 0.75); // Lower score than city matches
+            console.log(`    ✅ Country code match found: "${code}"`);
+            break;
+          }
+        }
       }
 
-      // Fallback for no match
-      if (score === 0) {
-        score = 0.3;
+      // Additional broader location indicators (lowest priority)
+      if (score < 0.75) {
+        const locationIndicators = this.getLocationIndicators(region);
+        for (const indicator of locationIndicators) {
+          if (lowerContent.includes(indicator.toLowerCase())) {
+            score = Math.max(score, 0.65);
+            console.log(
+              `    ✅ General location indicator match found: "${indicator}"`
+            );
+            break;
+          }
+        }
       }
     }
 
+    // If still no match, check for partial/fuzzy matches
+    if (score === 0) {
+      console.log(`    No direct matches found, checking partial matches...`);
+      const partialMatches = this.getPartialLocationMatches(region);
+      console.log(
+        `    Partial matches for "${region}": [${partialMatches.join(", ")}]`
+      );
+
+      for (const partial of partialMatches) {
+        if (lowerContent.includes(partial.toLowerCase())) {
+          score = 0.3; // Lower score for partial matches
+          console.log(`    ⚠️  Partial location match found: "${partial}"`);
+          break;
+        }
+      }
+    }
+
+    // Minimum score for no location match (when location is specified)
+    if (score === 0) {
+      score = 0.05; // Very low score if no location match at all
+      console.log(`    ❌ No location match found at all`);
+    }
+
+    console.log(
+      `    🏁 Final location score for "${region}": ${score.toFixed(3)}`
+    );
     return score;
   }
 
@@ -2196,13 +2862,13 @@ Keep the response concise and actionable.`;
       // Scoring details
       finalScore: Math.round(lead.finalScore),
       scoreBreakdown: {
-        industryMatch: Math.round(lead.industryScore * 35),
-        geographicMatch: Math.round(lead.regionScore * 20),
-        contactCompleteness: Math.round(lead.completenessScore * 15),
-        businessSize: Math.round(lead.activityScore * 10),
-        exportReadiness: Math.round(lead.exportScore * 10),
-        engagement: Math.round(lead.engagementScore * 5),
-        dataQuality: Math.round(lead.freshnessScore * 5),
+        geographicMatch: Math.round(lead.regionScore * 40), // 40% - TOP priority
+        industryMatch: Math.round(lead.industryScore * 25), // 25% - Second priority
+        contactCompleteness: Math.round(lead.completenessScore * 20), // 20% - Third priority
+        businessSize: Math.round(lead.activityScore * 8), // 8%  - Lower priority
+        exportReadiness: Math.round(lead.exportScore * 5), // 5%  - Lower priority
+        engagement: Math.round(lead.engagementScore * 1), // 1%  - Minimal
+        dataQuality: Math.round(lead.freshnessScore * 1), // 1%  - Minimal
       },
 
       // Raw data for reference
@@ -2827,6 +3493,379 @@ Keep the response concise and actionable.`;
    */
   getUploadMiddleware() {
     return this.upload.single("excel");
+  }
+
+  /**
+   * @description Get location indicators like phone codes, postal patterns, etc.
+   * @param {string} region - Region name
+   * @returns {Array<string>} Location indicators
+   * @private
+   */
+  getLocationIndicators(region) {
+    const indicatorMap = {
+      india: [
+        "+91",
+        "91-",
+        "india",
+        "ind",
+        "delhi",
+        "mumbai",
+        "kolkata",
+        "bangalore",
+        "chennai",
+        "hyderabad",
+        "pune",
+        "ahmedabad",
+        "kerala",
+        "tamil nadu",
+        "maharashtra",
+        "gujarat",
+        "karnataka",
+      ],
+      china: [
+        "+86",
+        "86-",
+        "china",
+        "chn",
+        "beijing",
+        "shanghai",
+        "guangzhou",
+        "shenzhen",
+        "tianjin",
+        "wuhan",
+        "chongqing",
+        "sichuan",
+        "guangdong",
+        "jiangsu",
+      ],
+      usa: [
+        "+1",
+        "1-",
+        "usa",
+        "united states",
+        "america",
+        "ny",
+        "ca",
+        "tx",
+        "fl",
+        "washington",
+        "oregon",
+        "nevada",
+        "arizona",
+      ],
+      "united states": [
+        "+1",
+        "1-",
+        "usa",
+        "united states",
+        "america",
+        "ny",
+        "ca",
+        "tx",
+        "fl",
+        "washington",
+        "oregon",
+        "nevada",
+        "arizona",
+      ],
+      germany: [
+        "+49",
+        "49-",
+        "germany",
+        "deutschland",
+        "berlin",
+        "munich",
+        "hamburg",
+        "cologne",
+        "frankfurt",
+        "bavaria",
+        "saxon",
+      ],
+      japan: [
+        "+81",
+        "81-",
+        "japan",
+        "nippon",
+        "tokyo",
+        "osaka",
+        "kyoto",
+        "yokohama",
+        "kobe",
+        "nagoya",
+        "hiroshima",
+      ],
+      uk: [
+        "+44",
+        "44-",
+        "uk",
+        "britain",
+        "england",
+        "scotland",
+        "wales",
+        "london",
+        "manchester",
+        "birmingham",
+        "liverpool",
+        "bristol",
+      ],
+      "united kingdom": [
+        "+44",
+        "44-",
+        "uk",
+        "britain",
+        "england",
+        "scotland",
+        "wales",
+        "london",
+        "manchester",
+        "birmingham",
+        "liverpool",
+        "bristol",
+      ],
+      france: [
+        "+33",
+        "33-",
+        "france",
+        "paris",
+        "marseille",
+        "lyon",
+        "toulouse",
+        "nice",
+        "nantes",
+        "strasbourg",
+      ],
+      italy: [
+        "+39",
+        "39-",
+        "italy",
+        "italia",
+        "rome",
+        "milan",
+        "naples",
+        "turin",
+        "florence",
+        "venice",
+      ],
+      spain: [
+        "+34",
+        "34-",
+        "spain",
+        "espana",
+        "madrid",
+        "barcelona",
+        "valencia",
+        "seville",
+        "bilbao",
+      ],
+      brazil: [
+        "+55",
+        "55-",
+        "brazil",
+        "brasil",
+        "sao paulo",
+        "rio de janeiro",
+        "brasilia",
+        "salvador",
+        "fortaleza",
+      ],
+      canada: [
+        "+1",
+        "1-",
+        "canada",
+        "toronto",
+        "vancouver",
+        "montreal",
+        "calgary",
+        "ottawa",
+        "quebec",
+      ],
+      australia: [
+        "+61",
+        "61-",
+        "australia",
+        "sydney",
+        "melbourne",
+        "brisbane",
+        "perth",
+        "adelaide",
+      ],
+    };
+
+    return indicatorMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get comprehensive city and regional indicators for precise location matching
+   * @param {string} region - Region/City name
+   * @returns {Array<string>} City and regional indicators
+   * @private
+   */
+  getCityAndRegionalIndicators(region) {
+    const cityIndicatorMap = {
+      // Gujarat cities and regions (including Godhra)
+      godhra: [
+        "godhra",
+        "panchmahal",
+        "gujarat",
+        "gj",
+        "390001",
+        "390",
+        "dahod district",
+      ],
+      ahmedabad: ["ahmedabad", "amdavad", "gujarat", "gj", "380", "abad"],
+      surat: ["surat", "gujarat", "gj", "395", "diamond city"],
+      vadodara: ["vadodara", "baroda", "gujarat", "gj", "390"],
+      rajkot: ["rajkot", "gujarat", "gj", "360"],
+      bhavnagar: ["bhavnagar", "gujarat", "gj", "364"],
+      gandhinagar: ["gandhinagar", "gujarat", "gj", "382"],
+      gujarat: [
+        "gujarat",
+        "gj",
+        "ahmedabad",
+        "surat",
+        "vadodara",
+        "rajkot",
+        "godhra",
+        "panchmahal",
+      ],
+
+      // Maharashtra cities
+      mumbai: ["mumbai", "bombay", "maharashtra", "mh", "400", "navi mumbai"],
+      pune: ["pune", "maharashtra", "mh", "411", "pimpri"],
+      nagpur: ["nagpur", "maharashtra", "mh", "440"],
+      nashik: ["nashik", "maharashtra", "mh", "422"],
+      aurangabad: ["aurangabad", "maharashtra", "mh", "431"],
+      maharashtra: ["maharashtra", "mh", "mumbai", "pune", "nagpur"],
+
+      // Delhi and NCR
+      delhi: ["delhi", "new delhi", "dl", "110", "ncr", "gurgaon", "noida"],
+      "new delhi": ["new delhi", "delhi", "dl", "110", "ncr"],
+      gurgaon: ["gurgaon", "gurugram", "haryana", "hr", "122", "ncr"],
+      noida: ["noida", "uttar pradesh", "up", "201", "ncr"],
+      faridabad: ["faridabad", "haryana", "hr", "121", "ncr"],
+
+      // Karnataka cities
+      bangalore: ["bangalore", "bengaluru", "karnataka", "ka", "560"],
+      bengaluru: ["bengaluru", "bangalore", "karnataka", "ka", "560"],
+      mysore: ["mysore", "mysuru", "karnataka", "ka", "570"],
+      hubli: ["hubli", "dharwad", "karnataka", "ka", "580"],
+      karnataka: ["karnataka", "ka", "bangalore", "bengaluru", "mysore"],
+
+      // Tamil Nadu cities
+      chennai: ["chennai", "madras", "tamil nadu", "tn", "600"],
+      coimbatore: ["coimbatore", "tamil nadu", "tn", "641"],
+      madurai: ["madurai", "tamil nadu", "tn", "625"],
+      salem: ["salem", "tamil nadu", "tn", "636"],
+      tirupur: ["tirupur", "tamil nadu", "tn", "641"],
+      "tamil nadu": ["tamil nadu", "tn", "chennai", "coimbatore", "madurai"],
+
+      // Rajasthan cities
+      jaipur: ["jaipur", "rajasthan", "rj", "302", "pink city"],
+      jodhpur: ["jodhpur", "rajasthan", "rj", "342", "blue city"],
+      udaipur: ["udaipur", "rajasthan", "rj", "313", "city of lakes"],
+      kota: ["kota", "rajasthan", "rj", "324"],
+      rajasthan: ["rajasthan", "rj", "jaipur", "jodhpur", "udaipur"],
+
+      // West Bengal cities
+      kolkata: ["kolkata", "calcutta", "west bengal", "wb", "700"],
+      howrah: ["howrah", "west bengal", "wb", "711"],
+      durgapur: ["durgapur", "west bengal", "wb", "713"],
+      "west bengal": ["west bengal", "wb", "kolkata", "calcutta", "howrah"],
+
+      // Uttar Pradesh cities
+      lucknow: ["lucknow", "uttar pradesh", "up", "226"],
+      kanpur: ["kanpur", "uttar pradesh", "up", "208"],
+      agra: ["agra", "uttar pradesh", "up", "282", "taj mahal"],
+      varanasi: ["varanasi", "benares", "uttar pradesh", "up", "221"],
+      meerut: ["meerut", "uttar pradesh", "up", "250"],
+      "uttar pradesh": ["uttar pradesh", "up", "lucknow", "kanpur", "agra"],
+
+      // Haryana cities
+      haryana: ["haryana", "hr", "gurgaon", "faridabad", "panipat"],
+      panipat: ["panipat", "haryana", "hr", "132"],
+      ambala: ["ambala", "haryana", "hr", "134"],
+
+      // Punjab cities
+      ludhiana: ["ludhiana", "punjab", "pb", "141"],
+      amritsar: ["amritsar", "punjab", "pb", "143", "golden temple"],
+      jalandhar: ["jalandhar", "punjab", "pb", "144"],
+      punjab: ["punjab", "pb", "ludhiana", "amritsar", "jalandhar"],
+
+      // International cities (common business locations)
+      london: [
+        "london",
+        "uk",
+        "england",
+        "britain",
+        "gb",
+        "sw",
+        "nw",
+        "se",
+        "ne",
+      ],
+      "new york": ["new york", "nyc", "ny", "manhattan", "brooklyn", "usa"],
+      dubai: ["dubai", "uae", "emirates", "middle east"],
+      singapore: ["singapore", "sg", "asia pacific"],
+      "hong kong": ["hong kong", "hk", "china", "asia"],
+      tokyo: ["tokyo", "japan", "jp", "asia"],
+      paris: ["paris", "france", "fr", "europe"],
+      berlin: ["berlin", "germany", "de", "europe"],
+      sydney: ["sydney", "australia", "au", "oceania"],
+      toronto: ["toronto", "canada", "ca", "north america"],
+      "los angeles": ["los angeles", "la", "california", "ca", "usa"],
+      chicago: ["chicago", "illinois", "il", "usa"],
+      houston: ["houston", "texas", "tx", "usa"],
+      miami: ["miami", "florida", "fl", "usa"],
+    };
+
+    const regionLower = region.toLowerCase();
+
+    // Direct match
+    if (cityIndicatorMap[regionLower]) {
+      return cityIndicatorMap[regionLower];
+    }
+
+    // Partial match - search through values
+    for (const [key, indicators] of Object.entries(cityIndicatorMap)) {
+      if (key.includes(regionLower) || regionLower.includes(key)) {
+        return indicators;
+      }
+    }
+
+    // Fallback - return the region itself and common variations
+    return [region, region.replace(/\s+/g, ""), region.toLowerCase()];
+  }
+
+  /**
+   * @description Get partial location matches for fuzzy matching
+   * @param {string} region - Region name
+   * @returns {Array<string>} Partial matches
+   * @private
+   */
+  getPartialLocationMatches(region) {
+    const partialMap = {
+      india: ["ind", "asia", "south", "desi", "hindi"],
+      china: ["chn", "asia", "east", "chinese", "mandarin"],
+      usa: ["us", "america", "american", "states"],
+      "united states": ["us", "america", "american", "states"],
+      germany: ["ger", "deutsch", "european", "eu"],
+      japan: ["jp", "japanese", "asia", "east"],
+      uk: ["british", "english", "european", "eu"],
+      "united kingdom": ["british", "english", "european", "eu"],
+      france: ["fr", "french", "european", "eu"],
+      italy: ["it", "italian", "european", "eu"],
+      spain: ["es", "spanish", "european", "eu"],
+      brazil: ["br", "brazilian", "south america", "latin"],
+      canada: ["ca", "canadian", "north america"],
+      australia: ["au", "aussie", "oceania"],
+      europe: ["eu", "european"],
+      asia: ["asian"],
+      africa: ["african"],
+      "north america": ["na", "american"],
+      "south america": ["sa", "latin"],
+    };
+
+    return partialMap[region.toLowerCase()] || [];
   }
 }
 
