@@ -3,7 +3,7 @@ const { v4: uuidv4 } = require("uuid");
 
 const DocumentModel = require("../models/DocumentModel");
 const MessageModel = require("../models/MessageModel");
-const DeepseekService = require("../../services/OpenAIService");
+const OpenAIService = require("../../services/OpenAIService");
 const S3Service = require("../services/S3Service");
 const PDFService = require("../services/PDFService");
 
@@ -15,7 +15,7 @@ class PDFChatController {
   constructor() {
     this.documentModel = new DocumentModel();
     this.messageModel = new MessageModel();
-    this.deepseekService = new DeepseekService();
+    this.openAIService = new OpenAIService();
     this.s3Service = new S3Service();
     this.pdfService = new PDFService();
 
@@ -197,7 +197,7 @@ class PDFChatController {
       }
 
       // Split text into chunks
-      const textChunks = this.deepseekService.splitTextIntoChunks(cleanedText);
+      const textChunks = this.openAIService.splitTextIntoChunks(cleanedText);
 
       // Validate that chunks were created
       if (!textChunks || textChunks.length === 0) {
@@ -219,7 +219,7 @@ class PDFChatController {
       );
 
       // Generate embeddings
-      const embeddings = await this.deepseekService.generateEmbeddings(
+      const embeddings = await this.openAIService.generateEmbeddings(
         textChunks
       );
 
@@ -494,7 +494,7 @@ Would you like to try uploading a different document?`;
       // Generate query embedding for similarity search
       let queryEmbedding;
       try {
-        queryEmbedding = await this.deepseekService.generateEmbedding(query);
+        queryEmbedding = await this.openAIService.generateEmbedding(query);
       } catch (embeddingError) {
         console.error("Error generating query embedding:", embeddingError);
 
@@ -570,7 +570,7 @@ Would you like to try uploading a different document?`;
 
       // Generate AI response with conversation context
       const chatResponse =
-        await this.deepseekService.generateChatResponseWithContext(
+        await this.openAIService.generateChatResponseWithContext(
           query,
           relevantChunks,
           documentData.fileName,

@@ -626,7 +626,7 @@ router.get("/documents/:walletId/:documentId/summary", (req, res) => {
  *   post:
  *     tags: [Document Chat]
  *     summary: Chat with a specific document
- *     description: Send a query to chat with a specific document using Deepseek AI with conversation context (chain of thought). Requires walletId in request body for authentication and message tracking.
+ *     description: Send a query to chat with a specific document using OpenAI with conversation context (chain of thought). Requires walletId in request body for authentication and message tracking.
  *     parameters:
  *       - $ref: '#/components/parameters/DocumentId'
  *     requestBody:
@@ -637,7 +637,7 @@ router.get("/documents/:walletId/:documentId/summary", (req, res) => {
  *             $ref: '#/components/schemas/ChatRequest'
  *     responses:
  *       200:
- *         description: Chat response generated successfully using Deepseek AI
+ *         description: Chat response generated successfully using OpenAI
  *         content:
  *           application/json:
  *             schema:
