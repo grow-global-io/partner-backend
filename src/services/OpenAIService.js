@@ -1,158 +1,258 @@
 const OpenAI = require("openai");
+const { OpenAIEmbeddings } = require("@langchain/openai");
+const { ChatOpenAI } = require("@langchain/openai");
 
 /**
- * @description Deepseek service for embeddings and chat completions
- * @class DeepseekService
+ * @description Robust OpenAI service for embeddings and chat completions
+ * @class OpenAIService
  */
-class DeepseekService {
+class OpenAIService {
   constructor() {
-    // Deepseek API configuration
-    console.log("DeepseekService: Initializing Deepseek API");
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY environment variable is required");
+    }
 
-    // For chat completions, use Deepseek
-    this.chatClient = new OpenAI({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: "https://api.deepseek.com/v1",
+    console.log("OpenAIService: Initializing OpenAI API with latest models");
+
+    // Direct OpenAI client for raw API access
+    this.client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // No external API needed for embeddings - using local implementation
-    console.log(
-      "DeepseekService: Using local text-based embeddings (no external API required)"
-    );
+    // Langchain OpenAI Embeddings with best model
+    this.embeddings = new OpenAIEmbeddings({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      model: "text-embedding-3-small", // Best embedding model from OpenAI
+      dimensions: 1536, // Full dimensions for maximum quality
+      maxRetries: 3,
+      timeout: 30000, // 30 second timeout
+    });
+
+    // Langchain ChatOpenAI for robust chat completions
+    this.chatModel = new ChatOpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      model: "gpt-4o", // Latest and best reasoning model
+      temperature: 0.7,
+      maxTokens: 4000,
+      maxRetries: 3,
+      timeout: 60000, // 60 second timeout for complex requests
+    });
+
+    // Backup chat model for fallback
+    this.backupChatModel = new ChatOpenAI({
+      openAIApiKey: process.env.OPENAI_API_KEY,
+      model: "gpt-4-turbo", // Fallback model
+      temperature: 0.7,
+      maxTokens: 4000,
+      maxRetries: 2,
+      timeout: 45000,
+    });
+
+    // Rate limiting configuration
+    this.rateLimitConfig = {
+      maxRequestsPerMinute: 500, // Conservative limit for embeddings
+      maxTokensPerMinute: 150000, // Conservative limit for chat
+      requestCount: 0,
+      tokenCount: 0,
+      lastReset: Date.now(),
+    };
+
+    console.log("OpenAIService: Initialization complete with models:");
+    console.log("  - Embeddings: text-embedding-3-large (3072 dimensions)");
+    console.log("  - Chat: gpt-4o (primary), gpt-4-turbo (backup)");
   }
 
   /**
-   * @description Generate embeddings for text chunks (using OpenRouter/text similarity)
-   * @param {Array<string>} textChunks - Array of text chunks to embed
-   * @returns {Promise<Array>} Array of embeddings
+   * @description Reset rate limiting counters if needed
+   * @private
    */
-  async generateEmbeddings(textChunks) {
-    try {
-      console.log(
-        `DeepseekService: Generating embeddings for ${textChunks.length} chunks`
-      );
-      const embeddings = [];
-
-      // Since we don't have OpenAI, let's use simple text-based embeddings
-      // This will create basic vector representations based on text features
-      for (let i = 0; i < textChunks.length; i++) {
-        const chunk = textChunks[i];
-        const embedding = this.createSimpleEmbedding(chunk);
-
-        embeddings.push({
-          text: chunk,
-          embedding: embedding,
-          metadata: {
-            chunkIndex: i,
-            tokenCount: this.estimateTokenCount(chunk),
-          },
-        });
-      }
-
-      console.log(
-        `DeepseekService: Generated ${embeddings.length} embeddings successfully`
-      );
-      return embeddings;
-    } catch (error) {
-      console.error("DeepseekService: Error generating embeddings:", error);
-      throw error;
+  resetRateLimitIfNeeded() {
+    const now = Date.now();
+    if (now - this.rateLimitConfig.lastReset > 60000) {
+      // Reset every minute
+      this.rateLimitConfig.requestCount = 0;
+      this.rateLimitConfig.tokenCount = 0;
+      this.rateLimitConfig.lastReset = now;
     }
   }
 
   /**
-   * @description Generate embedding for a single query (using simple text-based method)
+   * @description Check if we're approaching rate limits
+   * @private
+   */
+  checkRateLimit() {
+    this.resetRateLimitIfNeeded();
+
+    if (
+      this.rateLimitConfig.requestCount >=
+      this.rateLimitConfig.maxRequestsPerMinute
+    ) {
+      throw new Error("Rate limit exceeded: too many requests per minute");
+    }
+
+    if (
+      this.rateLimitConfig.tokenCount >= this.rateLimitConfig.maxTokensPerMinute
+    ) {
+      throw new Error("Rate limit exceeded: too many tokens per minute");
+    }
+  }
+
+  /**
+   * @description Exponential backoff delay for retries
+   * @param {number} attempt - Attempt number (0-based)
+   * @returns {Promise<void>} Promise that resolves after delay
+   * @private
+   */
+  async exponentialBackoff(attempt) {
+    const delay = Math.min(1000 * Math.pow(2, attempt), 10000); // Max 10 seconds
+    console.log(
+      `OpenAIService: Backing off for ${delay}ms (attempt ${attempt + 1})`
+    );
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  /**
+   * @description Generate embeddings for text chunks with robust error handling
+   * @param {Array<string>} textChunks - Array of text chunks to embed
+   * @returns {Promise<Array>} Array of embeddings with metadata
+   */
+  async generateEmbeddings(textChunks) {
+    try {
+      this.checkRateLimit();
+
+      console.log(
+        `OpenAIService: Generating embeddings for ${textChunks.length} chunks`
+      );
+
+      const batchSize = 100; // OpenAI recommended batch size
+      const embeddings = [];
+
+      for (let i = 0; i < textChunks.length; i += batchSize) {
+        const batch = textChunks.slice(i, i + batchSize);
+        console.log(
+          `OpenAIService: Processing batch ${
+            Math.floor(i / batchSize) + 1
+          }/${Math.ceil(textChunks.length / batchSize)}`
+        );
+
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          try {
+            // Use Langchain for robust embedding generation
+            const batchEmbeddings = await this.embeddings.embedDocuments(batch);
+
+            // Format results with metadata
+            batch.forEach((text, idx) => {
+              embeddings.push({
+                text: text,
+                embedding: batchEmbeddings[idx],
+                metadata: {
+                  chunkIndex: i + idx,
+                  tokenCount: this.estimateTokenCount(text),
+                  dimensions: batchEmbeddings[idx].length,
+                  model: "text-embedding-3-large",
+                },
+              });
+            });
+
+            this.rateLimitConfig.requestCount++;
+            this.rateLimitConfig.tokenCount += batch.reduce(
+              (sum, text) => sum + this.estimateTokenCount(text),
+              0
+            );
+
+            break; // Success, exit retry loop
+          } catch (error) {
+            attempts++;
+
+            if (error.message.includes("rate limit") || error.status === 429) {
+              console.log(
+                `OpenAIService: Rate limit hit, waiting before retry ${attempts}/${maxAttempts}`
+              );
+              await this.exponentialBackoff(attempts - 1);
+            } else if (attempts >= maxAttempts) {
+              throw error;
+            } else {
+              console.log(
+                `OpenAIService: Embedding error, retrying ${attempts}/${maxAttempts}:`,
+                error.message
+              );
+              await this.exponentialBackoff(attempts - 1);
+            }
+          }
+        }
+
+        // Small delay between batches to avoid overwhelming the API
+        if (i + batchSize < textChunks.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+
+      console.log(
+        `OpenAIService: Generated ${embeddings.length} embeddings successfully`
+      );
+      return embeddings;
+    } catch (error) {
+      console.error("OpenAIService: Error generating embeddings:", error);
+      throw new Error(`Failed to generate embeddings: ${error.message}`);
+    }
+  }
+
+  /**
+   * @description Generate embedding for a single query with robust error handling
    * @param {string} query - Query text
    * @returns {Promise<Array>} Embedding vector
    */
   async generateEmbedding(query) {
     try {
-      console.log("DeepseekService: Generating query embedding");
-      return this.createSimpleEmbedding(query);
+      this.checkRateLimit();
+
+      console.log("OpenAIService: Generating query embedding");
+
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        try {
+          // Use Langchain for robust single embedding
+          const embedding = await this.embeddings.embedQuery(query);
+
+          this.rateLimitConfig.requestCount++;
+          this.rateLimitConfig.tokenCount += this.estimateTokenCount(query);
+
+          console.log(
+            `OpenAIService: Generated embedding with ${embedding.length} dimensions`
+          );
+          return embedding;
+        } catch (error) {
+          attempts++;
+
+          if (error.message.includes("rate limit") || error.status === 429) {
+            console.log(
+              `OpenAIService: Rate limit hit, waiting before retry ${attempts}/${maxAttempts}`
+            );
+            await this.exponentialBackoff(attempts - 1);
+          } else if (attempts >= maxAttempts) {
+            throw error;
+          } else {
+            console.log(
+              `OpenAIService: Query embedding error, retrying ${attempts}/${maxAttempts}:`,
+              error.message
+            );
+            await this.exponentialBackoff(attempts - 1);
+          }
+        }
+      }
     } catch (error) {
-      console.error(
-        "DeepseekService: Error generating query embedding:",
-        error
-      );
-      throw error;
+      console.error("OpenAIService: Error generating query embedding:", error);
+      throw new Error(`Failed to generate query embedding: ${error.message}`);
     }
   }
 
   /**
-   * @description Create simple text-based embedding vector
-   * @param {string} text - Text to embed
-   * @returns {Array<number>} Simple embedding vector
-   */
-  createSimpleEmbedding(text) {
-    // Create a simple embedding based on text characteristics
-    const words = text.toLowerCase().split(/\s+/);
-    const chars = text.toLowerCase();
-
-    // Create a 384-dimensional vector (common embedding size)
-    const embedding = new Array(384).fill(0);
-
-    // Basic features based on text content
-    embedding[0] = words.length / 100; // Normalized word count
-    embedding[1] = chars.length / 1000; // Normalized character count
-    embedding[2] = (text.match(/[A-Z]/g) || []).length / text.length; // Uppercase ratio
-    embedding[3] = (text.match(/\d/g) || []).length / text.length; // Digit ratio
-    embedding[4] = (text.match(/[.!?]/g) || []).length / text.length; // Punctuation ratio
-
-    // Word frequency features (simple bag of words approach)
-    const wordCounts = {};
-    words.forEach((word) => {
-      if (word.length > 2) {
-        // Ignore very short words
-        wordCounts[word] = (wordCounts[word] || 0) + 1;
-      }
-    });
-
-    // Fill embedding with word hash values
-    let index = 5;
-    for (const word in wordCounts) {
-      if (index >= embedding.length) break;
-      const hashValue = this.simpleHash(word) / 1000000; // Normalize hash
-      embedding[index] = wordCounts[word] * hashValue;
-      index++;
-    }
-
-    // Character n-grams for better text representation
-    for (let i = 0; i < chars.length - 2 && index < embedding.length; i++) {
-      const trigram = chars.substring(i, i + 3);
-      const hashValue = this.simpleHash(trigram) / 1000000;
-      embedding[index] = hashValue;
-      index++;
-    }
-
-    // Normalize the embedding vector
-    const magnitude = Math.sqrt(
-      embedding.reduce((sum, val) => sum + val * val, 0)
-    );
-    if (magnitude > 0) {
-      for (let i = 0; i < embedding.length; i++) {
-        embedding[i] /= magnitude;
-      }
-    }
-
-    return embedding;
-  }
-
-  /**
-   * @description Simple hash function for text
-   * @param {string} str - String to hash
-   * @returns {number} Hash value
-   */
-  simpleHash(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash);
-  }
-
-  /**
-   * @description Generate chat completion with context and conversation history (using Deepseek)
+   * @description Generate chat completion with context and conversation history
    * @param {string} query - User query
    * @param {Array} relevantChunks - Relevant document chunks
    * @param {string} documentName - Name of the document
@@ -166,29 +266,35 @@ class DeepseekService {
     conversationContext = []
   ) {
     try {
+      this.checkRateLimit();
+
+      console.log(
+        `OpenAIService: Generating chat response with ${relevantChunks.length} chunks`
+      );
+
       // Build context from relevant chunks
       const documentContext = relevantChunks
         .map((chunk, index) => `[Context ${index + 1}]: ${chunk.text}`)
         .join("\n\n");
 
       const systemMessage = `You are a helpful AI assistant that answers questions based on the provided document content. 
-            Use the context provided to answer the user's question accurately and comprehensively.
-            If the answer cannot be found in the context, clearly state that the information is not available in the document.
-            
-            Consider the conversation history to maintain context and provide coherent responses.
-            
-            Document: ${documentName}
-            
-            Document Context:
-            ${documentContext}`;
+Use the context provided to answer the user's question accurately and comprehensively.
+If the answer cannot be found in the context, clearly state that the information is not available in the document.
 
-      // Build conversation messages including history for chain of thought
+Consider the conversation history to maintain context and provide coherent responses.
+
+Document: ${documentName}
+
+Document Context:
+${documentContext}`;
+
+      // Build conversation messages
       const messages = [{ role: "system", content: systemMessage }];
 
-      // Add conversation history (excluding system messages to avoid confusion)
+      // Add conversation history (limit to last 6 messages for context)
       conversationContext
         .filter((msg) => msg.role !== "system")
-        .slice(-6) // Keep last 6 messages for context
+        .slice(-6)
         .forEach((msg) => {
           messages.push({
             role: msg.role,
@@ -199,37 +305,24 @@ class DeepseekService {
       // Add current query
       messages.push({ role: "user", content: query });
 
-      const response = await this.chatClient.chat.completions.create({
-        model: "deepseek-chat", // Latest Deepseek chat model
+      return await this.generateChatWithRetry(
         messages,
-        max_tokens: 2000,
-        temperature: 0.7,
-        stream: false,
-      });
-
-      return {
-        answer: response.choices[0].message.content,
-        usage: response.usage,
-        model: response.model,
-        relevantChunks: relevantChunks.length,
-        conversationLength: conversationContext.length,
-        sources: relevantChunks.map((chunk, index) => ({
-          chunkIndex: chunk.metadata?.chunkIndex || index,
-          similarity: chunk.similarity || 0,
-          preview: chunk.text.substring(0, 100) + "...",
-        })),
-      };
+        relevantChunks,
+        "context"
+      );
     } catch (error) {
       console.error(
-        "DeepseekService: Error generating chat response with context:",
+        "OpenAIService: Error generating chat response with context:",
         error
       );
-      throw error;
+      throw new Error(
+        `Failed to generate chat response with context: ${error.message}`
+      );
     }
   }
 
   /**
-   * @description Generate chat completion with context (using Deepseek)
+   * @description Generate chat completion with context (simplified version)
    * @param {string} query - User query
    * @param {Array} relevantChunks - Relevant document chunks
    * @param {string} documentName - Name of the document
@@ -237,50 +330,124 @@ class DeepseekService {
    */
   async generateChatResponse(query, relevantChunks, documentName = "document") {
     try {
+      this.checkRateLimit();
+
+      console.log(
+        `OpenAIService: Generating chat response for query: "${query.substring(
+          0,
+          50
+        )}..."`
+      );
+
       // Build context from relevant chunks
       const context = relevantChunks
         .map((chunk, index) => `[Context ${index + 1}]: ${chunk.text}`)
         .join("\n\n");
 
       const systemMessage = `You are a helpful AI assistant that answers questions based on the provided document content. 
-            Use the context provided to answer the user's question accurately and comprehensively.
-            If the answer cannot be found in the context, clearly state that the information is not available in the document.
-            
-            Document: ${documentName}
-            
-            Context:
-            ${context}`;
+Use the context provided to answer the user's question accurately and comprehensively.
+If the answer cannot be found in the context, clearly state that the information is not available in the document.
 
-      const response = await this.chatClient.chat.completions.create({
-        model: "deepseek-chat", // Latest Deepseek chat model
-        messages: [
-          { role: "system", content: systemMessage },
-          { role: "user", content: query },
-        ],
-        max_tokens: 2000,
-        temperature: 0.7,
-        stream: false,
-      });
+Document: ${documentName}
 
-      return {
-        answer: response.choices[0].message.content,
-        usage: response.usage,
-        model: response.model,
-        relevantChunks: relevantChunks.length,
-        sources: relevantChunks.map((chunk, index) => ({
-          chunkIndex: chunk.metadata?.chunkIndex || index,
-          similarity: chunk.similarity || 0,
-          preview: chunk.text.substring(0, 100) + "...",
-        })),
-      };
+Context:
+${context}`;
+
+      const messages = [
+        { role: "system", content: systemMessage },
+        { role: "user", content: query },
+      ];
+
+      return await this.generateChatWithRetry(
+        messages,
+        relevantChunks,
+        "simple"
+      );
     } catch (error) {
-      console.error("DeepseekService: Error generating chat response:", error);
-      throw error;
+      console.error("OpenAIService: Error generating chat response:", error);
+      throw new Error(`Failed to generate chat response: ${error.message}`);
     }
   }
 
   /**
-   * @description Generate streaming chat response (using Deepseek)
+   * @description Generate chat with retry logic and fallback models
+   * @param {Array} messages - Chat messages
+   * @param {Array} relevantChunks - Relevant chunks for response metadata
+   * @param {string} type - Type of chat (context/simple)
+   * @returns {Promise<Object>} Chat completion response
+   * @private
+   */
+  async generateChatWithRetry(messages, relevantChunks, type) {
+    let attempts = 0;
+    const maxAttempts = 3;
+    const models = [this.chatModel, this.backupChatModel];
+
+    for (const model of models) {
+      attempts = 0;
+
+      while (attempts < maxAttempts) {
+        try {
+          console.log(
+            `OpenAIService: Using model ${model.model} (attempt ${
+              attempts + 1
+            })`
+          );
+
+          const response = await this.client.chat.completions.create({
+            model: model.model,
+            messages: messages,
+            max_tokens: model.maxTokens || 4000,
+            temperature: model.temperature || 0.7,
+          });
+
+          this.rateLimitConfig.requestCount++;
+          this.rateLimitConfig.tokenCount += response.usage?.total_tokens || 0;
+
+          console.log(
+            `OpenAIService: Chat completion successful with ${model.model}`
+          );
+
+          return {
+            answer: response.choices[0].message.content,
+            usage: response.usage,
+            model: response.model,
+            relevantChunks: relevantChunks.length,
+            type: type,
+            sources: relevantChunks.map((chunk, index) => ({
+              chunkIndex: chunk.metadata?.chunkIndex || index,
+              similarity: chunk.similarity || 0,
+              preview: chunk.text.substring(0, 100) + "...",
+            })),
+          };
+        } catch (error) {
+          attempts++;
+
+          if (error.message.includes("rate limit") || error.status === 429) {
+            console.log(
+              `OpenAIService: Rate limit hit with ${model.model}, waiting before retry ${attempts}/${maxAttempts}`
+            );
+            await this.exponentialBackoff(attempts - 1);
+          } else if (attempts >= maxAttempts) {
+            console.log(
+              `OpenAIService: Max attempts reached with ${model.model}, trying next model`
+            );
+            break; // Try next model
+          } else {
+            console.log(
+              `OpenAIService: Chat error with ${model.model}, retrying ${attempts}/${maxAttempts}:`,
+              error.message
+            );
+            await this.exponentialBackoff(attempts - 1);
+          }
+        }
+      }
+    }
+
+    throw new Error("All chat models failed after multiple attempts");
+  }
+
+  /**
+   * @description Generate streaming chat response (using raw OpenAI API)
    * @param {string} query - User query
    * @param {Array} relevantChunks - Relevant document chunks
    * @param {string} documentName - Name of the document
@@ -292,70 +459,82 @@ class DeepseekService {
     documentName = "document"
   ) {
     try {
+      this.checkRateLimit();
+
+      console.log("OpenAIService: Generating streaming response");
+
       const context = relevantChunks
         .map((chunk, index) => `[Context ${index + 1}]: ${chunk.text}`)
         .join("\n\n");
 
       const systemMessage = `You are a helpful AI assistant that answers questions based on the provided document content. 
-            Use the context provided to answer the user's question accurately and comprehensively.
-            If the answer cannot be found in the context, clearly state that the information is not available in the document.
-            
-            Document: ${documentName}
-            
-            Context:
-            ${context}`;
+Use the context provided to answer the user's question accurately and comprehensively.
+If the answer cannot be found in the context, clearly state that the information is not available in the document.
 
-      return await this.chatClient.chat.completions.create({
-        model: "deepseek-chat", // Latest Deepseek chat model
+Document: ${documentName}
+
+Context:
+${context}`;
+
+      return await this.client.chat.completions.create({
+        model: "gpt-4o",
         messages: [
           { role: "system", content: systemMessage },
           { role: "user", content: query },
         ],
-        max_tokens: 2000,
+        max_tokens: 4000,
         temperature: 0.7,
         stream: true,
       });
     } catch (error) {
       console.error(
-        "DeepseekService: Error generating streaming response:",
+        "OpenAIService: Error generating streaming response:",
         error
       );
-      throw error;
+      throw new Error(
+        `Failed to generate streaming response: ${error.message}`
+      );
     }
   }
 
   /**
-   * @description Estimate token count for text (rough approximation)
+   * @description Estimate token count for text (improved approximation)
    * @param {string} text - Text to count tokens for
    * @returns {number} Estimated token count
    */
   estimateTokenCount(text) {
-    // Rough approximation: 1 token ≈ 4 characters
-    return Math.ceil(text.length / 4);
+    // Improved approximation based on OpenAI's tokenization
+    // Average: ~3.3 characters per token for English text
+    return Math.ceil(text.length / 3.3);
   }
 
   /**
-   * @description Split text into chunks for processing
+   * @description Split text into chunks for processing with overlap
    * @param {string} text - Text to split
    * @param {number} maxChunkSize - Maximum chunk size in characters
    * @param {number} overlap - Overlap between chunks
    * @returns {Array<string>} Array of text chunks
    */
-  splitTextIntoChunks(text, maxChunkSize = 1000, overlap = 100) {
+  splitTextIntoChunks(text, maxChunkSize = 1500, overlap = 150) {
     const chunks = [];
     let start = 0;
 
     while (start < text.length) {
       let end = start + maxChunkSize;
 
-      // Try to split at sentence boundaries
+      // Try to split at natural boundaries (sentences, paragraphs, spaces)
       if (end < text.length) {
-        const lastPeriod = text.lastIndexOf(".", end);
-        const lastNewline = text.lastIndexOf("\n", end);
-        const lastSpace = text.lastIndexOf(" ", end);
+        const boundaries = [
+          text.lastIndexOf("\n\n", end), // Paragraph
+          text.lastIndexOf(". ", end), // Sentence
+          text.lastIndexOf("\n", end), // Line
+          text.lastIndexOf(" ", end), // Word
+        ];
 
-        const splitPoint = Math.max(lastPeriod, lastNewline, lastSpace);
-        if (splitPoint > start + maxChunkSize * 0.5) {
+        const splitPoint = boundaries.find(
+          (boundary) => boundary > start + maxChunkSize * 0.5
+        );
+        if (splitPoint) {
           end = splitPoint + 1;
         }
       }
@@ -366,24 +545,94 @@ class DeepseekService {
       }
 
       start = end - overlap;
+      if (start >= text.length) break;
     }
 
     return chunks;
   }
 
   /**
-   * @description Validate Deepseek API key
-   * @returns {Promise<boolean>} True if valid, false otherwise
+   * @description Validate OpenAI API key with comprehensive checks
+   * @returns {Promise<boolean>} True if valid and functional, false otherwise
    */
   async validateApiKey() {
     try {
-      await this.chatClient.models.list();
+      console.log("OpenAIService: Validating API key...");
+
+      // Test 1: List models (quick check)
+      const models = await this.client.models.list();
+      const hasGPT4 = models.data.some((model) => model.id.includes("gpt-4"));
+
+      if (!hasGPT4) {
+        console.error(
+          "OpenAIService: API key doesn't have access to GPT-4 models"
+        );
+        return false;
+      }
+
+      // Test 2: Simple embedding test
+      const testEmbedding = await this.embeddings.embedQuery("test");
+      if (!testEmbedding || testEmbedding.length === 0) {
+        console.error("OpenAIService: Embedding generation failed");
+        return false;
+      }
+
+      // Test 3: Simple chat completion test
+      const testResponse = await this.client.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: "Hello" }],
+        max_tokens: 10,
+      });
+
+      if (!testResponse.choices || testResponse.choices.length === 0) {
+        console.error("OpenAIService: Chat completion failed");
+        return false;
+      }
+
+      console.log("OpenAIService: API key validation successful");
+      console.log(`  - Available models: ${models.data.length}`);
+      console.log(`  - Embedding dimensions: ${testEmbedding.length}`);
+      console.log(`  - Chat model: ${testResponse.model}`);
+
       return true;
     } catch (error) {
-      console.error("DeepseekService: Invalid API key:", error.message);
+      console.error("OpenAIService: API key validation failed:", error.message);
       return false;
+    }
+  }
+
+  /**
+   * @description Get service health status
+   * @returns {Promise<Object>} Health status information
+   */
+  async getHealthStatus() {
+    try {
+      const isValid = await this.validateApiKey();
+
+      return {
+        status: isValid ? "healthy" : "unhealthy",
+        apiKey: process.env.OPENAI_API_KEY ? "configured" : "missing",
+        models: {
+          embedding: "text-embedding-3-large",
+          chatPrimary: "gpt-4o",
+          chatBackup: "gpt-4-turbo",
+        },
+        rateLimits: {
+          requestsThisMinute: this.rateLimitConfig.requestCount,
+          tokensThisMinute: this.rateLimitConfig.tokenCount,
+          maxRequestsPerMinute: this.rateLimitConfig.maxRequestsPerMinute,
+          maxTokensPerMinute: this.rateLimitConfig.maxTokensPerMinute,
+        },
+        lastValidation: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        status: "error",
+        error: error.message,
+        lastValidation: new Date().toISOString(),
+      };
     }
   }
 }
 
-module.exports = DeepseekService;
+module.exports = OpenAIService;

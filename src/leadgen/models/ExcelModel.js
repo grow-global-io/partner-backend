@@ -63,7 +63,31 @@ class ExcelModel {
    */
   async createRows(documentId, rows) {
     try {
-      return await this.prisma.excelRow.createMany({
+      // DEBUG: Check for Ajmer data before saving
+      console.log(`\n=== SAVING ${rows.length} ROWS TO DATABASE ===`);
+
+      const ajmerRows = rows.filter((row) => {
+        const content = row.content || "";
+        const company = row.rowData?.Company || "";
+        const city = row.rowData?.City || "";
+        return (
+          content.toLowerCase().includes("ajmer") ||
+          company.toLowerCase().includes("gupta decoration") ||
+          city.toLowerCase().includes("ajmer")
+        );
+      });
+
+      console.log(`🎯 Found ${ajmerRows.length} Ajmer rows to save:`);
+      ajmerRows.slice(0, 5).forEach((row, idx) => {
+        const company = row.rowData?.Company || "Unknown";
+        const name = row.rowData?.Name || "Unknown";
+        const city = row.rowData?.City || "Unknown";
+        console.log(`  [${idx + 1}] ${company} | ${name} | ${city}`);
+        console.log(`      Content: ${row.content.substring(0, 200)}...`);
+        console.log(`      Embedding dims: ${row.embedding?.length || 0}`);
+      });
+
+      const result = await this.prisma.excelRow.createMany({
         data: rows.map((row) => ({
           documentId,
           content: row.content,
@@ -73,6 +97,11 @@ class ExcelModel {
           metadata: row.metadata,
         })),
       });
+
+      console.log(`✅ Successfully saved ${result.count} rows to database`);
+      console.log(`=== END DATABASE SAVE ===\n`);
+
+      return result;
     } catch (error) {
       console.error("ExcelModel: Error creating rows:", error);
       throw error;
@@ -188,6 +217,10 @@ class ExcelModel {
       // Get all rows with their document info
       const whereClause = fileKey ? { document: { fileKey } } : {};
 
+      console.log(`\n=== VECTOR SEARCH ===`);
+      console.log(`FileKey filter: ${fileKey || "ALL FILES"}`);
+      console.log(`Limit: ${limit}, MinScore: ${minScore}`);
+
       const rows = await this.prisma.excelRow.findMany({
         where: whereClause,
         include: {
@@ -201,6 +234,43 @@ class ExcelModel {
         orderBy: { createdAt: "desc" },
         take: limit * 10, // Get more rows to filter from
       });
+
+      console.log(`📊 Retrieved ${rows.length} rows from database`);
+
+      // DEBUG: Check for Ajmer data in retrieved rows
+      const ajmerInDB = rows.filter((row) => {
+        const content = row.content || "";
+        const company = row.rowData?.Company || "";
+        const city = row.rowData?.City || "";
+        return (
+          content.toLowerCase().includes("ajmer") ||
+          company.toLowerCase().includes("gupta decoration") ||
+          city.toLowerCase().includes("ajmer")
+        );
+      });
+
+      console.log(`🎯 Found ${ajmerInDB.length} Ajmer records in database:`);
+      if (ajmerInDB.length > 0) {
+        ajmerInDB.slice(0, 3).forEach((row, idx) => {
+          const company = row.rowData?.Company || "Unknown";
+          const name = row.rowData?.Name || "Unknown";
+          const city = row.rowData?.City || "Unknown";
+          console.log(`  [${idx + 1}] DB Row: ${company} | ${name} | ${city}`);
+          console.log(`      Content: ${row.content.substring(0, 200)}...`);
+        });
+      } else {
+        console.log(`❌ NO AJMER DATA FOUND IN DATABASE!`);
+
+        // Show sample of what IS in the database
+        console.log(`📋 Sample of database content (first 3 rows):`);
+        rows.slice(0, 3).forEach((row, idx) => {
+          const company = row.rowData?.Company || "Unknown";
+          const name = row.rowData?.Name || "Unknown";
+          const city = row.rowData?.City || "Unknown";
+          console.log(`  [${idx + 1}] ${company} | ${name} | ${city}`);
+          console.log(`      Content: ${row.content.substring(0, 200)}...`);
+        });
+      }
 
       // Calculate cosine similarity for each row
       const results = rows
@@ -218,6 +288,11 @@ class ExcelModel {
         .filter((row) => row.score > minScore)
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
+
+      console.log(
+        `🎯 Final results: ${results.length} rows after similarity filtering`
+      );
+      console.log(`=== END VECTOR SEARCH ===\n`);
 
       return results;
     } catch (error) {

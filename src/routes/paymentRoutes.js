@@ -13,9 +13,8 @@ const router = express.Router();
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const BASE_URL = process.env.BASE_URL || "http://localhost:8000";
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "https://partner.growlimitless.app";
+const BASE_URL = "http://localhost:8000";
+const FRONTEND_URL = "http://localhost:3000";
 
 /**
  * @description Validates the request payload for payment processing
@@ -154,7 +153,15 @@ async function updateWalletDocuments(walletId, additionalDocs) {
  */
 router.post("/purchase-plan", async (req, res) => {
   try {
-    const { walletId, mode, line_items, metadata, noOfDocs } = req.body;
+    const {
+      walletId,
+      mode,
+      line_items,
+      metadata,
+      noOfDocs,
+      success_url,
+      cancel_url,
+    } = req.body;
 
     // Validate payload
     const validation = validatePaymentPayload(req.body);
@@ -169,8 +176,12 @@ router.post("/purchase-plan", async (req, res) => {
     const paymentPayload = {
       line_items,
       mode,
-      success_url: `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
-      cancel_url: `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: success_url
+        ? success_url
+        : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
+      cancel_url: cancel_url
+        ? cancel_url
+        : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
         walletId,

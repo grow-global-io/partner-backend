@@ -12,8 +12,8 @@ const fs = require("fs");
  */
 class ExcelController {
   constructor() {
-    if (!process.env.DEEPSEEK_API_KEY) {
-      throw new Error("DEEPSEEK_API_KEY environment variable is required");
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY environment variable is required");
     }
 
     this.excelModel = new ExcelModel();
@@ -21,7 +21,7 @@ class ExcelController {
     this.openAIService = new OpenAIService();
 
     // Initialize error handlers
-    this.handleDeepseekError = this.handleDeepseekError.bind(this);
+    this.handleOpenAIError = this.handleOpenAIError.bind(this);
 
     // Configure multer for file uploads
     this.storage = multer.diskStorage({
@@ -57,44 +57,72 @@ class ExcelController {
     });
 
     // Batch size for embedding generation
-    this.embeddingBatchSize = 10;
+    this.embeddingBatchSize = 50;
+    this.embeddingConcurrency = 3; // Number of parallel batches
   }
 
   /**
-   * @description Handle Deepseek API errors
+   * @description Handle OpenAI API errors with enhanced error detection
    * @param {Error} error - Error object
    * @param {Object} res - Express response object
    * @private
    */
-  handleDeepseekError(error, res) {
-    console.error("DeepseekService error:", error);
+  handleOpenAIError(error, res) {
+    console.error("OpenAIService error:", error);
 
     // Check if API key is invalid
-    if (error.message.includes("API key")) {
+    if (
+      error.message.includes("API key") ||
+      error.message.includes("Unauthorized") ||
+      error.status === 401
+    ) {
       return res.status(401).json({
         success: false,
-        error: "Failed to generate LLM response",
+        error: "Failed to generate AI response",
         details:
-          "Invalid API key. Please check your DEEPSEEK_API_KEY environment variable.",
+          "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
       });
     }
 
     // Check for rate limiting
     if (
       error.message.includes("rate limit") ||
-      error.message.includes("too many requests")
+      error.message.includes("too many requests") ||
+      error.status === 429
     ) {
       return res.status(429).json({
         success: false,
-        error: "Failed to generate LLM response",
+        error: "Failed to generate AI response",
         details: "Rate limit exceeded. Please try again later.",
+      });
+    }
+
+    // Check for quota exceeded
+    if (
+      error.message.includes("quota") ||
+      error.message.includes("insufficient_quota")
+    ) {
+      return res.status(402).json({
+        success: false,
+        error: "Failed to generate AI response",
+        details: "OpenAI quota exceeded. Please check your billing.",
+      });
+    }
+
+    // Check for model overloaded
+    if (error.message.includes("overloaded") || error.status === 503) {
+      return res.status(503).json({
+        success: false,
+        error: "Failed to generate AI response",
+        details:
+          "OpenAI service temporarily overloaded. Please try again in a moment.",
       });
     }
 
     // Handle other API errors
     return res.status(500).json({
       success: false,
-      error: "Failed to generate LLM response",
+      error: "Failed to generate AI response",
       details: error.message,
     });
   }
@@ -236,6 +264,71 @@ class ExcelController {
         `ExcelController: Finished parsing, total rows: ${allRows.length}`
       );
 
+      // DEBUG: Check for specific Ajmer companies in the parsed data
+      console.log("\n=== DEBUGGING PARSED DATA ===");
+      const ajmerTestCompanies = [
+        "Gupta Decoration",
+        "Shakshi Collection",
+        "Shivji Rakhi Wala",
+      ];
+      const ajmerTestTerms = [
+        "ajmer",
+        "rajasthan",
+        "ajay gupta",
+        "raj kumar",
+        "suresh",
+      ];
+
+      for (const testTerm of ajmerTestTerms) {
+        const matchingRows = allRows.filter((row) => {
+          const textContent = row.textContent || "";
+          const dataString = JSON.stringify(row.data || {});
+          return (
+            textContent.toLowerCase().includes(testTerm.toLowerCase()) ||
+            dataString.toLowerCase().includes(testTerm.toLowerCase())
+          );
+        });
+
+        console.log(
+          `🔍 Found ${matchingRows.length} rows containing "${testTerm}"`
+        );
+
+        if (matchingRows.length > 0) {
+          matchingRows.slice(0, 3).forEach((row, idx) => {
+            const company = row.data?.Company || row.data?.company || "Unknown";
+            const name = row.data?.Name || row.data?.name || "Unknown";
+            const city = row.data?.City || row.data?.city || "Unknown";
+            console.log(
+              `  [${idx + 1}] Row ${
+                row.rowIndex
+              }: ${company} | ${name} | ${city}`
+            );
+            console.log(
+              `      Text: ${(row.textContent || "").substring(0, 200)}...`
+            );
+            console.log(
+              `      Data keys: ${Object.keys(row.data || {}).join(", ")}`
+            );
+          });
+        }
+      }
+
+      // Show first 5 rows for verification
+      console.log("\n=== FIRST 5 ROWS SAMPLE ===");
+      allRows.slice(0, 5).forEach((row, idx) => {
+        const company = row.data?.Company || row.data?.company || "Unknown";
+        const name = row.data?.Name || row.data?.name || "Unknown";
+        const city = row.data?.City || row.data?.city || "Unknown";
+        console.log(
+          `[${idx}] Row ${row.rowIndex}: ${company} | ${name} | ${city}`
+        );
+        console.log(`    Worksheet: ${row.worksheetName}`);
+        console.log(
+          `    Text: ${(row.textContent || "").substring(0, 150)}...`
+        );
+      });
+      console.log("=== END SAMPLE ===\n");
+
       if (allRows.length === 0) {
         throw new Error("No data rows found in the Excel file");
       }
@@ -247,56 +340,102 @@ class ExcelController {
       });
 
       // Process embeddings in batches
-      const batchSize = 10;
       let successfulEmbeddings = 0;
+      console.log(
+        "ExcelController: Starting embedding generation with concurrency..."
+      );
 
-      console.log("ExcelController: Starting embedding generation...");
+      const batches = [];
+      for (let i = 0; i < allRows.length; i += this.embeddingBatchSize) {
+        batches.push(allRows.slice(i, i + this.embeddingBatchSize));
+      }
 
-      for (let i = 0; i < allRows.length; i += batchSize) {
-        const batch = allRows.slice(i, i + batchSize);
+      let processedRows = 0;
+      let batchIndex = 0;
+
+      // Helper to process a single batch
+      const processBatch = async (batch, batchNum) => {
         await Promise.all(
           batch.map(async (row, index) => {
             try {
               const textContent = row.textContent || JSON.stringify(row.data);
               if (!textContent || textContent.trim() === "") {
                 console.warn(
-                  `ExcelController: Row ${i + index} has empty content`
+                  `ExcelController: Row ${
+                    batchNum * this.embeddingBatchSize + index
+                  } has empty content`
                 );
                 return;
               }
-
+              const isAjmerRow =
+                textContent.toLowerCase().includes("ajmer") ||
+                textContent.toLowerCase().includes("gupta decoration") ||
+                textContent.toLowerCase().includes("raj kumar");
+              if (isAjmerRow) {
+                console.log(
+                  `\n🎯 EMBEDDING AJMER ROW ${
+                    batchNum * this.embeddingBatchSize + index
+                  }:`
+                );
+                console.log(`Company: ${row.data?.Company || "Unknown"}`);
+                console.log(`Name: ${row.data?.Name || "Unknown"}`);
+                console.log(`City: ${row.data?.City || "Unknown"}`);
+                console.log(
+                  `Text being embedded: ${textContent.substring(0, 300)}...`
+                );
+              }
               const embedding = await this.openAIService.generateEmbedding(
                 textContent
               );
               if (embedding && Array.isArray(embedding)) {
                 row.embedding = embedding;
                 successfulEmbeddings++;
+                if (isAjmerRow) {
+                  console.log(
+                    `✅ Successfully embedded Ajmer row ${
+                      batchNum * this.embeddingBatchSize + index
+                    } with ${embedding.length}D vector`
+                  );
+                }
               } else {
                 console.warn(
-                  `ExcelController: Invalid embedding for row ${i + index}`
+                  `ExcelController: Invalid embedding for row ${
+                    batchNum * this.embeddingBatchSize + index
+                  }`
                 );
               }
             } catch (error) {
               console.error(
                 `ExcelController: Failed to create embedding for row ${
-                  i + index
+                  batchNum * this.embeddingBatchSize + index
                 }:`,
                 error
               );
-              // Continue processing other rows
             }
           })
         );
+        processedRows += batch.length;
+        // Update progress every 1000 rows
+        if (processedRows % 1000 === 0 || processedRows === allRows.length) {
+          const progress = Math.min(
+            50 + Math.floor((processedRows / allRows.length) * 50),
+            100
+          );
+          await this.excelModel.updateDocument(documentId, {
+            progress,
+          });
+          console.log(
+            `Progress: ${progress}% (${processedRows}/${allRows.length} rows embedded)`
+          );
+        }
+      };
 
-        // Update progress
-        const progress = Math.min(
-          50 + Math.floor(((i + batchSize) / allRows.length) * 50),
-          100
-        );
-        await this.excelModel.updateDocument(documentId, {
-          progress,
-        });
-      }
+      // Process batches in parallel with concurrency limit
+      const pLimit = require("p-limit");
+      const limit = pLimit(this.embeddingConcurrency);
+      await Promise.all(
+        batches.map((batch, idx) => limit(() => processBatch(batch, idx)))
+      );
 
       console.log(
         `ExcelController: Generated ${successfulEmbeddings} embeddings out of ${allRows.length} rows`
@@ -323,6 +462,28 @@ class ExcelController {
           originalRowNumber: row.originalRowNumber,
         },
       }));
+
+      // DEBUG: Verify transformed data contains Ajmer companies
+      console.log("\n=== VERIFYING TRANSFORMED DATA ===");
+      const ajmerTransformed = transformedRows.filter((row) => {
+        const content = row.content || "";
+        return (
+          content.toLowerCase().includes("ajmer") ||
+          content.toLowerCase().includes("gupta decoration")
+        );
+      });
+
+      console.log(
+        `🎯 Found ${ajmerTransformed.length} Ajmer companies in transformed data`
+      );
+      ajmerTransformed.slice(0, 3).forEach((row, idx) => {
+        const company = row.rowData?.Company || "Unknown";
+        const name = row.rowData?.Name || "Unknown";
+        const city = row.rowData?.City || "Unknown";
+        console.log(`  [${idx + 1}] ${company} | ${name} | ${city}`);
+        console.log(`      Content: ${row.content.substring(0, 200)}...`);
+      });
+      console.log("=== END VERIFICATION ===\n");
 
       console.log(
         `ExcelController: Saving ${transformedRows.length} rows to database...`
@@ -387,9 +548,9 @@ class ExcelController {
       if (!isValidApiKey) {
         return res.status(401).json({
           success: false,
-          error: "Failed to generate LLM response",
+          error: "Failed to generate AI response",
           details:
-            "Invalid API key. Please check your DEEPSEEK_API_KEY environment variable.",
+            "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
         });
       }
 
@@ -398,7 +559,7 @@ class ExcelController {
       try {
         queryEmbedding = await this.openAIService.generateEmbedding(query);
       } catch (error) {
-        return this.handleDeepseekError(error, res);
+        return this.handleOpenAIError(error, res);
       }
 
       // Perform vector search
@@ -424,7 +585,7 @@ class ExcelController {
             fileKey || "Excel document"
           );
         } catch (error) {
-          return this.handleDeepseekError(error, res);
+          return this.handleOpenAIError(error, res);
         }
       }
 
@@ -481,7 +642,9 @@ class ExcelController {
         queryEmbedding = await this.openAIService.generateEmbedding(query);
       } catch (embeddingError) {
         console.error("Error generating query embedding:", embeddingError);
-        return res.status(500).json(this.handleDeepseekError(embeddingError));
+        return res
+          .status(500)
+          .json(this.handleOpenAIError(embeddingError, res));
       }
 
       // Search for relevant rows across all documents
@@ -530,7 +693,7 @@ class ExcelController {
         );
       } catch (chatError) {
         console.error("Error generating chat response:", chatError);
-        return res.status(500).json(this.handleDeepseekError(chatError));
+        return res.status(500).json(this.handleOpenAIError(chatError, res));
       }
 
       const responseTime = Date.now() - startTime;
@@ -804,18 +967,67 @@ class ExcelController {
         minScore,
       });
 
+      // DEBUG: Check if target records exist in database at all
+      try {
+        console.log(`\n=== DATABASE DEBUGGING ===`);
+
+        // Try to find any record containing our target terms by doing a broad search
+        const broadSearchEmbedding = await this.openAIService.generateEmbedding(
+          "Godhra Gujarat Sunil Gandhi Dilip garments"
+        );
+        const broadResults = await this.excelModel.vectorSearch(
+          broadSearchEmbedding,
+          null, // all files
+          200, // get many results
+          0.0 // very low threshold
+        );
+
+        console.log(`Broad search found ${broadResults.length} total records`);
+
+        // Direct text search through the results
+        const targetTerms = ["godhra", "sunil", "gandhi", "dilip", "gujarat"];
+
+        for (const term of targetTerms) {
+          const textMatches = broadResults.filter((row) => {
+            const content = (
+              row.content || JSON.stringify(row.rowData || {})
+            ).toLowerCase();
+            return content.includes(term);
+          });
+
+          console.log(`Records containing "${term}": ${textMatches.length}`);
+
+          if (textMatches.length > 0) {
+            textMatches.slice(0, 2).forEach((match, idx) => {
+              const company = this.extractCompanyNameEnhanced(match.rowData);
+              const person =
+                match.rowData?.Name || match.rowData?.name || "Unknown";
+              const city =
+                match.rowData?.City || match.rowData?.city || "Unknown";
+              console.log(
+                `  [${idx + 1}] Found: ${company} - ${person} - ${city}`
+              );
+            });
+          }
+        }
+
+        console.log(`=== END DATABASE DEBUG ===\n`);
+      } catch (dbError) {
+        console.log(`Database debug error: ${dbError.message}`);
+      }
+
       // Validate API key before proceeding
       const isValidApiKey = await this.openAIService.validateApiKey();
       if (!isValidApiKey) {
         return res.status(401).json({
           success: false,
-          error: "Failed to generate LLM response",
+          error: "Failed to generate AI response",
           details:
-            "Invalid API key. Please check your DEEPSEEK_API_KEY environment variable.",
+            "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
         });
       }
 
-      // Build multiple search queries for better coverage
+      // Build multiple search queries for better coverage with LOCATION-FIRST approach
       const searchQueries = this.buildMultipleSearchQueries(
         product,
         industry,
@@ -825,23 +1037,42 @@ class ExcelController {
 
       console.log(`ExcelController: Built search queries:`, searchQueries);
 
-      // Try multiple search strategies
+      // LOCATION-FIRST SEARCH EXECUTION STRATEGY
       let allRelevantRows = [];
       const searchResults = [];
+      let locationMatchesFound = 0;
 
-      for (const query of searchQueries) {
+      // Phase 1: Execute location-priority searches first
+      for (let i = 0; i < searchQueries.length; i++) {
+        const query = searchQueries[i];
+        const isLocationQuery =
+          region &&
+          (query === region ||
+            query.startsWith(region) ||
+            this.getCityAndRegionalIndicators(region).includes(
+              query.toLowerCase()
+            ));
+
         try {
-          console.log(`ExcelController: Searching with query: "${query}"`);
+          console.log(
+            `ExcelController: Phase ${
+              isLocationQuery ? "LOCATION" : "FALLBACK"
+            } - Searching with query: "${query}"`
+          );
 
           const queryEmbedding = await this.openAIService.generateEmbedding(
             query
           );
 
-          // Use very low threshold for maximum recall
+          // Use different search parameters based on query type
+          const searchLimit = isLocationQuery
+            ? Math.max(200, limit * 20) // More results for location queries
+            : Math.max(100, limit * 10); // Standard for other queries
+
           const rows = await this.excelModel.vectorSearch(
             queryEmbedding,
             null, // search all files
-            Math.max(100, limit * 10), // Get many more results
+            searchLimit,
             0.0 // Very low threshold - we'll filter with scoring later
           );
 
@@ -849,15 +1080,116 @@ class ExcelController {
             `ExcelController: Query "${query}" found ${rows.length} rows`
           );
 
-          searchResults.push({
-            query,
-            resultsCount: rows.length,
-          });
+          // Track location matches
+          if (isLocationQuery && rows.length > 0) {
+            locationMatchesFound += rows.length;
+            console.log(
+              `ExcelController: ✅ Location query found ${rows.length} matches! Total location matches: ${locationMatchesFound}`
+            );
+          }
 
-          allRelevantRows.push(...rows);
+          // Debug: Log sample results for location queries
+          if (rows.length > 0 && isLocationQuery) {
+            console.log(
+              `ExcelController: 🌍 LOCATION QUERY RESULTS for "${query}":`
+            );
+            rows.slice(0, 5).forEach((row, idx) => {
+              const sampleContent = (
+                row.content || JSON.stringify(row.rowData)
+              ).substring(0, 200);
+              const company = this.extractCompanyNameEnhanced(row.rowData);
+              const location = this.extractCountryEnhanced(row.rowData);
+              console.log(
+                `  [${idx}] Company: ${company}, Location: ${location}, Score: ${row.score?.toFixed(
+                  3
+                )}`
+              );
+              console.log(`       Content: ${sampleContent}...`);
+            });
+          }
+
+          // For non-location queries, only add if we haven't found enough location matches
+          if (isLocationQuery || locationMatchesFound < 20) {
+            searchResults.push({
+              query,
+              resultsCount: rows.length,
+              queryType: isLocationQuery ? "location" : "fallback",
+            });
+            allRelevantRows.push(...rows);
+          } else {
+            console.log(
+              `ExcelController: ⏭️ Skipping fallback query "${query}" - sufficient location matches found (${locationMatchesFound})`
+            );
+          }
+
+          // Early termination if we have abundant location matches
+          if (isLocationQuery && locationMatchesFound >= 50) {
+            console.log(
+              `ExcelController: 🎯 Excellent location coverage achieved (${locationMatchesFound} matches), prioritizing location results`
+            );
+            break;
+          }
         } catch (embeddingError) {
           console.error(`Error with search query "${query}":`, embeddingError);
           // Continue with other queries
+        }
+      }
+
+      console.log(
+        `ExcelController: Search phase complete. Location matches: ${locationMatchesFound}, Total matches: ${allRelevantRows.length}`
+      );
+
+      // ADDITIONAL STRATEGY: Direct location-based search if region specified
+      if (region) {
+        try {
+          console.log(
+            `ExcelController: Performing direct location search for "${region}"`
+          );
+
+          // Create a pure location embedding
+          const locationEmbedding = await this.openAIService.generateEmbedding(
+            region
+          );
+
+          const locationRows = await this.excelModel.vectorSearch(
+            locationEmbedding,
+            null,
+            50, // Get substantial results
+            0.0 // Very low threshold
+          );
+
+          console.log(
+            `ExcelController: Direct location search found ${locationRows.length} additional rows`
+          );
+
+          // Debug location-specific results
+          if (locationRows.length > 0) {
+            console.log(
+              `ExcelController: Location-specific results for "${region}":`
+            );
+            locationRows.slice(0, 5).forEach((row, idx) => {
+              const sampleContent = (
+                row.content || JSON.stringify(row.rowData)
+              ).substring(0, 200);
+              console.log(
+                `  [${idx}] Location Score: ${row.score?.toFixed(
+                  3
+                )}, Content: ${sampleContent}...`
+              );
+            });
+          }
+
+          allRelevantRows.push(...locationRows);
+
+          searchResults.push({
+            query: `Direct location: ${region}`,
+            resultsCount: locationRows.length,
+          });
+        } catch (locationError) {
+          console.error(
+            `Error with direct location search for "${region}":`,
+            locationError
+          );
         }
       }
 
@@ -867,6 +1199,58 @@ class ExcelController {
       console.log(
         `ExcelController: Found ${allRelevantRows.length} total rows, ${uniqueRows.length} unique rows`
       );
+
+      // DEBUG: Let's see if we can find any records with "Sunil", "Gandhi", "Godhra", or "Dilip"
+      console.log(`\n=== DEBUGGING: SEARCHING FOR SPECIFIC RECORDS ===`);
+      const debugSearchTerms = [
+        "sunil",
+        "gandhi",
+        "godhra",
+        "dilip",
+        "gujarat",
+      ];
+
+      for (const term of debugSearchTerms) {
+        const matchingRows = uniqueRows.filter((row) => {
+          const content = (
+            row.content || JSON.stringify(row.rowData)
+          ).toLowerCase();
+          return content.includes(term);
+        });
+
+        console.log(`Records containing "${term}": ${matchingRows.length}`);
+        if (matchingRows.length > 0) {
+          matchingRows.slice(0, 3).forEach((row, idx) => {
+            const companyName = this.extractCompanyNameEnhanced(row.rowData);
+            const personName =
+              row.rowData?.Name || row.rowData?.name || "Unknown";
+            const location = this.extractCountryEnhanced(row.rowData);
+            console.log(
+              `  [${idx + 1}] ${companyName} - ${personName} - ${location}`
+            );
+          });
+        }
+      }
+
+      // DEBUG: Show sample of what we DID find
+      console.log(`\n=== SAMPLE OF FOUND RECORDS ===`);
+      uniqueRows.slice(0, 5).forEach((row, idx) => {
+        const companyName = this.extractCompanyNameEnhanced(row.rowData);
+        const personName = row.rowData?.Name || row.rowData?.name || "Unknown";
+        const location = this.extractCountryEnhanced(row.rowData);
+        const content = (row.content || JSON.stringify(row.rowData)).substring(
+          0,
+          100
+        );
+        console.log(
+          `[${
+            idx + 1
+          }] Company: ${companyName}, Person: ${personName}, Location: ${location}`
+        );
+        console.log(`    Content: ${content}...`);
+        console.log(`    Vector Score: ${row.score?.toFixed(3)}`);
+      });
+      console.log(`=== END SAMPLE ===\n`);
 
       if (!uniqueRows.length) {
         // Try a final fallback search with just product name
@@ -912,21 +1296,89 @@ class ExcelController {
         });
       }
 
-      // Apply enhanced scoring logic
+      // LOCATION-FIRST FILTERING: Pre-filter by location if region specified
+      let filteredRows = uniqueRows;
+      if (region && locationMatchesFound > 0) {
+        console.log(
+          `\n🎯 LOCATION-FIRST FILTERING: Prioritizing ${region} matches`
+        );
+
+        // Score all leads first to identify location matches
+        const tempScoredLeads = await this.scoreLeadsEnhanced(
+          uniqueRows,
+          product,
+          industry,
+          region,
+          keywords
+        );
+
+        // Separate location matches (high location scores) from non-matches
+        const locationMatches = tempScoredLeads.filter(
+          (lead) => lead.regionScore >= 0.7
+        );
+        const partialLocationMatches = tempScoredLeads.filter(
+          (lead) => lead.regionScore >= 0.3 && lead.regionScore < 0.7
+        );
+        const noLocationMatches = tempScoredLeads.filter(
+          (lead) => lead.regionScore < 0.3
+        );
+
+        console.log(`📊 Location filtering results:`);
+        console.log(
+          `  - Strong location matches (≥70%): ${locationMatches.length}`
+        );
+        console.log(
+          `  - Partial location matches (30-69%): ${partialLocationMatches.length}`
+        );
+        console.log(
+          `  - Non-location matches (<30%): ${noLocationMatches.length}`
+        );
+
+        // PRIORITIZE LOCATION MATCHES
+        if (locationMatches.length > 0) {
+          console.log(
+            `✅ Found ${locationMatches.length} strong location matches - prioritizing these!`
+          );
+          filteredRows = locationMatches.map((lead) => ({
+            ...lead,
+            content: lead.content,
+            rowData: lead.rowData,
+          }));
+        } else if (partialLocationMatches.length > 0) {
+          console.log(
+            `⚠️ Found ${partialLocationMatches.length} partial location matches - using these`
+          );
+          filteredRows = partialLocationMatches.map((lead) => ({
+            ...lead,
+            content: lead.content,
+            rowData: lead.rowData,
+          }));
+        } else {
+          console.log(
+            `❌ No location matches found for "${region}" - showing nearest matches with warning`
+          );
+          // Keep original rows but we'll add a warning in the response
+        }
+      }
+
+      // Apply enhanced scoring logic to filtered results
       const scoredLeads = await this.scoreLeadsEnhanced(
-        uniqueRows,
+        filteredRows,
         product,
         industry,
         region,
         keywords
       );
 
+      // Final deduplication after scoring to ensure we keep highest-scoring duplicates
+      const finalUniqueLeads = this.deduplicateScoredLeads(scoredLeads);
+
       console.log(
-        `ExcelController: Scored ${scoredLeads.length} leads, filtering by minScore: ${minScore}`
+        `ExcelController: Scored ${scoredLeads.length} leads → ${finalUniqueLeads.length} unique leads after final deduplication, filtering by minScore: ${minScore}`
       );
 
       // Filter by minimum score and limit results
-      const filteredLeads = scoredLeads
+      const filteredLeads = finalUniqueLeads
         .filter((lead) => lead.finalScore >= minScore)
         .slice(0, parseInt(limit));
 
@@ -935,8 +1387,11 @@ class ExcelController {
       );
 
       // If no leads pass the threshold, return top results anyway with warning
-      if (filteredLeads.length === 0 && scoredLeads.length > 0) {
-        const topLeads = scoredLeads.slice(0, Math.min(5, parseInt(limit)));
+      if (filteredLeads.length === 0 && finalUniqueLeads.length > 0) {
+        const topLeads = finalUniqueLeads.slice(
+          0,
+          Math.min(5, parseInt(limit))
+        );
 
         return res.json({
           success: true,
@@ -981,6 +1436,32 @@ class ExcelController {
 
       const responseTime = Date.now() - startTime;
 
+      // Check if we found any actual location matches
+      const hasLocationMatches = region
+        ? filteredLeads.some((lead) => lead.regionScore >= 0.7)
+        : true;
+
+      const locationWarning =
+        region && !hasLocationMatches
+          ? {
+              type: "NO_LOCATION_MATCHES",
+              message: `❌ No records found for "${region}". Showing best available matches from other locations.`,
+              recommendation: `To get ${region} results, please upload Excel data containing businesses from ${region}.`,
+              searchedLocation: region,
+              foundLocations: [
+                ...new Set(
+                  filteredLeads
+                    .map((lead) => this.extractCountryEnhanced(lead.rowData))
+                    .filter((loc) => loc !== "Unknown")
+                ),
+              ].slice(0, 3),
+              action:
+                "Upload Excel data with " +
+                region +
+                " businesses to get location-specific results",
+            }
+          : null;
+
       return res.json({
         success: true,
         data: {
@@ -993,13 +1474,15 @@ class ExcelController {
           },
           totalMatches: uniqueRows.length,
           qualifiedLeads: filteredLeads.length,
+          locationMatches: hasLocationMatches,
+          locationWarning,
           leads: this.formatLeadResults(filteredLeads),
           insights: aiInsights,
           searchResults,
           responseTime,
           minScore,
           limit: parseInt(limit),
-          model: "enhanced-scoring-engine-v2",
+          model: "enhanced-location-first-engine-v3",
         },
       });
     } catch (error) {
@@ -1037,7 +1520,7 @@ class ExcelController {
   }
 
   /**
-   * @description Build multiple search queries for better coverage
+   * @description Build multiple search queries for better coverage with LOCATION-FIRST approach
    * @param {string} product - Product/Service name
    * @param {string} industry - Industry name
    * @param {string} region - Region/Country
@@ -1048,60 +1531,409 @@ class ExcelController {
   buildMultipleSearchQueries(product, industry, region, keywords) {
     const queries = [];
 
-    // Primary comprehensive query
-    const primaryComponents = [product, industry];
-    if (region) primaryComponents.push(region);
-    if (keywords.length > 0) primaryComponents.push(...keywords.slice(0, 3)); // Limit keywords
-    queries.push(primaryComponents.join(" "));
-
-    // Product + Industry only (core match)
-    queries.push(`${product} ${industry}`);
-
-    // Product + Region (if region specified)
+    // PURE LOCATION FIRST STRATEGY (when region is specified)
     if (region) {
-      queries.push(`${product} ${region}`);
+      console.log(
+        `ExcelController: Building LOCATION-FIRST queries for "${region}"`
+      );
+
+      // Get comprehensive location indicators for better matching
+      const locationIndicators = this.getCityAndRegionalIndicators(region);
+      console.log(
+        `ExcelController: Location indicators for "${region}": [${locationIndicators
+          .slice(0, 5)
+          .join(", ")}...]`
+      );
+
+      // PRIORITY 1: Pure location queries (highest priority)
+      queries.push(region); // Primary location term
+
+      // Add location indicators for broader coverage
+      locationIndicators.slice(0, 3).forEach((indicator) => {
+        if (indicator !== region.toLowerCase()) {
+          queries.push(indicator);
+        }
+      });
+
+      // PRIORITY 2: Location + Product combinations
+      queries.push(`${region} ${product}`);
+      locationIndicators.slice(0, 2).forEach((indicator) => {
+        if (indicator !== region.toLowerCase()) {
+          queries.push(`${indicator} ${product}`);
+        }
+      });
+
+      // PRIORITY 3: Location + Industry combinations
+      queries.push(`${region} ${industry}`);
+
+      // PRIORITY 4: Comprehensive location + product + industry
+      queries.push(`${region} ${product} ${industry}`);
+
+      // PRIORITY 5: Location with keywords (if specified)
+      if (keywords.length > 0) {
+        queries.push(`${region} ${keywords.slice(0, 2).join(" ")}`);
+      }
     }
+
+    // FALLBACK QUERIES (only when location search doesn't yield results)
+    // These have much lower priority when region is specified
+    if (region) {
+      console.log(`ExcelController: Adding fallback queries (lower priority)`);
+    }
+
+    // Product + Industry combination
+    queries.push(`${product} ${industry}`);
 
     // Product + Keywords (if keywords specified)
     if (keywords.length > 0) {
       queries.push(`${product} ${keywords.slice(0, 2).join(" ")}`);
     }
 
-    // Industry + Region (if region specified)
-    if (region) {
-      queries.push(`${industry} ${region}`);
-    }
-
-    // Just product (fallback)
+    // Just product (final fallback)
     queries.push(product);
 
-    // Remove duplicates while preserving order
-    return [...new Set(queries)];
+    // Remove duplicates while preserving order (location-first queries stay at top)
+    const uniqueQueries = [...new Set(queries)];
+    console.log(
+      `ExcelController: Generated ${uniqueQueries.length} search queries:`,
+      uniqueQueries
+    );
+
+    return uniqueQueries;
   }
 
   /**
-   * @description Remove duplicate rows based on content similarity
+   * @description Remove duplicate rows based on robust company/contact identification
    * @param {Array} rows - Array of row objects
-   * @returns {Array} Deduplicated rows
+   * @returns {Array} Deduplicated rows (keeping highest scoring duplicates)
    * @private
    */
   deduplicateRows(rows) {
-    const seen = new Set();
-    const unique = [];
+    const companyMap = new Map();
+    const contactMap = new Map();
+    const seenFingerprints = new Set();
+
+    console.log(`\n=== DEDUPLICATION: Processing ${rows.length} rows ===`);
 
     for (const row of rows) {
-      // Create a fingerprint based on row content and index
-      const fingerprint = `${row.rowIndex || ""}-${(
-        row.content || ""
-      ).substring(0, 100)}`;
+      // Extract key identifying information
+      const companyName = this.extractCompanyNameEnhanced(row.rowData);
+      const contactPerson =
+        this.extractContactPersonEnhanced(row.rowData) ||
+        row.rowData?.Name ||
+        row.rowData?.name ||
+        "";
+      const email = this.extractEmailEnhanced(row.rowData) || "";
+      const phone = this.extractPhoneEnhanced(row.rowData) || "";
 
-      if (!seen.has(fingerprint)) {
-        seen.add(fingerprint);
-        unique.push(row);
+      // Normalize for comparison (lowercase, trim, remove special chars)
+      const normalizedCompany = this.normalizeForComparison(companyName);
+      const normalizedContact = this.normalizeForComparison(contactPerson);
+      const normalizedEmail = email.toLowerCase().trim();
+      const normalizedPhone = phone.replace(/[^\d]/g, ""); // Keep only digits
+
+      // Create multiple fingerprints for robust deduplication
+      const fingerprints = [];
+
+      // 1. Company + Contact Person (strongest match)
+      if (normalizedCompany !== "unknown company" && normalizedContact) {
+        fingerprints.push(
+          `company_contact:${normalizedCompany}|${normalizedContact}`
+        );
+      }
+
+      // 2. Company + Email (strong match)
+      if (normalizedCompany !== "unknown company" && normalizedEmail) {
+        fingerprints.push(
+          `company_email:${normalizedCompany}|${normalizedEmail}`
+        );
+      }
+
+      // 3. Company + Phone (strong match)
+      if (
+        normalizedCompany !== "unknown company" &&
+        normalizedPhone.length >= 8
+      ) {
+        fingerprints.push(
+          `company_phone:${normalizedCompany}|${normalizedPhone}`
+        );
+      }
+
+      // 4. Email alone (for individual contacts)
+      if (normalizedEmail && this.isValidEmail(normalizedEmail)) {
+        fingerprints.push(`email:${normalizedEmail}`);
+      }
+
+      // 5. Phone alone (for individual contacts with same phone)
+      if (normalizedPhone.length >= 10) {
+        fingerprints.push(`phone:${normalizedPhone}`);
+      }
+
+      // 6. Contact + Email (for cases where company is NULL/unknown)
+      if (normalizedContact && normalizedEmail) {
+        fingerprints.push(
+          `contact_email:${normalizedContact}|${normalizedEmail}`
+        );
+      }
+
+      // Check if this is a duplicate
+      let isDuplicate = false;
+      let duplicateType = "";
+
+      for (const fingerprint of fingerprints) {
+        if (seenFingerprints.has(fingerprint)) {
+          isDuplicate = true;
+          duplicateType = fingerprint.split(":")[0];
+          console.log(
+            `  DUPLICATE FOUND: ${companyName} - ${contactPerson} (${duplicateType})`
+          );
+          break;
+        }
+      }
+
+      if (!isDuplicate) {
+        // Mark all fingerprints as seen
+        fingerprints.forEach((fp) => seenFingerprints.add(fp));
+
+        // Store the row with metadata
+        const rowWithMeta = {
+          ...row,
+          _dedup_meta: {
+            companyName,
+            contactPerson,
+            email,
+            phone,
+            fingerprints,
+          },
+        };
+
+        console.log(`  UNIQUE: ${companyName} - ${contactPerson} - ${email}`);
+
+        // Store in company and contact maps for further validation
+        if (normalizedCompany !== "unknown company") {
+          if (!companyMap.has(normalizedCompany)) {
+            companyMap.set(normalizedCompany, []);
+          }
+          companyMap.get(normalizedCompany).push(rowWithMeta);
+        }
+
+        if (normalizedEmail) {
+          contactMap.set(normalizedEmail, rowWithMeta);
+        }
+      } else {
+        console.log(
+          `  SKIPPED DUPLICATE: ${companyName} - ${contactPerson} (matched by ${duplicateType})`
+        );
       }
     }
 
-    return unique;
+    // Collect all unique rows
+    const uniqueRows = [];
+
+    // Add company-based unique rows
+    for (const [company, companyRows] of companyMap.entries()) {
+      if (companyRows.length === 1) {
+        uniqueRows.push(companyRows[0]);
+      } else {
+        // Multiple rows for same company - this shouldn't happen with our logic, but handle it
+        console.warn(
+          `  WARNING: Multiple rows found for company "${company}" after deduplication`
+        );
+        // Take the first one (could sort by score if available)
+        uniqueRows.push(companyRows[0]);
+      }
+    }
+
+    // Add contact-only rows (where company was NULL/unknown)
+    for (const [email, contactRow] of contactMap.entries()) {
+      const companyName = this.normalizeForComparison(
+        this.extractCompanyNameEnhanced(contactRow.rowData)
+      );
+      if (companyName === "unknown company") {
+        // Only add if not already added through company mapping
+        if (!uniqueRows.find((r) => r.rowIndex === contactRow.rowIndex)) {
+          uniqueRows.push(contactRow);
+        }
+      }
+    }
+
+    console.log(
+      `=== DEDUPLICATION COMPLETE: ${rows.length} → ${uniqueRows.length} unique rows ===\n`
+    );
+
+    // Final validation - check for any remaining duplicates by company name
+    const finalCompanyCheck = new Map();
+    const trulyUniqueRows = [];
+
+    for (const row of uniqueRows) {
+      const companyName = this.extractCompanyNameEnhanced(row.rowData);
+      const normalizedCompany = this.normalizeForComparison(companyName);
+
+      if (normalizedCompany === "unknown company") {
+        // For unknown companies, check by email/phone
+        const email = this.extractEmailEnhanced(row.rowData);
+        const phone = this.extractPhoneEnhanced(row.rowData);
+        const contactKey = email || phone || `unknown_${row.rowIndex}`;
+
+        if (!finalCompanyCheck.has(`contact_${contactKey}`)) {
+          finalCompanyCheck.set(`contact_${contactKey}`, row);
+          trulyUniqueRows.push(row);
+        }
+      } else {
+        if (!finalCompanyCheck.has(normalizedCompany)) {
+          finalCompanyCheck.set(normalizedCompany, row);
+          trulyUniqueRows.push(row);
+        } else {
+          console.warn(
+            `  FINAL CHECK: Duplicate company found: ${companyName}`
+          );
+        }
+      }
+    }
+
+    console.log(
+      `=== FINAL VALIDATION: ${uniqueRows.length} → ${trulyUniqueRows.length} truly unique rows ===\n`
+    );
+
+    return trulyUniqueRows;
+  }
+
+  /**
+   * @description Normalize text for comparison (handles case, special chars, etc.)
+   * @param {string} text - Text to normalize
+   * @returns {string} Normalized text
+   * @private
+   */
+  normalizeForComparison(text) {
+    if (!text || typeof text !== "string") return "";
+
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s]/g, "") // Remove special characters
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .replace(
+        /\b(ltd|limited|pvt|private|inc|corp|corporation|company|co)\b/g,
+        ""
+      ) // Remove company suffixes
+      .trim();
+  }
+
+  /**
+   * @description Final deduplication of scored leads, keeping highest-scoring duplicates
+   * @param {Array} scoredLeads - Array of scored lead objects
+   * @returns {Array} Deduplicated scored leads
+   * @private
+   */
+  deduplicateScoredLeads(scoredLeads) {
+    console.log(
+      `\n=== FINAL SCORED DEDUPLICATION: Processing ${scoredLeads.length} scored leads ===`
+    );
+
+    const companyLeadMap = new Map();
+    const contactLeadMap = new Map();
+
+    for (const lead of scoredLeads) {
+      const companyName = this.extractCompanyNameEnhanced(lead.rowData);
+      const contactPerson =
+        this.extractContactPersonEnhanced(lead.rowData) ||
+        lead.rowData?.Name ||
+        lead.rowData?.name ||
+        "";
+      const email = this.extractEmailEnhanced(lead.rowData) || "";
+      const phone = this.extractPhoneEnhanced(lead.rowData) || "";
+
+      const normalizedCompany = this.normalizeForComparison(companyName);
+      const normalizedContact = this.normalizeForComparison(contactPerson);
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Create identification keys
+      const companyKey =
+        normalizedCompany !== "unknown company" ? normalizedCompany : null;
+      const contactKey =
+        normalizedEmail || phone || `${normalizedContact}_${companyName}`;
+
+      console.log(
+        `  Processing: ${companyName} (${contactPerson}) - Score: ${lead.finalScore}`
+      );
+
+      if (companyKey) {
+        // Handle company-based deduplication
+        if (companyLeadMap.has(companyKey)) {
+          const existingLead = companyLeadMap.get(companyKey);
+          if (lead.finalScore > existingLead.finalScore) {
+            console.log(
+              `    REPLACING: Better score (${lead.finalScore} > ${existingLead.finalScore}) for company "${companyName}"`
+            );
+            companyLeadMap.set(companyKey, lead);
+          } else {
+            console.log(
+              `    SKIPPING: Lower score (${lead.finalScore} <= ${existingLead.finalScore}) for company "${companyName}"`
+            );
+          }
+        } else {
+          console.log(`    ADDING: New company "${companyName}"`);
+          companyLeadMap.set(companyKey, lead);
+        }
+      } else {
+        // Handle contact-based deduplication (for unknown companies)
+        if (contactLeadMap.has(contactKey)) {
+          const existingLead = contactLeadMap.get(contactKey);
+          if (lead.finalScore > existingLead.finalScore) {
+            console.log(
+              `    REPLACING: Better score (${lead.finalScore} > ${existingLead.finalScore}) for contact "${contactPerson}"`
+            );
+            contactLeadMap.set(contactKey, lead);
+          } else {
+            console.log(
+              `    SKIPPING: Lower score (${lead.finalScore} <= ${existingLead.finalScore}) for contact "${contactPerson}"`
+            );
+          }
+        } else {
+          console.log(
+            `    ADDING: New contact "${contactPerson}" (unknown company)`
+          );
+          contactLeadMap.set(contactKey, lead);
+        }
+      }
+    }
+
+    // Combine results
+    const uniqueLeads = [
+      ...companyLeadMap.values(),
+      ...contactLeadMap.values(),
+    ];
+
+    // Sort by score (highest first)
+    uniqueLeads.sort((a, b) => b.finalScore - a.finalScore);
+
+    console.log(
+      `=== FINAL DEDUPLICATION COMPLETE: ${scoredLeads.length} → ${uniqueLeads.length} truly unique leads ===\n`
+    );
+
+    // Final safety check - log the final companies to verify no duplicates
+    const finalCompanies = uniqueLeads.map((lead) =>
+      this.extractCompanyNameEnhanced(lead.rowData)
+    );
+    const duplicateCheck = finalCompanies.filter(
+      (company, index) =>
+        finalCompanies.indexOf(company) !== index &&
+        company !== "Unknown Company"
+    );
+
+    if (duplicateCheck.length > 0) {
+      console.error(
+        `⚠️  WARNING: Still found duplicate companies after final deduplication: ${duplicateCheck.join(
+          ", "
+        )}`
+      );
+    } else {
+      console.log(
+        `✅ VALIDATION PASSED: No duplicate companies in final results`
+      );
+    }
+
+    return uniqueLeads;
   }
 
   /**
@@ -1138,74 +1970,143 @@ class ExcelController {
    * @private
    */
   async scoreLeadsEnhanced(leads, product, industry, region, keywords) {
+    console.log(
+      `ExcelController: Scoring ${leads.length} leads for product: "${product}", industry: "${industry}", region: "${region}"`
+    );
+
     return leads
-      .map((lead) => {
+      .map((lead, index) => {
         const rowData = lead.rowData;
         const content = lead.content || JSON.stringify(rowData);
 
-        // Enhanced Industry Match (35% weight) - more important
-        const industryScore = this.calculateIndustryMatchEnhanced(
-          content,
-          rowData,
-          industry,
-          keywords
-        );
+        // Extract key info for debugging
+        const companyName = this.extractCompanyNameEnhanced(rowData);
+        const leadLocation = this.extractCountryEnhanced(rowData);
 
-        // Enhanced Geographic Match (20% weight) - increased importance
+        console.log(`\n--- SCORING LEAD ${index + 1}: ${companyName} ---`);
+        console.log(`Location: ${leadLocation}`);
+        console.log(`Content preview: ${content.substring(0, 150)}...`);
+
+        // Debug: Show all available fields in this record
+        console.log(`Available fields in rowData:`, Object.keys(rowData || {}));
+        if (rowData && typeof rowData === "object") {
+          Object.entries(rowData).forEach(([key, value]) => {
+            if (value && typeof value === "string" && value.trim().length > 0) {
+              console.log(`  ${key}: "${value}"`);
+            }
+          });
+        }
+
+        // Enhanced Geographic Match - ABSOLUTE HIGHEST PRIORITY when region specified
         const regionScore = this.calculateRegionMatchEnhanced(
           content,
           rowData,
           region
         );
 
-        // Enhanced Contact Completeness (15% weight) - increased importance
-        const completenessScore = this.calculateCompletenessEnhanced(rowData);
+        // Dynamic location weighting: much higher when region is specified
+        const locationWeight = region ? 0.6 : 0.2; // 60% vs 20%
+        const industryWeight = region ? 0.2 : 0.4; // 20% vs 40%
+        const completenessWeight = region ? 0.15 : 0.25; // 15% vs 25%
+        const otherWeight = region ? 0.05 : 0.15; // 5% vs 15%
 
-        // Lead Activity/Business Size (10% weight)
+        console.log(
+          `🌍 LOCATION SCORE: ${regionScore.toFixed(3)} (${(
+            regionScore *
+            locationWeight *
+            100
+          ).toFixed(1)}% of total) - Weight: ${locationWeight * 100}%`
+        );
+
+        // Enhanced Industry Match - reduced priority when location specified
+        const industryScore = this.calculateIndustryMatchEnhanced(
+          content,
+          rowData,
+          industry,
+          keywords
+        );
+        console.log(
+          `🏭 INDUSTRY SCORE: ${industryScore.toFixed(3)} (${(
+            industryScore *
+            industryWeight *
+            100
+          ).toFixed(1)}% of total) - Weight: ${industryWeight * 100}%`
+        );
+
+        // Enhanced Contact Completeness
+        const completenessScore = this.calculateCompletenessEnhanced(rowData);
+        console.log(
+          `📞 CONTACT SCORE: ${completenessScore.toFixed(3)} (${(
+            completenessScore *
+            completenessWeight *
+            100
+          ).toFixed(1)}% of total) - Weight: ${completenessWeight * 100}%`
+        );
+
+        // Reduced weight for other factors when location is priority
         const activityScore = this.calculateActivityScoreEnhanced(
           rowData,
           content
         );
-
-        // Export/Business Readiness (10% weight)
         const exportScore = this.calculateExportReadinessEnhanced(
           content,
           rowData
         );
-
-        // Engagement/Quality Score (5% weight)
         const engagementScore = this.calculateEngagementScoreEnhanced(
           rowData,
           content
         );
-
-        // Data Quality/Freshness (5% weight)
         const freshnessScore = this.calculateFreshnessScoreEnhanced(
           lead,
           rowData
         );
 
-        // Calculate final weighted score
+        // Calculate final weighted score with AGGRESSIVE location priority
         const finalScore =
-          (industryScore * 0.35 +
-            regionScore * 0.2 +
-            completenessScore * 0.15 +
-            activityScore * 0.1 +
-            exportScore * 0.1 +
-            engagementScore * 0.05 +
-            freshnessScore * 0.05) *
-          100; // Convert to 0-100 scale
+          (regionScore * locationWeight + // 60% when region specified!
+            industryScore * industryWeight + // 20% when region specified
+            completenessScore * completenessWeight + // 15% when region specified
+            (activityScore * 0.03 + // 3% - minimal
+              exportScore * 0.015 + // 1.5% - minimal
+              engagementScore * 0.005) *
+              otherWeight) * // 0.5% - minimal
+          100;
+
+        // LOCATION BOOST: Extra bonus for perfect location matches
+        let locationBoost = 0;
+        if (region && regionScore >= 0.9) {
+          locationBoost = 15; // +15 points for excellent location match
+          console.log(
+            `🎯 LOCATION BOOST: +${locationBoost} points for excellent location match!`
+          );
+        } else if (region && regionScore >= 0.7) {
+          locationBoost = 8; // +8 points for good location match
+          console.log(
+            `📍 LOCATION BOOST: +${locationBoost} points for good location match!`
+          );
+        }
+
+        const boostedFinalScore = Math.min(finalScore + locationBoost, 100); // Convert to 0-100 scale
+
+        console.log(
+          `FINAL SCORE: ${boostedFinalScore.toFixed(
+            1
+          )} (base: ${finalScore.toFixed(1)} + boost: ${locationBoost})`
+        );
+        console.log(`--- END LEAD ${index + 1} ---\n`);
 
         return {
           ...lead,
-          industryScore,
-          regionScore,
-          completenessScore,
+          regionScore, // Now most important (60% weight when region specified)
+          industryScore, // Second (20% when region specified)
+          completenessScore, // Third (15% when region specified)
           activityScore,
           exportScore,
           engagementScore,
           freshnessScore,
-          finalScore,
+          finalScore: boostedFinalScore, // Use boosted score
+          locationBoost, // Track the boost applied
+          baseScore: finalScore, // Keep original for debugging
         };
       })
       .sort((a, b) => b.finalScore - a.finalScore);
@@ -1395,63 +2296,206 @@ class ExcelController {
    * @private
    */
   calculateRegionMatchEnhanced(content, rowData, region) {
-    if (!region) return 0.7; // Higher neutral score if no region specified
+    if (!region) return 0.5; // Neutral score if no region specified
 
     const lowerContent = content.toLowerCase();
     const lowerRegion = region.toLowerCase();
     let score = 0;
 
-    // Check specific location fields first
-    const locationFields = this.findAllFieldValues(rowData, [
-      "country",
+    console.log(`    🌍 REGION MATCHING for "${region}"`);
+    console.log(`    Content: ${content.substring(0, 100)}...`);
+
+    // Check specific location fields first with HIGHEST priority
+    // Prioritize city/regional fields over country fields
+    const cityRegionFields = this.findAllFieldValues(rowData, [
+      "city",
       "region",
       "location",
-      "city",
-      "state",
-      "address",
       "area",
       "zone",
+      "place",
+      "district",
+      "locality",
+      "town",
     ]);
 
-    for (const fieldValue of locationFields) {
-      if (fieldValue && fieldValue.toLowerCase().includes(lowerRegion)) {
-        score = 1.0; // Perfect match in location field
-        break;
+    console.log(
+      `    City/Region fields found: [${cityRegionFields.join(", ")}]`
+    );
+
+    const countryStateFields = this.findAllFieldValues(rowData, [
+      "country",
+      "state",
+      "province",
+      "territory",
+    ]);
+
+    console.log(
+      `    Country/State fields found: [${countryStateFields.join(", ")}]`
+    );
+
+    const addressFields = this.findAllFieldValues(rowData, [
+      "address",
+      "full_address",
+      "location_address",
+    ]);
+
+    console.log(`    Address fields found: [${addressFields.join(", ")}]`);
+
+    // HIGHEST PRIORITY: City/Region field exact matches
+    for (const fieldValue of cityRegionFields) {
+      if (fieldValue) {
+        const fieldLower = fieldValue.toLowerCase();
+        console.log(
+          `    Checking city/region field: "${fieldValue}" vs "${region}"`
+        );
+
+        // Perfect match in city/region field = maximum score
+        if (fieldLower === lowerRegion || fieldLower.includes(lowerRegion)) {
+          score = 1.0;
+          console.log(
+            `    ✅ PERFECT city/region match found in field: "${fieldValue}" matches "${region}"`
+          );
+          break;
+        }
       }
     }
 
-    if (score === 0) {
-      // Direct region match in content
+    // HIGH PRIORITY: Address field matches (often contain city names)
+    if (score < 1.0) {
+      for (const fieldValue of addressFields) {
+        if (fieldValue) {
+          const fieldLower = fieldValue.toLowerCase();
+          console.log(
+            `    Checking address field: "${fieldValue}" for "${region}"`
+          );
+
+          if (fieldLower.includes(lowerRegion)) {
+            score = Math.max(score, 0.95);
+            console.log(
+              `    ✅ City/region match found in address: "${fieldValue}" contains "${region}"`
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    // MEDIUM PRIORITY: Country/State field matches (lower priority than city)
+    if (score < 0.95) {
+      for (const fieldValue of countryStateFields) {
+        if (fieldValue) {
+          const fieldLower = fieldValue.toLowerCase();
+          console.log(
+            `    Checking country/state field: "${fieldValue}" vs "${region}"`
+          );
+
+          if (fieldLower === lowerRegion || fieldLower.includes(lowerRegion)) {
+            score = Math.max(score, 0.85); // Lower than city matches
+            console.log(
+              `    ✅ Country/state match found in field: "${fieldValue}" matches "${region}"`
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    // If no perfect match in fields, check content with city-priority approach
+    if (score < 1.0) {
+      console.log(`    Checking content for direct "${region}" match...`);
+
+      // Direct exact region match in any content (high priority for city names)
       if (lowerContent.includes(lowerRegion)) {
-        score = 0.9;
+        score = Math.max(score, 0.92); // High score for direct content match
+        console.log(`    ✅ Direct city/region match in content: "${region}"`);
       }
 
-      // Country code matches
-      const countryCodes = this.getCountryCodesEnhanced(region);
-      const hasCountryCode = countryCodes.some((code) =>
-        lowerContent.includes(code.toLowerCase())
+      // Enhanced city and regional matching
+      const cityIndicators = this.getCityAndRegionalIndicators(region);
+      console.log(
+        `    City indicators for "${region}": [${cityIndicators.join(", ")}]`
       );
 
-      if (hasCountryCode && score < 0.8) {
-        score = 0.8;
+      // Check for city and regional indicators (highest priority)
+      for (const indicator of cityIndicators) {
+        if (lowerContent.includes(indicator.toLowerCase())) {
+          score = Math.max(score, 0.88); // High score for city indicators
+          console.log(
+            `    ✅ City/regional indicator match found: "${indicator}"`
+          );
+          break;
+        }
       }
 
-      // Regional variations and cities
-      const regionalTerms = this.getRegionalTermsEnhanced(region);
-      const hasRegionalTerm = regionalTerms.some((term) =>
-        lowerContent.includes(term.toLowerCase())
-      );
+      // Check for country codes and broader location terms (lower priority)
+      if (score < 0.88) {
+        const countryCodes = this.getCountryCodesEnhanced(region);
+        console.log(
+          `    Country codes for "${region}": [${countryCodes.join(", ")}]`
+        );
 
-      if (hasRegionalTerm && score < 0.6) {
-        score = 0.6;
+        for (const code of countryCodes) {
+          if (lowerContent.includes(code.toLowerCase())) {
+            score = Math.max(score, 0.75); // Lower score than city matches
+            console.log(`    ✅ Country code match found: "${code}"`);
+            break;
+          }
+        }
       }
 
-      // Fallback for no match
-      if (score === 0) {
-        score = 0.3;
+      // Additional broader location indicators (lowest priority)
+      if (score < 0.75) {
+        const locationIndicators = this.getLocationIndicators(region);
+        for (const indicator of locationIndicators) {
+          if (lowerContent.includes(indicator.toLowerCase())) {
+            score = Math.max(score, 0.65);
+            console.log(
+              `    ✅ General location indicator match found: "${indicator}"`
+            );
+            break;
+          }
+        }
       }
     }
 
+    // If still no match, check for partial/fuzzy matches (with stricter criteria)
+    if (score === 0) {
+      console.log(`    No direct matches found, checking partial matches...`);
+      const partialMatches = this.getPartialLocationMatches(region);
+      console.log(
+        `    Partial matches for "${region}": [${partialMatches.join(", ")}]`
+      );
+
+      for (const partial of partialMatches) {
+        if (lowerContent.includes(partial.toLowerCase())) {
+          score = 0.15; // Much lower score for partial matches
+          console.log(`    ⚠️  Partial location match found: "${partial}"`);
+          break;
+        }
+      }
+    }
+
+    // STRICT LOCATION MISMATCH DETECTION: Penalize completely wrong locations
+    if (score === 0 && region) {
+      // Check if this record is from a completely different major city/state
+      const wrongLocationPenalty = this.detectWrongLocationPenalty(
+        content,
+        rowData,
+        region
+      );
+      if (wrongLocationPenalty > 0) {
+        score = 0.01; // Almost zero for completely wrong locations
+        console.log(`    🚫 WRONG LOCATION DETECTED - Major penalty applied`);
+      } else {
+        score = 0.05; // Small score if no location info at all
+        console.log(`    ❌ No location information found`);
+      }
+    }
+
+    console.log(
+      `    🏁 Final location score for "${region}": ${score.toFixed(3)}`
+    );
     return score;
   }
 
@@ -2196,13 +3240,13 @@ Keep the response concise and actionable.`;
       // Scoring details
       finalScore: Math.round(lead.finalScore),
       scoreBreakdown: {
-        industryMatch: Math.round(lead.industryScore * 35),
-        geographicMatch: Math.round(lead.regionScore * 20),
-        contactCompleteness: Math.round(lead.completenessScore * 15),
-        businessSize: Math.round(lead.activityScore * 10),
-        exportReadiness: Math.round(lead.exportScore * 10),
-        engagement: Math.round(lead.engagementScore * 5),
-        dataQuality: Math.round(lead.freshnessScore * 5),
+        geographicMatch: Math.round(lead.regionScore * 40), // 40% - TOP priority
+        industryMatch: Math.round(lead.industryScore * 25), // 25% - Second priority
+        contactCompleteness: Math.round(lead.completenessScore * 20), // 20% - Third priority
+        businessSize: Math.round(lead.activityScore * 8), // 8%  - Lower priority
+        exportReadiness: Math.round(lead.exportScore * 5), // 5%  - Lower priority
+        engagement: Math.round(lead.engagementScore * 1), // 1%  - Minimal
+        dataQuality: Math.round(lead.freshnessScore * 1), // 1%  - Minimal
       },
 
       // Raw data for reference
@@ -2827,6 +3871,753 @@ Keep the response concise and actionable.`;
    */
   getUploadMiddleware() {
     return this.upload.single("excel");
+  }
+
+  /**
+   * @description Get location indicators like phone codes, postal patterns, etc.
+   * @param {string} region - Region name
+   * @returns {Array<string>} Location indicators
+   * @private
+   */
+  getLocationIndicators(region) {
+    const indicatorMap = {
+      india: [
+        "+91",
+        "91-",
+        "india",
+        "ind",
+        "delhi",
+        "mumbai",
+        "kolkata",
+        "bangalore",
+        "chennai",
+        "hyderabad",
+        "pune",
+        "ahmedabad",
+        "kerala",
+        "tamil nadu",
+        "maharashtra",
+        "gujarat",
+        "karnataka",
+      ],
+      china: [
+        "+86",
+        "86-",
+        "china",
+        "chn",
+        "beijing",
+        "shanghai",
+        "guangzhou",
+        "shenzhen",
+        "tianjin",
+        "wuhan",
+        "chongqing",
+        "sichuan",
+        "guangdong",
+        "jiangsu",
+      ],
+      usa: [
+        "+1",
+        "1-",
+        "usa",
+        "united states",
+        "america",
+        "ny",
+        "ca",
+        "tx",
+        "fl",
+        "washington",
+        "oregon",
+        "nevada",
+        "arizona",
+      ],
+      "united states": [
+        "+1",
+        "1-",
+        "usa",
+        "united states",
+        "america",
+        "ny",
+        "ca",
+        "tx",
+        "fl",
+        "washington",
+        "oregon",
+        "nevada",
+        "arizona",
+      ],
+      germany: [
+        "+49",
+        "49-",
+        "germany",
+        "deutschland",
+        "berlin",
+        "munich",
+        "hamburg",
+        "cologne",
+        "frankfurt",
+        "bavaria",
+        "saxon",
+      ],
+      japan: [
+        "+81",
+        "81-",
+        "japan",
+        "nippon",
+        "tokyo",
+        "osaka",
+        "kyoto",
+        "yokohama",
+        "kobe",
+        "nagoya",
+        "hiroshima",
+      ],
+      uk: [
+        "+44",
+        "44-",
+        "uk",
+        "britain",
+        "england",
+        "scotland",
+        "wales",
+        "london",
+        "manchester",
+        "birmingham",
+        "liverpool",
+        "bristol",
+      ],
+      "united kingdom": [
+        "+44",
+        "44-",
+        "uk",
+        "britain",
+        "england",
+        "scotland",
+        "wales",
+        "london",
+        "manchester",
+        "birmingham",
+        "liverpool",
+        "bristol",
+      ],
+      france: [
+        "+33",
+        "33-",
+        "france",
+        "paris",
+        "marseille",
+        "lyon",
+        "toulouse",
+        "nice",
+        "nantes",
+        "strasbourg",
+      ],
+      italy: [
+        "+39",
+        "39-",
+        "italy",
+        "italia",
+        "rome",
+        "milan",
+        "naples",
+        "turin",
+        "florence",
+        "venice",
+      ],
+      spain: [
+        "+34",
+        "34-",
+        "spain",
+        "espana",
+        "madrid",
+        "barcelona",
+        "valencia",
+        "seville",
+        "bilbao",
+      ],
+      brazil: [
+        "+55",
+        "55-",
+        "brazil",
+        "brasil",
+        "sao paulo",
+        "rio de janeiro",
+        "brasilia",
+        "salvador",
+        "fortaleza",
+      ],
+      canada: [
+        "+1",
+        "1-",
+        "canada",
+        "toronto",
+        "vancouver",
+        "montreal",
+        "calgary",
+        "ottawa",
+        "quebec",
+      ],
+      australia: [
+        "+61",
+        "61-",
+        "australia",
+        "sydney",
+        "melbourne",
+        "brisbane",
+        "perth",
+        "adelaide",
+      ],
+    };
+
+    return indicatorMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get comprehensive city and regional indicators for precise location matching
+   * @param {string} region - Region/City name
+   * @returns {Array<string>} City and regional indicators
+   * @private
+   */
+  getCityAndRegionalIndicators(region) {
+    const cityIndicatorMap = {
+      // Rajasthan cities and regions (including Ajmer)
+      ajmer: [
+        "ajmer",
+        "ajmer district",
+        "rajasthan",
+        "rj",
+        "305001",
+        "305",
+        "dargah",
+        "sharif",
+        "moinuddin chishti",
+        "taragarh",
+        "ana sagar",
+      ],
+      jaipur: ["jaipur", "pink city", "rajasthan", "rj", "302", "amer"],
+      jodhpur: ["jodhpur", "blue city", "rajasthan", "rj", "342", "mehrangarh"],
+      udaipur: ["udaipur", "city of lakes", "rajasthan", "rj", "313"],
+      kota: ["kota", "rajasthan", "rj", "324", "coaching hub"],
+      bikaner: ["bikaner", "rajasthan", "rj", "334"],
+      alwar: ["alwar", "rajasthan", "rj", "301"],
+      bharatpur: ["bharatpur", "rajasthan", "rj", "321"],
+      rajasthan: [
+        "rajasthan",
+        "rj",
+        "jaipur",
+        "jodhpur",
+        "udaipur",
+        "ajmer",
+        "kota",
+        "bikaner",
+        "pink city",
+        "blue city",
+      ],
+
+      // Gujarat cities and regions (including Godhra)
+      godhra: [
+        "godhra",
+        "panchmahal",
+        "gujarat",
+        "gj",
+        "390001",
+        "390",
+        "dahod district",
+      ],
+      ahmedabad: ["ahmedabad", "amdavad", "gujarat", "gj", "380", "abad"],
+      surat: ["surat", "gujarat", "gj", "395", "diamond city"],
+      vadodara: ["vadodara", "baroda", "gujarat", "gj", "390"],
+      rajkot: ["rajkot", "gujarat", "gj", "360"],
+      bhavnagar: ["bhavnagar", "gujarat", "gj", "364"],
+      gandhinagar: ["gandhinagar", "gujarat", "gj", "382"],
+      gujarat: [
+        "gujarat",
+        "gj",
+        "ahmedabad",
+        "surat",
+        "vadodara",
+        "rajkot",
+        "godhra",
+        "panchmahal",
+      ],
+
+      // Maharashtra cities
+      mumbai: ["mumbai", "bombay", "maharashtra", "mh", "400", "navi mumbai"],
+      pune: ["pune", "maharashtra", "mh", "411", "pimpri"],
+      nagpur: ["nagpur", "maharashtra", "mh", "440"],
+      nashik: ["nashik", "maharashtra", "mh", "422"],
+      aurangabad: ["aurangabad", "maharashtra", "mh", "431"],
+      maharashtra: ["maharashtra", "mh", "mumbai", "pune", "nagpur"],
+
+      // Delhi and NCR
+      delhi: ["delhi", "new delhi", "dl", "110", "ncr", "gurgaon", "noida"],
+      "new delhi": ["new delhi", "delhi", "dl", "110", "ncr"],
+      gurgaon: ["gurgaon", "gurugram", "haryana", "hr", "122", "ncr"],
+      noida: ["noida", "uttar pradesh", "up", "201", "ncr"],
+      faridabad: ["faridabad", "haryana", "hr", "121", "ncr"],
+
+      // Karnataka cities
+      bangalore: ["bangalore", "bengaluru", "karnataka", "ka", "560"],
+      bengaluru: ["bengaluru", "bangalore", "karnataka", "ka", "560"],
+      mysore: ["mysore", "mysuru", "karnataka", "ka", "570"],
+      hubli: ["hubli", "dharwad", "karnataka", "ka", "580"],
+      karnataka: ["karnataka", "ka", "bangalore", "bengaluru", "mysore"],
+
+      // Tamil Nadu cities
+      chennai: ["chennai", "madras", "tamil nadu", "tn", "600"],
+      coimbatore: ["coimbatore", "tamil nadu", "tn", "641"],
+      madurai: ["madurai", "tamil nadu", "tn", "625"],
+      salem: ["salem", "tamil nadu", "tn", "636"],
+      tirupur: ["tirupur", "tamil nadu", "tn", "641"],
+      "tamil nadu": ["tamil nadu", "tn", "chennai", "coimbatore", "madurai"],
+
+      // Rajasthan cities
+      jaipur: ["jaipur", "rajasthan", "rj", "302", "pink city"],
+      jodhpur: ["jodhpur", "rajasthan", "rj", "342", "blue city"],
+      udaipur: ["udaipur", "rajasthan", "rj", "313", "city of lakes"],
+      kota: ["kota", "rajasthan", "rj", "324"],
+      rajasthan: ["rajasthan", "rj", "jaipur", "jodhpur", "udaipur"],
+
+      // West Bengal cities
+      kolkata: ["kolkata", "calcutta", "west bengal", "wb", "700"],
+      howrah: ["howrah", "west bengal", "wb", "711"],
+      durgapur: ["durgapur", "west bengal", "wb", "713"],
+      "west bengal": ["west bengal", "wb", "kolkata", "calcutta", "howrah"],
+
+      // Uttar Pradesh cities
+      lucknow: ["lucknow", "uttar pradesh", "up", "226"],
+      kanpur: ["kanpur", "uttar pradesh", "up", "208"],
+      agra: ["agra", "uttar pradesh", "up", "282", "taj mahal"],
+      varanasi: ["varanasi", "benares", "uttar pradesh", "up", "221"],
+      meerut: ["meerut", "uttar pradesh", "up", "250"],
+      "uttar pradesh": ["uttar pradesh", "up", "lucknow", "kanpur", "agra"],
+
+      // Haryana cities
+      haryana: ["haryana", "hr", "gurgaon", "faridabad", "panipat"],
+      panipat: ["panipat", "haryana", "hr", "132"],
+      ambala: ["ambala", "haryana", "hr", "134"],
+
+      // Punjab cities
+      ludhiana: ["ludhiana", "punjab", "pb", "141"],
+      amritsar: ["amritsar", "punjab", "pb", "143", "golden temple"],
+      jalandhar: ["jalandhar", "punjab", "pb", "144"],
+      punjab: ["punjab", "pb", "ludhiana", "amritsar", "jalandhar"],
+
+      // International cities (common business locations)
+      london: [
+        "london",
+        "uk",
+        "england",
+        "britain",
+        "gb",
+        "sw",
+        "nw",
+        "se",
+        "ne",
+      ],
+      "new york": ["new york", "nyc", "ny", "manhattan", "brooklyn", "usa"],
+      dubai: ["dubai", "uae", "emirates", "middle east"],
+      singapore: ["singapore", "sg", "asia pacific"],
+      "hong kong": ["hong kong", "hk", "china", "asia"],
+      tokyo: ["tokyo", "japan", "jp", "asia"],
+      paris: ["paris", "france", "fr", "europe"],
+      berlin: ["berlin", "germany", "de", "europe"],
+      sydney: ["sydney", "australia", "au", "oceania"],
+      toronto: ["toronto", "canada", "ca", "north america"],
+      "los angeles": ["los angeles", "la", "california", "ca", "usa"],
+      chicago: ["chicago", "illinois", "il", "usa"],
+      houston: ["houston", "texas", "tx", "usa"],
+      miami: ["miami", "florida", "fl", "usa"],
+    };
+
+    const regionLower = region.toLowerCase();
+
+    // Direct match
+    if (cityIndicatorMap[regionLower]) {
+      return cityIndicatorMap[regionLower];
+    }
+
+    // Partial match - search through values
+    for (const [key, indicators] of Object.entries(cityIndicatorMap)) {
+      if (key.includes(regionLower) || regionLower.includes(key)) {
+        return indicators;
+      }
+    }
+
+    // Fallback - return the region itself and common variations
+    return [region, region.replace(/\s+/g, ""), region.toLowerCase()];
+  }
+
+  /**
+   * @description Get partial location matches for fuzzy matching
+   * @param {string} region - Region name
+   * @returns {Array<string>} Partial matches
+   * @private
+   */
+  getPartialLocationMatches(region) {
+    const partialMap = {
+      india: ["ind", "asia", "south", "desi", "hindi"],
+      china: ["chn", "asia", "east", "chinese", "mandarin"],
+      usa: ["us", "america", "american", "states"],
+      "united states": ["us", "america", "american", "states"],
+      germany: ["ger", "deutsch", "european", "eu"],
+      japan: ["jp", "japanese", "asia", "east"],
+      uk: ["british", "english", "european", "eu"],
+      "united kingdom": ["british", "english", "european", "eu"],
+      france: ["fr", "french", "european", "eu"],
+      italy: ["it", "italian", "european", "eu"],
+      spain: ["es", "spanish", "european", "eu"],
+      brazil: ["br", "brazilian", "south america", "latin"],
+      canada: ["ca", "canadian", "north america"],
+      australia: ["au", "aussie", "oceania"],
+      europe: ["eu", "european"],
+      asia: ["asian"],
+      africa: ["african"],
+      "north america": ["na", "american"],
+      "south america": ["sa", "latin"],
+    };
+
+    return partialMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Detect if record is from completely wrong location and apply penalty
+   * @param {string} content - Lead content
+   * @param {Object} rowData - Row data object
+   * @param {string} targetRegion - Target region being searched
+   * @returns {number} Penalty score (0 = no penalty, 1 = major penalty)
+   * @private
+   */
+  detectWrongLocationPenalty(content, rowData, targetRegion) {
+    const lowerContent = content.toLowerCase();
+    const lowerTarget = targetRegion.toLowerCase();
+
+    // Extract location information from record
+    const recordCities = this.findAllFieldValues(rowData, [
+      "city",
+      "location",
+      "place",
+      "town",
+    ]).map((v) => v.toLowerCase());
+
+    const recordStates = this.findAllFieldValues(rowData, [
+      "state",
+      "province",
+      "region",
+    ]).map((v) => v.toLowerCase());
+
+    const recordAddresses = this.findAllFieldValues(rowData, [
+      "address",
+      "full_address",
+    ]).map((v) => v.toLowerCase());
+
+    console.log(`    🔍 Wrong location check - Target: "${targetRegion}"`);
+    console.log(`    Record cities: [${recordCities.join(", ")}]`);
+    console.log(`    Record states: [${recordStates.join(", ")}]`);
+
+    // Major Indian cities/states that should get penalty if mismatched
+    const majorLocationMap = {
+      // Rajasthan vs others
+      ajmer: {
+        conflictStates: [
+          "west bengal",
+          "maharashtra",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+      jaipur: {
+        conflictStates: [
+          "west bengal",
+          "maharashtra",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+      rajasthan: {
+        conflictStates: [
+          "west bengal",
+          "maharashtra",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+
+      // West Bengal vs others
+      kolkata: {
+        conflictStates: [
+          "rajasthan",
+          "maharashtra",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+      "west bengal": {
+        conflictStates: [
+          "rajasthan",
+          "maharashtra",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+
+      // Maharashtra vs others
+      mumbai: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+      pune: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+      maharashtra: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "gujarat",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "delhi",
+          "bangalore",
+          "chennai",
+          "ahmedabad",
+          "surat",
+        ],
+      },
+
+      // Gujarat vs others
+      ahmedabad: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "maharashtra",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+        ],
+      },
+      surat: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "maharashtra",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+        ],
+      },
+      gujarat: {
+        conflictStates: [
+          "rajasthan",
+          "west bengal",
+          "maharashtra",
+          "tamil nadu",
+          "karnataka",
+          "delhi",
+          "uttar pradesh",
+        ],
+        conflictCities: [
+          "ajmer",
+          "jaipur",
+          "kolkata",
+          "mumbai",
+          "pune",
+          "delhi",
+          "bangalore",
+          "chennai",
+        ],
+      },
+    };
+
+    const targetConflicts = majorLocationMap[lowerTarget];
+    if (!targetConflicts) {
+      return 0; // No penalty for unknown targets
+    }
+
+    // Check for conflicting states
+    for (const recordState of recordStates) {
+      if (targetConflicts.conflictStates.includes(recordState)) {
+        console.log(
+          `    🚫 MAJOR STATE CONFLICT: Record state "${recordState}" conflicts with target "${targetRegion}"`
+        );
+        return 1; // Major penalty
+      }
+    }
+
+    // Check for conflicting cities
+    for (const recordCity of recordCities) {
+      if (targetConflicts.conflictCities.includes(recordCity)) {
+        console.log(
+          `    🚫 MAJOR CITY CONFLICT: Record city "${recordCity}" conflicts with target "${targetRegion}"`
+        );
+        return 1; // Major penalty
+      }
+    }
+
+    // Check addresses for major city names
+    for (const address of recordAddresses) {
+      for (const conflictCity of targetConflicts.conflictCities) {
+        if (address.includes(conflictCity)) {
+          console.log(
+            `    🚫 MAJOR ADDRESS CONFLICT: Address contains "${conflictCity}" which conflicts with target "${targetRegion}"`
+          );
+          return 1; // Major penalty
+        }
+      }
+    }
+
+    console.log(`    ✅ No major location conflicts detected`);
+    return 0; // No penalty
+  }
+
+  /**
+   * @description Get OpenAI service health status
+   * @returns {Promise<Object>} OpenAI health status
+   */
+  async getOpenAIHealthStatus() {
+    try {
+      return await this.openAIService.getHealthStatus();
+    } catch (error) {
+      console.error(
+        "ExcelController: Error getting OpenAI health status:",
+        error
+      );
+      return {
+        status: "error",
+        error: error.message,
+        lastCheck: new Date().toISOString(),
+      };
+    }
   }
 }
 

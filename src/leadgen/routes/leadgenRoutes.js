@@ -602,38 +602,68 @@ router.post("/find-leads", (req, res) => excelController.findLeads(req, res));
  */
 router.get("/health", async (req, res) => {
   try {
-    const healthResult = await excelController.excelService.healthCheck();
+    // Check S3 health
+    const s3HealthResult = await excelController.excelService.healthCheck();
+
+    // Check OpenAI health
+    const openaiHealthResult = await excelController.getOpenAIHealthStatus();
 
     // Generate recommendations based on health check results
     const recommendations = [];
 
-    if (!healthResult.s3Connection) {
+    // S3 recommendations
+    if (!s3HealthResult.s3Connection) {
       recommendations.push("Check AWS credentials and region configuration");
     }
 
-    if (!healthResult.bucketAccess) {
+    if (!s3HealthResult.bucketAccess) {
       recommendations.push(
         "Verify bucket name and basic S3 access permissions"
       );
     }
 
-    if (!healthResult.uploadPermission) {
+    if (!s3HealthResult.uploadPermission) {
       recommendations.push(
         "Grant s3:PutObject permission for Excel file uploads"
       );
     }
 
-    if (!healthResult.deletePermission) {
+    if (!s3HealthResult.deletePermission) {
       recommendations.push(
         "Grant s3:DeleteObject permission for file deletion feature"
       );
     }
 
-    return res.status(200).json({
-      success: true,
-      message: "Health check completed",
+    // OpenAI recommendations
+    if (openaiHealthResult.status === "unhealthy") {
+      recommendations.push("Check OPENAI_API_KEY environment variable");
+    }
+
+    if (openaiHealthResult.status === "error") {
+      recommendations.push(`OpenAI error: ${openaiHealthResult.error}`);
+    }
+
+    // Determine overall service health
+    const s3Healthy =
+      s3HealthResult.s3Connection && s3HealthResult.bucketAccess;
+    const openaiHealthy = openaiHealthResult.status === "healthy";
+    const overallHealthy = s3Healthy && openaiHealthy;
+
+    return res.status(overallHealthy ? 200 : 503).json({
+      success: overallHealthy,
+      message: `Health check completed - Service is ${
+        overallHealthy ? "healthy" : "degraded"
+      }`,
       data: {
-        ...healthResult,
+        overall: {
+          status: overallHealthy ? "healthy" : "degraded",
+          services: {
+            s3: s3Healthy ? "healthy" : "unhealthy",
+            openai: openaiHealthy ? "healthy" : "unhealthy",
+          },
+        },
+        s3: s3HealthResult,
+        openai: openaiHealthResult,
         recommendations,
         timestamp: new Date().toISOString(),
       },

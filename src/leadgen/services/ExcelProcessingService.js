@@ -135,7 +135,7 @@ class ExcelProcessingService {
 
         // Process rows in batches
         let rowIndex = 0;
-        let batchToYield = null;
+        const worksheetRows = [];
 
         worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
           if (rowNumber === 1) return; // Skip header
@@ -176,21 +176,21 @@ class ExcelProcessingService {
               textContent: this.extractTextContent(rowData),
             };
 
-            currentBatch.push(processedRow);
+            worksheetRows.push(processedRow);
             rowIndex++;
-
-            // Mark batch for yielding when it reaches the batch size
-            if (currentBatch.length >= this.batchSize) {
-              batchToYield = [...currentBatch];
-              currentBatch = [];
-            }
           }
         });
 
-        // Yield any batches that were marked for yielding
-        if (batchToYield) {
-          yield batchToYield;
-          batchToYield = null;
+        // CRITICAL FIX: Process all rows from this worksheet in proper batches
+        for (let i = 0; i < worksheetRows.length; i += this.batchSize) {
+          const batch = worksheetRows.slice(i, i + this.batchSize);
+          currentBatch.push(...batch);
+
+          // Yield when currentBatch reaches capacity
+          if (currentBatch.length >= this.batchSize) {
+            yield [...currentBatch];
+            currentBatch = [];
+          }
         }
 
         totalRows += rowIndex;
@@ -334,10 +334,56 @@ class ExcelProcessingService {
    */
   extractTextContent(rowData) {
     try {
-      return Object.entries(rowData)
-        .map(([key, value]) => `${key}: ${value}`)
-        .join(" | ")
-        .trim();
+      if (!rowData || typeof rowData !== "object") {
+        console.warn(
+          "ExcelProcessingService: Invalid rowData for text extraction:",
+          typeof rowData
+        );
+        return "";
+      }
+
+      // Filter out empty/null values and create meaningful text
+      const textParts = Object.entries(rowData)
+        .filter(([key, value]) => {
+          // Filter out null, undefined, empty strings, and common non-meaningful values
+          return (
+            value !== null &&
+            value !== undefined &&
+            value !== "" &&
+            String(value).trim() !== "" &&
+            String(value).toLowerCase() !== "null" &&
+            String(value).toLowerCase() !== "undefined"
+          );
+        })
+        .map(([key, value]) => {
+          // Clean the value
+          const cleanValue = String(value).trim();
+          return `${key}: ${cleanValue}`;
+        });
+
+      const textContent = textParts.join(" | ");
+
+      // DEBUG: Log text extraction for specific records
+      const isAjmerRecord =
+        textContent.toLowerCase().includes("ajmer") ||
+        textContent.toLowerCase().includes("gupta decoration") ||
+        textContent.toLowerCase().includes("raj kumar");
+
+      if (isAjmerRecord) {
+        console.log(`\n🔍 EXTRACTING TEXT for Ajmer record:`);
+        console.log(`Raw rowData keys: ${Object.keys(rowData).join(", ")}`);
+        console.log(`Non-empty values: ${textParts.length}`);
+        console.log(`Extracted text: ${textContent.substring(0, 300)}...`);
+
+        // Show specific field values
+        ["Company", "Name", "City", "State"].forEach((field) => {
+          if (rowData[field]) {
+            console.log(`  ${field}: "${rowData[field]}"`);
+          }
+        });
+      }
+
+      return textContent;
     } catch (error) {
       console.error(
         "ExcelProcessingService: Error extracting text content:",
