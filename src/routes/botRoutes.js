@@ -128,6 +128,7 @@ const MANUFACTURER_STEPS = {
     message: "📍 Step 5 of 6\n\nWhere is this product made? (City, State)",
     field: "location",
   },
+  
   6: {
     message: "🛒 Step 6 of 6\n\nDo you sell this product online?",
     field: "sellsOnline",
