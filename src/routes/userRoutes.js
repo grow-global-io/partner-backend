@@ -1944,6 +1944,7 @@ router.post('/claim', async (req, res) => {
             blockchainBalance = 'Error retrieving balance';
         }
 
+        
         // Prepare response data
         const responseData = {
             success: true,
