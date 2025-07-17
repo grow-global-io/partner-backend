@@ -1777,4 +1777,203 @@ router.post('/upload-user-media', upload.array('media', 8), async (req, res) => 
     }
 });
 
+// Claim route for assigning GLL rewards
+router.post('/claim', async (req, res) => {
+    try {
+        const { walletAddress, email } = req.body;
+
+        // console.log('=== CLAIM ROUTE DEBUG ===');
+        // console.log('Received request:', { walletAddress, email });
+        // console.log('SWITCH value:', process.env.SWITCH);
+        // console.log('REGISTER_REWARD value:', process.env.REGISTER_REWARD);
+
+        // Validate that at least one identifier is provided
+        if (!walletAddress && !email) {
+            // console.log('Error: No wallet address or email provided');
+            return res.status(400).json({ 
+                success: false,
+                error: "Either wallet address or email is required" 
+            });
+        }
+
+        let user = null;
+        let creator = null;
+
+        // Try to find user by email first
+        if (email) {
+            // console.log('Searching for user by email:', email);
+            user = await prisma.user.findUnique({
+                where: { email }
+            });
+            
+            if (!user) {
+                // console.log('User not found, searching creator table');
+                // If not found in user table, try creator table
+                creator = await prisma.Creator.findUnique({
+                    where: { email }
+                });
+            }
+        }
+
+        // If email not found but wallet address provided, try to find by wallet address
+        if (!user && !creator && walletAddress) {   
+            // console.log('Searching for user by wallet address:', walletAddress);
+            user = await prisma.user.findFirst({
+                where: { walletAddress }
+            });
+            
+            if (!user) {
+                // console.log('User not found, searching creator table by wallet address');
+                creator = await prisma.Creator.findFirst({
+                    where: { walletAddress }
+                });
+            }
+        }
+
+        // If still not found, return error
+        if (!user && !creator) {
+            // console.log('Error: No user or creator found');
+            return res.status(404).json({ 
+                success: false,
+                error: "User not found with provided email or wallet address" 
+            });
+        }
+
+        // Get the reward amount from environment
+        const rewardAmount = process.env.REGISTER_REWARD ? parseFloat(process.env.REGISTER_REWARD) : 100;
+        // console.log('Reward amount to be added:', rewardAmount);
+        
+        // Determine which record to update and get the wallet address
+        let targetRecord = user || creator;
+        let targetWalletAddress = targetRecord.walletAddress;
+        
+        // console.log('Target record found:', {
+        //     id: targetRecord.id,
+        //     email: targetRecord.email,
+        //     walletAddress: targetWalletAddress,
+        //     currentGllBalance: targetRecord.gllBalance,
+        //     userType: user ? 'user' : 'creator'
+        // });
+
+        // Check if user has a wallet address for blockchain transaction
+        if (!targetWalletAddress) {
+            // console.log('Error: No wallet address configured for user');
+            return res.status(400).json({ 
+                success: false,
+                error: "User does not have a wallet address configured" 
+            });
+        }
+
+        // Update GLL balance in the database
+        if (user) {
+            // console.log('Updating user GLL balance...');
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: rewardAmount
+                    }
+                }
+            });
+            // console.log('User GLL balance updated successfully');
+        } else if (creator) {
+            // console.log('Updating creator GLL balance...');
+            await prisma.Creator.update({
+                where: { id: creator.id },
+                data: {
+                    gllBalance: {
+                        increment: rewardAmount
+                    }
+                }
+            });
+            // console.log('Creator GLL balance updated successfully');
+        }
+
+        // Perform blockchain transaction if SWITCH is enabled
+        let blockchainSuccess = false;
+        let blockchainError = null;
+
+        // console.log('Checking if blockchain transaction should be performed...');
+        // console.log('SWITCH === "true":', process.env.SWITCH === 'true');
+        
+        if (process.env.SWITCH === 'true') {
+            // console.log('SWITCH is true, attempting blockchain transaction...');
+            // console.log('Target wallet address:', targetWalletAddress);
+            // console.log('Reward amount:', rewardAmount);
+            // console.log('Converted amount:', convertToEtherAmount(rewardAmount.toString()));
+            
+            try {
+                // console.log('Calling phoneLinkContract.getGLL...');
+                const sendTx = await phoneLinkContract.getGLL(
+                    convertToEtherAmount(rewardAmount.toString()), 
+                    targetWalletAddress
+                );
+                // console.log('Transaction sent, waiting for confirmation...');
+                await sendTx.wait();
+                blockchainSuccess = true;
+                // console.log("✅ Claim GLL transaction completed successfully");
+            } catch (blockchainError) {
+                blockchainError = blockchainError.message;
+                console.error("❌ Claim blockchain transaction failed:", blockchainError);
+                console.error("Full error object:", blockchainError);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+
+        // Sync GLL balance between User and Creator tables if both exist
+        if (email) {
+            try {
+                // console.log('Syncing GLL balance...');
+                await syncGLLBalance(email);
+                // console.log('GLL balance synced successfully');
+            } catch (syncError) {
+                console.error("Warning: Could not sync GLL balance:", syncError.message);
+            }
+        }
+
+        // Check blockchain balance directly using tokenContract
+        let blockchainBalance = null;
+        try {
+            // console.log('Checking blockchain balance for wallet:', targetWalletAddress);
+            const { formatUnits } = require('ethers');
+            const balance = await tokenContract.balanceOf(targetWalletAddress);
+            blockchainBalance = formatUnits(balance, 'ether');
+            // console.log('Blockchain balance retrieved:', blockchainBalance);
+        } catch (balanceError) {
+            console.error('Error checking blockchain balance:', balanceError.message);
+            blockchainBalance = 'Error retrieving balance';
+        }
+
+        // Prepare response data
+        const responseData = {
+            success: true,
+            message: "Claim processed successfully",
+            rewardAmount: rewardAmount,
+            gllBalance: targetRecord.gllBalance + rewardAmount,
+            blockchainBalance: blockchainBalance,
+            walletAddress: targetWalletAddress,
+            email: targetRecord.email,
+            blockchainSuccess: blockchainSuccess,
+            blockchainError: blockchainError,
+            userType: user ? 'user' : 'creator'
+        };
+
+        // console.log('Final response data:', responseData);
+        // console.log('=== END CLAIM DEBUG ===');
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error("Error processing claim:", error);
+        console.error("Full error stack:", error.stack);
+        res.status(500).json({
+            success: false,
+            error: "Something went wrong while processing the claim",
+            details: error.message
+        });
+    }
+});
+
 module.exports = router;
+
