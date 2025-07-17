@@ -44,6 +44,7 @@ jobs:
             --build-arg AWS_BUCKET_NAME=$AWS_BUCKET_NAME \
             --build-arg AWS_REGION=$AWS_REGION \
             --build-arg BREVO_API_KEY=$BREVO_API_KEY \
+            --buld-arg STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY \
             --build-arg CARD1_REWARD=$CARD1_REWARD \
             --build-arg CARD2_REWARD=$CARD2_REWARD \
             --build-arg CARD3_REWARD=$CARD3_REWARD \
@@ -69,6 +70,7 @@ jobs:
           AWS_BUCKET_NAME: ${{ secrets.AWS_BUCKET_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           CARD1_REWARD: ${{ secrets.CARD1_REWARD }}
           CARD2_REWARD: ${{ secrets.CARD2_REWARD }}
           CARD3_REWARD: ${{ secrets.CARD3_REWARD }}

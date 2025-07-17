@@ -60,6 +60,7 @@ jobs:
             --build-arg TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN \
             --build-arg DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY \
             --build-arg OPENAI_API_KEY=$OPENAI_API_KEY \
+            --build-arg STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY \
             --build-arg FRONTEND_URL=$FRONTEND_URL \
             --build-arg SWITCH=$SWITCH \
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
@@ -67,6 +68,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_BUCKET_NAME: ${{ secrets.AWS_BUCKET_NAME }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
           CARD1_REWARD: ${{ secrets.CARD1_REWARD }}

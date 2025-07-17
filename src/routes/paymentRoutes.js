@@ -276,6 +276,127 @@ router.post("/purchase-plan", async (req, res) => {
 
 /**
  * @swagger
+ * /api/payments/stripe/purchase-plan:
+ *   post:
+ *     summary: Create a Stripe payment session for plan purchase
+ *     description: Creates a new payment session with Stripe for purchasing additional documents
+ *     tags:
+ *       - Payment Processing
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/PaymentSessionRequest'
+ *           example:
+ *             walletId: "wallet-123"
+ *             mode: "payment"
+ *             line_items:
+ *               - price_data:
+ *                   currency: "USD"
+ *                   product_data:
+ *                     name: "Premium Document Plan"
+ *                     description: "50 additional documents for your wallet"
+ *                   unit_amount: 2999
+ *                 quantity: 1
+ *             metadata:
+ *               plan_type: "premium"
+ *               user_id: "user_456"
+ *               invoice_id: "INV-001"
+ *             noOfDocs: 50
+ *     responses:
+ *       200:
+ *         description: Stripe payment session created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/PaymentSessionResponse'
+ *       400:
+ *         description: Invalid request payload
+ *       500:
+ *         description: Stripe payment error
+ */
+router.post("/stripe/purchase-plan", async (req, res) => {
+  try {
+    const {
+      walletId,
+      mode,
+      line_items,
+      metadata,
+      noOfDocs,
+      success_url,
+      cancel_url,
+    } = req.body;
+
+    // Validate payload
+    const validation = validatePaymentPayload(req.body);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error,
+      });
+    }
+
+    // Initialize Stripe with your secret key
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+    // Transform line items to Stripe format
+    const stripeLineItems = line_items.map((item) => ({
+      price_data: {
+        currency: item.price_data.currency,
+        product_data: {
+          name: item.price_data.product_data.name,
+          description: item.price_data.product_data.description,
+        },
+        unit_amount: item.price_data.unit_amount,
+      },
+      quantity: item.quantity,
+    }));
+
+    // Create Stripe checkout session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: stripeLineItems,
+      mode: mode,
+      success_url: success_url
+        ? success_url
+        : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
+      cancel_url: cancel_url
+        ? cancel_url
+        : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      metadata: {
+        ...metadata,
+        walletId,
+        noOfDocs: noOfDocs.toString(),
+      },
+    });
+
+    // Return success response
+    res.status(200).json({
+      success: true,
+      sessionId: session.id,
+      checkoutUrl: session.url,
+      message: "Stripe payment session created successfully",
+    });
+  } catch (error) {
+    console.error("Stripe payment creation error:", error);
+
+    if (error.type === "StripeInvalidRequestError") {
+      return res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: `Stripe payment error: ${error.message}`,
+    });
+  }
+});
+
+/**
+ * @swagger
  * /api/payments/success:
  *   get:
  *     summary: Handle successful payment callback
