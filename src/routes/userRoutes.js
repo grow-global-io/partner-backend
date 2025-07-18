@@ -5,10 +5,58 @@ const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const { phoneLinkContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
+const ExcelJS = require('exceljs');
+const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
+
+// Function to read airdrop data from Excel file
+async function readAirdropData() {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        const excelPath = path.join(__dirname, '../xlsx/gll-airdrop.xlsx');
+        await workbook.xlsx.readFile(excelPath);
+        
+        const worksheet = workbook.getWorksheet(1); // Get first worksheet
+        const airdropData = {};
+        
+        // Skip header row and read data
+        worksheet.eachRow((row, rowNumber) => {
+            if (rowNumber > 2) { // Skip first two rows (header and column names)
+                // Email is in column 1 (index 0)
+                const emailCell = row.getCell(1);
+                let email = null;
+                
+                // Handle different email cell formats
+                if (emailCell.value && typeof emailCell.value === 'object' && emailCell.value.hyperlink) {
+                    // Extract email from hyperlink (mailto:email@domain.com)
+                    const hyperlink = emailCell.value.hyperlink;
+                    email = hyperlink.replace('mailto:', '');
+                } else if (emailCell.value && typeof emailCell.value === 'string') {
+                    email = emailCell.value;
+                } else if (emailCell.value && typeof emailCell.value === 'object' && emailCell.value.text) {
+                    // Handle rich text format
+                    email = emailCell.value.text.richText[0].text;
+                }
+                
+                // GLL amount is in the last column (gll_ions)
+                const gllCell = row.getCell(row.cellCount);
+                const gllAmount = gllCell.value;
+                
+                if (email && gllAmount !== undefined && gllAmount !== null && !isNaN(parseFloat(gllAmount))) {
+                    airdropData[email.toString().toLowerCase().trim()] = parseFloat(gllAmount);
+                }
+            }
+        });
+        
+        console.log('Airdrop data loaded:', Object.keys(airdropData).length, 'entries');
+        return airdropData;
+    } catch (error) {
+        console.error('Error reading airdrop Excel file:', error);
+        return {};
+    }
+}
 
 // Health check endpoint
 router.get('/health', (req, res) => {
@@ -1839,21 +1887,22 @@ router.post('/claim', async (req, res) => {
             });
         }
 
-        // Get the reward amount from environment
-        const rewardAmount = process.env.REGISTER_REWARD ? parseFloat(process.env.REGISTER_REWARD) : 100;
-        // console.log('Reward amount to be added:', rewardAmount);
-        
+        // Read airdrop data from Excel file
+        const airdropData = await readAirdropData();
+        console.log('Airdrop data loaded with', Object.keys(airdropData).length, 'entries');
+
         // Determine which record to update and get the wallet address
         let targetRecord = user || creator;
         let targetWalletAddress = targetRecord.walletAddress;
+        let targetEmail = targetRecord.email;
         
-        // console.log('Target record found:', {
-        //     id: targetRecord.id,
-        //     email: targetRecord.email,
-        //     walletAddress: targetWalletAddress,
-        //     currentGllBalance: targetRecord.gllBalance,
-        //     userType: user ? 'user' : 'creator'
-        // });
+        console.log('Target record found:', {
+            id: targetRecord.id,
+            email: targetEmail,
+            walletAddress: targetWalletAddress,
+            currentGllBalance: targetRecord.gllBalance,
+            userType: user ? 'user' : 'creator'
+        });
 
         // Check if user has a wallet address for blockchain transaction
         if (!targetWalletAddress) {
@@ -1863,6 +1912,24 @@ router.post('/claim', async (req, res) => {
                 error: "User does not have a wallet address configured" 
             });
         }
+
+        // Determine reward amount based on Excel data
+        let rewardAmount = 0;
+        let rewardSource = 'default';
+        
+        if (targetEmail && airdropData[targetEmail.toLowerCase().trim()]) {
+            // User found in Excel sheet - use the amount from Excel
+            rewardAmount = airdropData[targetEmail.toLowerCase().trim()];
+            rewardSource = 'excel_airdrop';
+            console.log(`User found in airdrop Excel with amount: ${rewardAmount} GLL`);
+        } else {
+            // User not found in Excel - use default reward amount
+            rewardAmount = process.env.REGISTER_REWARD ? parseFloat(process.env.REGISTER_REWARD) : 100;
+            rewardSource = 'default_reward';
+            console.log(`User not found in Excel, using default reward: ${rewardAmount} GLL`);
+        }
+
+        console.log('Final reward amount to be added:', rewardAmount, 'from source:', rewardSource);
 
         // Update GLL balance in the database
         if (user) {
@@ -1921,11 +1988,40 @@ router.post('/claim', async (req, res) => {
         }
 
         // Sync GLL balance between User and Creator tables if both exist
-        if (email) {
+        if (targetEmail) {
             try {
-                // console.log('Syncing GLL balance...');
-                await syncGLLBalance(email);
-                // console.log('GLL balance synced successfully');
+                console.log('Syncing GLL balance...');
+                // Only sync if we updated a user record and there's also a creator record
+                if (user) {
+                    const creator = await prisma.Creator.findUnique({
+                        where: { email: targetEmail }
+                    });
+                    if (creator) {
+                        // Update creator's balance to match the updated user's balance
+                        await prisma.Creator.update({
+                            where: { email: targetEmail },
+                            data: {
+                                gllBalance: targetRecord.gllBalance + rewardAmount
+                            }
+                        });
+                        console.log('Creator GLL balance synced with user balance');
+                    }
+                } else if (creator) {
+                    const userRecord = await prisma.user.findUnique({
+                        where: { email: targetEmail }
+                    });
+                    if (userRecord) {
+                        // Update user's balance to match the updated creator's balance
+                        await prisma.user.update({
+                            where: { email: targetEmail },
+                            data: {
+                                gllBalance: targetRecord.gllBalance + rewardAmount
+                            }
+                        });
+                        console.log('User GLL balance synced with creator balance');
+                    }
+                }
+                console.log('GLL balance synced successfully');
             } catch (syncError) {
                 console.error("Warning: Could not sync GLL balance:", syncError.message);
             }
@@ -1950,13 +2046,15 @@ router.post('/claim', async (req, res) => {
             success: true,
             message: "Claim processed successfully",
             rewardAmount: rewardAmount,
+            rewardSource: rewardSource,
             gllBalance: targetRecord.gllBalance + rewardAmount,
             blockchainBalance: blockchainBalance,
             walletAddress: targetWalletAddress,
-            email: targetRecord.email,
+            email: targetEmail,
             blockchainSuccess: blockchainSuccess,
             blockchainError: blockchainError,
-            userType: user ? 'user' : 'creator'
+            userType: user ? 'user' : 'creator',
+            foundInAirdrop: targetEmail && airdropData[targetEmail.toLowerCase().trim()] ? true : false
         };
 
         // console.log('Final response data:', responseData);
