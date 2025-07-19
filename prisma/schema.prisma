@@ -333,3 +333,27 @@ model HotelCheckin {
 
   @@index([hotelID])
 }
+
+// Add new model for tracking airdrop claims
+model AirdropClaim {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  email             String?
+  walletAddress     String
+  rewardAmount      Float
+  rewardSource      String // 'excel_airdrop' or 'default_reward'
+  foundInAirdrop    Boolean  @default(false)
+  userType          String // 'user' or 'creator'
+  blockchainTxHash  String? // Store blockchain transaction hash if available
+  blockchainSuccess Boolean  @default(false)
+  claimedAt         DateTime @default(now())
+
+  // Track if claim was from Excel or default
+  excelRowData Json? // Store the original Excel data if found
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([walletAddress]) // Ensure one claim per wallet address
+  @@unique([email]) // Ensure one claim per email (if provided)
+  @@index([claimedAt])
+}
