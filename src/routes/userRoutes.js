@@ -1844,6 +1844,34 @@ router.post('/claim', async (req, res) => {
             });
         }
 
+        // Check if this wallet or email has already claimed airdrop
+        let existingClaim = null;
+        if (walletAddress) {
+            existingClaim = await prisma.airdropClaim.findUnique({
+                where: { walletAddress }
+            });
+        }
+        
+        if (!existingClaim && email) {
+            existingClaim = await prisma.airdropClaim.findUnique({
+                where: { email }
+            });
+        }
+
+        if (existingClaim) {
+            console.log('Duplicate claim attempt detected:', {
+                walletAddress,
+                email,
+                existingClaimDate: existingClaim.claimedAt
+            });
+            return res.status(409).json({ 
+                success: false,
+                error: "Airdrop has already been claimed for this wallet address or email",
+                claimedAt: existingClaim.claimedAt,
+                previousAmount: existingClaim.rewardAmount
+            });
+        }
+
         let user = null;
         let creator = null;
 
@@ -2060,6 +2088,30 @@ router.post('/claim', async (req, res) => {
         // console.log('Final response data:', responseData);
         // console.log('=== END CLAIM DEBUG ===');
 
+        // Create AirdropClaim record to track this claim and prevent duplicates
+        try {
+            await prisma.airdropClaim.create({
+                data: {
+                    email: targetEmail,
+                    walletAddress: targetWalletAddress,
+                    rewardAmount: rewardAmount,
+                    rewardSource: rewardSource,
+                    foundInAirdrop: targetEmail && airdropData[targetEmail.toLowerCase().trim()] ? true : false,
+                    userType: user ? 'user' : 'creator',
+                    blockchainSuccess: blockchainSuccess,
+                    blockchainTxHash: null, // Could be extracted from blockchain transaction if needed
+                    excelRowData: targetEmail && airdropData[targetEmail.toLowerCase().trim()] ? {
+                        email: targetEmail,
+                        amount: airdropData[targetEmail.toLowerCase().trim()]
+                    } : null
+                }
+            });
+            console.log('Airdrop claim recorded successfully for:', targetWalletAddress);
+        } catch (claimRecordError) {
+            console.error('Error recording airdrop claim:', claimRecordError.message);
+            // Don't fail the entire request if just recording fails
+        }
+
         // Send encrypted response
         res.send(encryptJSON(responseData));
 
@@ -2070,6 +2122,148 @@ router.post('/claim', async (req, res) => {
             success: false,
             error: "Something went wrong while processing the claim",
             details: error.message
+        });
+    }
+});
+
+// Get airdrop claim statistics
+router.get('/airdrop-stats', async (req, res) => {
+    try {
+        const totalClaims = await prisma.airdropClaim.count();
+        const totalAmountClaimed = await prisma.airdropClaim.aggregate({
+            _sum: {
+                rewardAmount: true
+            }
+        });
+        
+        const claimsBySource = await prisma.airdropClaim.groupBy({
+            by: ['rewardSource'],
+            _count: {
+                rewardSource: true
+            },
+            _sum: {
+                rewardAmount: true
+            }
+        });
+
+        const claimsByUserType = await prisma.airdropClaim.groupBy({
+            by: ['userType'],
+            _count: {
+                userType: true
+            }
+        });
+
+        const recentClaims = await prisma.airdropClaim.findMany({
+            take: 10,
+            orderBy: {
+                claimedAt: 'desc'
+            },
+            select: {
+                email: true,
+                walletAddress: true,
+                rewardAmount: true,
+                rewardSource: true,
+                claimedAt: true,
+                userType: true
+            }
+        });
+
+        const responseData = {
+            success: true,
+            statistics: {
+                totalClaims,
+                totalAmountClaimed: totalAmountClaimed._sum.rewardAmount || 0,
+                claimsBySource,
+                claimsByUserType,
+                recentClaims
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching airdrop statistics:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch airdrop statistics"
+        });
+    }
+});
+
+// Check if a specific wallet or email has claimed
+router.post('/check-claim-status', async (req, res) => {
+    try {
+        const { walletAddress, email } = req.body;
+
+        if (!walletAddress && !email) {
+            return res.status(400).json({
+                success: false,
+                error: "Either wallet address or email is required"
+            });
+        }
+
+        let existingClaim = null;
+        if (walletAddress) {
+            existingClaim = await prisma.airdropClaim.findUnique({
+                where: { walletAddress }
+            });
+        }
+        
+        if (!existingClaim && email) {
+            existingClaim = await prisma.airdropClaim.findUnique({
+                where: { email }
+            });
+        }
+
+        const responseData = {
+            success: true,
+            hasClaimed: !!existingClaim,
+            claimData: existingClaim || null
+        };
+
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error checking claim status:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to check claim status"
+        });
+    }
+});
+
+// Get all airdrop claims (admin route)
+router.get('/airdrop-claims', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const skip = (page - 1) * limit;
+
+        const claims = await prisma.airdropClaim.findMany({
+            skip,
+            take: limit,
+            orderBy: {
+                claimedAt: 'desc'
+            }
+        });
+
+        const totalClaims = await prisma.airdropClaim.count();
+
+        const responseData = {
+            success: true,
+            claims,
+            pagination: {
+                page,
+                limit,
+                total: totalClaims,
+                pages: Math.ceil(totalClaims / limit)
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching airdrop claims:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to fetch airdrop claims"
         });
     }
 });
