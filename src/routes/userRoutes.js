@@ -5,55 +5,50 @@ const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const ExcelJS = require('exceljs');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
 
-// Function to read airdrop data from Excel file
+// Function to read airdrop data from Google Sheets
 async function readAirdropData() {
     try {
-        const workbook = new ExcelJS.Workbook();
-        const excelPath = path.join(__dirname, '../xlsx/gll-airdrop.xlsx');
-        await workbook.xlsx.readFile(excelPath);
+        // Google Sheets CSV export URL
+        const sheetId = '16Rt_paMRi7US3-Fip3H9DfPhoPpYKEd1jzUgh9myFz0';
+        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
         
-        const worksheet = workbook.getWorksheet(1); // Get first worksheet
+        console.log('Fetching airdrop data from Google Sheets...');
+        
+        const response = await axios.get(csvUrl);
+        const csvData = response.data;
+        
+        // Parse CSV data
+        const lines = csvData.split('\n');
         const airdropData = {};
         
-        // Skip header row and read data
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 2) { // Skip first two rows (header and column names)
-                // Email is in column 1 (index 0)
-                const emailCell = row.getCell(1);
-                let email = null;
+        // Skip header row and process data
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue; // Skip empty lines
+            
+            // Split CSV line, handling commas within quotes
+            const columns = line.split(',').map(col => col.replace(/^"|"$/g, '').trim());
+            
+            if (columns.length >= 16) { // Ensure we have enough columns
+                const email = columns[0]; // Column A - Email
+                const gllAmount = columns[15]; // Column P - gll_ions
                 
-                // Handle different email cell formats
-                if (emailCell.value && typeof emailCell.value === 'object' && emailCell.value.hyperlink) {
-                    // Extract email from hyperlink (mailto:email@domain.com)
-                    const hyperlink = emailCell.value.hyperlink;
-                    email = hyperlink.replace('mailto:', '');
-                } else if (emailCell.value && typeof emailCell.value === 'string') {
-                    email = emailCell.value;
-                } else if (emailCell.value && typeof emailCell.value === 'object' && emailCell.value.text) {
-                    // Handle rich text format
-                    email = emailCell.value.text.richText[0].text;
-                }
-                
-                // GLL amount is in the last column (gll_ions)
-                const gllCell = row.getCell(row.cellCount);
-                const gllAmount = gllCell.value;
-                
-                if (email && gllAmount !== undefined && gllAmount !== null && !isNaN(parseFloat(gllAmount))) {
-                    airdropData[email.toString().toLowerCase().trim()] = parseFloat(gllAmount);
+                if (email && gllAmount && !isNaN(parseFloat(gllAmount))) {
+                    airdropData[email.toLowerCase().trim()] = parseFloat(gllAmount);
                 }
             }
-        });
+        }
         
-        console.log('Airdrop data loaded:', Object.keys(airdropData).length, 'entries');
+        console.log('Airdrop data loaded from Google Sheets:', Object.keys(airdropData).length, 'entries');
         return airdropData;
     } catch (error) {
-        console.error('Error reading airdrop Excel file:', error);
+        console.error('Error reading airdrop data from Google Sheets:', error);
+        // Return empty object if Google Sheets fails, so the system can still work with default rewards
         return {};
     }
 }
@@ -1915,7 +1910,7 @@ router.post('/claim', async (req, res) => {
             });
         }
 
-        // Read airdrop data from Excel file
+        // Read airdrop data from Google Sheets
         const airdropData = await readAirdropData();
         console.log('Airdrop data loaded with', Object.keys(airdropData).length, 'entries');
 
@@ -1946,15 +1941,15 @@ router.post('/claim', async (req, res) => {
         let rewardSource = 'default';
         
         if (targetEmail && airdropData[targetEmail.toLowerCase().trim()]) {
-            // User found in Excel sheet - use the amount from Excel
+            // User found in Google Sheets - use the amount from Google Sheets
             rewardAmount = airdropData[targetEmail.toLowerCase().trim()];
             rewardSource = 'excel_airdrop';
-            console.log(`User found in airdrop Excel with amount: ${rewardAmount} GLL`);
+            console.log(`User found in airdrop Google Sheets with amount: ${rewardAmount} GLL`);
         } else {
-            // User not found in Excel - use default reward amount
+            // User not found in Google Sheets - use default reward amount
             rewardAmount = process.env.REGISTER_REWARD ? parseFloat(process.env.REGISTER_REWARD) : 100;
             rewardSource = 'default_reward';
-            console.log(`User not found in Excel, using default reward: ${rewardAmount} GLL`);
+            console.log(`User not found in Google Sheets, using default reward: ${rewardAmount} GLL`);
         }
 
         console.log('Final reward amount to be added:', rewardAmount, 'from source:', rewardSource);
@@ -2103,7 +2098,7 @@ router.post('/claim', async (req, res) => {
                     excelRowData: targetEmail && airdropData[targetEmail.toLowerCase().trim()] ? {
                         email: targetEmail,
                         amount: airdropData[targetEmail.toLowerCase().trim()]
-                    } : null
+                    } : null // Store Google Sheets row data if found
                 }
             });
             console.log('Airdrop claim recorded successfully for:', targetWalletAddress);
