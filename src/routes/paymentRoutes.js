@@ -352,7 +352,7 @@ router.post("/stripe/purchase-plan", async (req, res) => {
       },
       quantity: item.quantity,
     }));
-
+    console.log("Stripe Line Items:", success_url, cancel_url);
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],

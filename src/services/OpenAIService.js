@@ -1,7 +1,6 @@
 const OpenAI = require("openai");
 const { OpenAIEmbeddings } = require("@langchain/openai");
 const { ChatOpenAI } = require("@langchain/openai");
-const pLimit = require("p-limit");
 
 /**
  * @description Robust OpenAI service for embeddings and chat completions
@@ -20,11 +19,10 @@ class OpenAIService {
       apiKey: process.env.OPENAI_API_KEY,
     });
 
-    // Langchain OpenAI Embeddings with best model
+    // Langchain OpenAI Embeddings - using newer model with same dimensions
     this.embeddings = new OpenAIEmbeddings({
       openAIApiKey: process.env.OPENAI_API_KEY,
-      model: "text-embedding-3-small", // Best embedding model from OpenAI
-      dimensions: 1536, // Full dimensions for maximum quality
+      model: "text-embedding-3-small", // Better model with 1536 dimensions (compatible with existing data)
       maxRetries: 3,
       timeout: 30000, // 30 second timeout
     });
@@ -99,236 +97,101 @@ class OpenAIService {
   }
 
   /**
-   * @description Add random jitter to backoff delay
-   * @param {number} base - Base delay in ms
-   * @returns {number} Delay with jitter
-   * @private
-   */
-  addJitter(base) {
-    const jitter = Math.random() * 0.3; // Add up to 30% jitter
-    return Math.floor(base * (1 + jitter));
-  }
-
-  /**
-   * @description Exponential backoff delay with jitter
+   * @description Exponential backoff delay for retries
    * @param {number} attempt - Attempt number (0-based)
    * @returns {Promise<void>} Promise that resolves after delay
    * @private
    */
   async exponentialBackoff(attempt) {
-    const baseDelay = Math.min(1000 * Math.pow(2, attempt), 10000); // Max 10 seconds
-    const delayWithJitter = this.addJitter(baseDelay);
+    const delay = Math.min(1000 * Math.pow(2, attempt), 10000); // Max 10 seconds
     console.log(
-      `OpenAIService: Backing off for ${delayWithJitter}ms (attempt ${
-        attempt + 1
-      })`
+      `OpenAIService: Backing off for ${delay}ms (attempt ${attempt + 1})`
     );
-    await new Promise((resolve) => setTimeout(resolve, delayWithJitter));
+    await new Promise((resolve) => setTimeout(resolve, delay));
   }
 
   /**
-   * @description Process a single batch with retries
-   * @param {Object} batch - Batch object with texts and index
-   * @param {number} batchIndex - Index of the batch
-   * @param {number} totalBatches - Total number of batches
-   * @returns {Promise<Object>} Processing result with status
-   * @private
-   */
-  async processBatch(batch, batchIndex, totalBatches) {
-    let attempts = 0;
-    const maxAttempts = 3;
-    const result = {
-      success: false,
-      embeddings: [],
-      error: null,
-      retries: 0,
-      tokenCount: batch.texts.reduce(
-        (sum, text) => sum + this.estimateTokenCount(text),
-        0
-      ),
-    };
-
-    while (attempts < maxAttempts && !result.success) {
-      try {
-        const batchEmbeddings = await this.embeddings.embedDocuments(
-          batch.texts
-        );
-
-        result.success = true;
-        result.embeddings = batch.texts.map((text, idx) => ({
-          text: text,
-          embedding: batchEmbeddings[idx],
-          metadata: {
-            chunkIndex: batch.index + idx,
-            tokenCount: this.estimateTokenCount(text),
-            dimensions: batchEmbeddings[idx].length,
-            model: "text-embedding-3-small",
-            processingTime: Date.now(),
-          },
-        }));
-
-        // Update rate limits
-        this.rateLimitConfig.requestCount++;
-        this.rateLimitConfig.tokenCount += result.tokenCount;
-
-        console.log(
-          `OpenAIService: Batch ${
-            batchIndex + 1
-          }/${totalBatches} completed successfully` +
-            ` (${result.embeddings.length} embeddings)`
-        );
-      } catch (error) {
-        attempts++;
-        result.retries = attempts;
-        result.error = error;
-
-        const isRateLimit =
-          error.message.includes("rate limit") || error.status === 429;
-
-        if (isRateLimit) {
-          console.log(
-            `OpenAIService: Rate limit hit on batch ${
-              batchIndex + 1
-            }, attempt ${attempts}/${maxAttempts}`
-          );
-          await this.exponentialBackoff(attempts - 1);
-        } else if (attempts >= maxAttempts) {
-          console.error(
-            `OpenAIService: Batch ${
-              batchIndex + 1
-            } failed after ${maxAttempts} attempts:`,
-            error.message
-          );
-          throw error;
-        } else {
-          console.log(
-            `OpenAIService: Error on batch ${
-              batchIndex + 1
-            }, attempt ${attempts}/${maxAttempts}:`,
-            error.message
-          );
-          await this.exponentialBackoff(attempts - 1);
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * @description Generate embeddings for text chunks with parallel processing
+   * @description Generate embeddings for text chunks with robust error handling
    * @param {Array<string>} textChunks - Array of text chunks to embed
    * @returns {Promise<Array>} Array of embeddings with metadata
    */
   async generateEmbeddings(textChunks) {
     try {
-      const startTime = Date.now();
       this.checkRateLimit();
 
       console.log(
         `OpenAIService: Generating embeddings for ${textChunks.length} chunks`
       );
 
-      // Calculate optimal batch size based on token estimates
-      const avgTokensPerChunk =
-        textChunks.reduce(
-          (sum, text) => sum + this.estimateTokenCount(text),
-          0
-        ) / textChunks.length;
+      const batchSize = 100; // OpenAI recommended batch size
+      const embeddings = [];
 
-      const batchSize = Math.min(
-        100, // OpenAI max batch size
-        Math.floor(8000 / avgTokensPerChunk) // Keep total tokens under 8k per batch
-      );
-
-      console.log(
-        `OpenAIService: Using batch size of ${batchSize} based on avg token length`
-      );
-
-      const concurrency = 5; // Process 5 batches in parallel
-      const limit = pLimit(concurrency);
-
-      // Create batches with token count tracking
-      const batches = [];
       for (let i = 0; i < textChunks.length; i += batchSize) {
-        const batchTexts = textChunks.slice(i, i + batchSize);
-        batches.push({
-          index: i,
-          texts: batchTexts,
-          estimatedTokens: batchTexts.reduce(
-            (sum, text) => sum + this.estimateTokenCount(text),
-            0
-          ),
-        });
+        const batch = textChunks.slice(i, i + batchSize);
+        console.log(
+          `OpenAIService: Processing batch ${
+            Math.floor(i / batchSize) + 1
+          }/${Math.ceil(textChunks.length / batchSize)}`
+        );
+
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          try {
+            // Use Langchain for robust embedding generation
+            const batchEmbeddings = await this.embeddings.embedDocuments(batch);
+
+            // Format results with metadata
+            batch.forEach((text, idx) => {
+              embeddings.push({
+                text: text,
+                embedding: batchEmbeddings[idx],
+                metadata: {
+                  chunkIndex: i + idx,
+                  tokenCount: this.estimateTokenCount(text),
+                  dimensions: batchEmbeddings[idx].length,
+                  model: "text-embedding-3-small",
+                },
+              });
+            });
+
+            this.rateLimitConfig.requestCount++;
+            this.rateLimitConfig.tokenCount += batch.reduce(
+              (sum, text) => sum + this.estimateTokenCount(text),
+              0
+            );
+
+            break; // Success, exit retry loop
+          } catch (error) {
+            attempts++;
+
+            if (error.message.includes("rate limit") || error.status === 429) {
+              console.log(
+                `OpenAIService: Rate limit hit, waiting before retry ${attempts}/${maxAttempts}`
+              );
+              await this.exponentialBackoff(attempts - 1);
+            } else if (attempts >= maxAttempts) {
+              throw error;
+            } else {
+              console.log(
+                `OpenAIService: Embedding error, retrying ${attempts}/${maxAttempts}:`,
+                error.message
+              );
+              await this.exponentialBackoff(attempts - 1);
+            }
+          }
+        }
+
+        // Small delay between batches to avoid overwhelming the API
+        if (i + batchSize < textChunks.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
       }
 
       console.log(
-        `OpenAIService: Created ${batches.length} batches for processing`
+        `OpenAIService: Generated ${embeddings.length} embeddings successfully`
       );
-
-      // Process batches in parallel with detailed tracking
-      const batchResults = await Promise.all(
-        batches.map((batch, idx) =>
-          limit(() => this.processBatch(batch, idx, batches.length))
-        )
-      );
-
-      // Aggregate results and stats
-      const stats = {
-        totalProcessed: 0,
-        totalRetries: 0,
-        totalTokens: 0,
-        failedBatches: 0,
-        processingTime: Date.now() - startTime,
-        chunksPerSecond: 0,
-        tokensPerSecond: 0,
-        avgProcessingTimePerChunk: 0,
-        totalBatches: batches.length,
-        concurrentBatches: concurrency,
-        batchSize: batchSize,
-      };
-
-      const embeddings = batchResults.reduce((acc, result) => {
-        if (result.success) {
-          stats.totalProcessed += result.embeddings.length;
-          stats.totalRetries += result.retries;
-          stats.totalTokens += result.tokenCount;
-          return acc.concat(result.embeddings);
-        } else {
-          stats.failedBatches++;
-          return acc;
-        }
-      }, []);
-
-      // Calculate performance metrics
-      stats.chunksPerSecond = (
-        stats.totalProcessed /
-        (stats.processingTime / 1000)
-      ).toFixed(2);
-      stats.tokensPerSecond = (
-        stats.totalTokens /
-        (stats.processingTime / 1000)
-      ).toFixed(2);
-      stats.avgProcessingTimePerChunk = (
-        stats.processingTime / stats.totalProcessed
-      ).toFixed(2);
-
-      console.log("OpenAIService: Embedding generation completed", {
-        totalEmbeddings: embeddings.length,
-        processingTimeMs: stats.processingTime,
-        chunksPerSecond: stats.chunksPerSecond,
-        tokensPerSecond: stats.tokensPerSecond,
-        avgMsPerChunk: stats.avgProcessingTimePerChunk,
-        averageRetries: (stats.totalRetries / batches.length).toFixed(2),
-        failedBatches: stats.failedBatches,
-        totalTokensProcessed: stats.totalTokens,
-        configuration: {
-          batchSize: stats.batchSize,
-          concurrency: stats.concurrentBatches,
-          totalBatches: stats.totalBatches,
-        },
-      });
-
       return embeddings;
     } catch (error) {
       console.error("OpenAIService: Error generating embeddings:", error);
@@ -631,6 +494,17 @@ ${context}`;
         `Failed to generate streaming response: ${error.message}`
       );
     }
+  }
+
+  /**
+   * @description Estimate token count for text (improved approximation)
+   * @param {string} text - Text to count tokens for
+   * @returns {number} Estimated token count
+   */
+  estimateTokenCount(text) {
+    // Improved approximation based on OpenAI's tokenization
+    // Average: ~3.3 characters per token for English text
+    return Math.ceil(text.length / 3.3);
   }
 
   /**
