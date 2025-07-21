@@ -14,10 +14,16 @@ const router = express.Router();
 async function readAirdropData() {
     try {
         // Google Sheets CSV export URL
-        const sheetId = '16Rt_paMRi7US3-Fip3H9DfPhoPpYKEd1jzUgh9myFz0';
+        const sheetId = process.env.GOOGLE_SHEETS_AIRDROP_ID;
+        
+        if (!sheetId) {
+            console.error('GOOGLE_SHEETS_AIRDROP_ID environment variable not set');
+            return {};
+        }
+        
         const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
         
-        console.log('Fetching airdrop data from Google Sheets...');
+        // console.log('Fetching airdrop data from Google Sheets...');
         
         const response = await axios.get(csvUrl);
         const csvData = response.data;
@@ -44,7 +50,7 @@ async function readAirdropData() {
             }
         }
         
-        console.log('Airdrop data loaded from Google Sheets:', Object.keys(airdropData).length, 'entries');
+        // console.log('Airdrop data loaded from Google Sheets:', Object.keys(airdropData).length, 'entries');
         return airdropData;
     } catch (error) {
         console.error('Error reading airdrop data from Google Sheets:', error);
