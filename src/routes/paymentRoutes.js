@@ -60,6 +60,111 @@ function validatePaymentPayload(payload) {
 }
 
 /**
+ * @description Get masked Stripe API key for debugging
+ * @returns {Object} Masked API key info
+ */
+function getMaskedStripeKey() {
+  const apiKey = process.env.STRIPE_SECRET_KEY;
+
+  if (!apiKey) {
+    return {
+      masked: "NOT_SET",
+      length: 0,
+      isValid: false,
+      error: "STRIPE_SECRET_KEY environment variable is not set",
+    };
+  }
+
+  if (apiKey.length < 8) {
+    return {
+      masked: "TOO_SHORT",
+      length: apiKey.length,
+      isValid: false,
+      error: "Stripe API key is too short (should be at least 8 characters)",
+    };
+  }
+
+  const first4 = apiKey.substring(0, 4);
+  const last4 = apiKey.substring(apiKey.length - 4);
+  const masked = `${first4}${"*".repeat(
+    Math.max(0, apiKey.length - 8)
+  )}${last4}`;
+
+  // Validate Stripe key format
+  const isValidFormat = apiKey.startsWith("sk_") || apiKey.startsWith("pk_");
+  const isSecretKey = apiKey.startsWith("sk_");
+
+  return {
+    masked,
+    length: apiKey.length,
+    isValid: isValidFormat && isSecretKey && apiKey.length > 20,
+    startsWithSk: isSecretKey,
+    startsWithPk: apiKey.startsWith("pk_"),
+    keyType: isSecretKey
+      ? "secret"
+      : apiKey.startsWith("pk_")
+      ? "publishable"
+      : "unknown",
+    error: !isValidFormat
+      ? "Stripe key must start with 'sk_' (secret) or 'pk_' (publishable)"
+      : !isSecretKey
+      ? "Must use secret key (sk_) for server-side operations"
+      : null,
+  };
+}
+
+/**
+ * @description Test Stripe API key functionality
+ * @returns {Promise<Object>} Test result
+ */
+async function testStripeKey() {
+  try {
+    const keyInfo = getMaskedStripeKey();
+
+    if (!keyInfo.isValid) {
+      return {
+        isValid: false,
+        error: keyInfo.error || "Stripe API key format is invalid",
+        keyInfo,
+        details:
+          "Check that your Stripe key starts with 'sk_' and is the correct length",
+      };
+    }
+
+    // Initialize Stripe and test the key
+    const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+    // Make a simple API call to test the key
+    const account = await stripe.accounts.retrieve();
+
+    return {
+      isValid: true,
+      error: null,
+      keyInfo,
+      testResult: "Stripe API key is valid and working",
+      accountId: account.id,
+      accountType: account.type,
+      country: account.country,
+    };
+  } catch (error) {
+    const keyInfo = getMaskedStripeKey();
+
+    return {
+      isValid: false,
+      error: error.message,
+      keyInfo,
+      testResult: "Stripe API key validation failed",
+      details:
+        error.type === "StripeAuthenticationError"
+          ? "Invalid Stripe API key - check your key is correct"
+          : error.type === "StripePermissionError"
+          ? "Stripe API key lacks required permissions"
+          : "Network or API error",
+    };
+  }
+}
+
+/**
  * @description Updates or creates wallet documents with new document count
  * @param {string} walletId - The wallet ID to update
  * @param {number} additionalDocs - Number of documents to add
@@ -381,16 +486,89 @@ router.post("/stripe/purchase-plan", async (req, res) => {
   } catch (error) {
     console.error("Stripe payment creation error:", error);
 
+    // Get masked API key for debugging
+    const keyInfo = getMaskedStripeKey();
+    console.error(
+      `Using Stripe key: ${keyInfo.masked} (length: ${keyInfo.length})`
+    );
+
+    // Handle different Stripe error types
+    if (error.type === "StripeAuthenticationError") {
+      return res.status(401).json({
+        success: false,
+        error: "Stripe authentication failed",
+        details:
+          "Invalid Stripe API key. Please check your STRIPE_SECRET_KEY environment variable.",
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          keyType: keyInfo.keyType,
+          startsWithSk: keyInfo.startsWithSk,
+          error: keyInfo.error,
+        },
+      });
+    }
+
     if (error.type === "StripeInvalidRequestError") {
       return res.status(400).json({
         success: false,
         error: error.message,
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+          validFormat: keyInfo.isValid,
+        },
       });
     }
 
+    if (error.type === "StripePermissionError") {
+      return res.status(403).json({
+        success: false,
+        error: "Stripe permission error",
+        details:
+          "Your Stripe API key doesn't have the required permissions for this operation.",
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          keyType: keyInfo.keyType,
+        },
+      });
+    }
+
+    // Handle the specific "Neither apiKey nor config.authenticator provided" error
+    if (
+      error.message.includes("Neither apiKey nor config.authenticator provided")
+    ) {
+      return res.status(500).json({
+        success: false,
+        error: "Stripe configuration error",
+        details:
+          "Stripe API key is not properly configured. Please check your STRIPE_SECRET_KEY environment variable.",
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          keyType: keyInfo.keyType,
+          startsWithSk: keyInfo.startsWithSk,
+          error: keyInfo.error,
+          originalError: error.message,
+        },
+      });
+    }
+
+    // Generic error handling
     res.status(500).json({
       success: false,
       error: `Stripe payment error: ${error.message}`,
+      debug: {
+        maskedApiKey: keyInfo.masked,
+        keyLength: keyInfo.length,
+        validFormat: keyInfo.isValid,
+        keyType: keyInfo.keyType,
+        errorType: error.type || "Unknown",
+      },
     });
   }
 });
@@ -655,6 +833,151 @@ router.get("/wallet/:walletId", async (req, res) => {
       success: false,
       error: "Failed to retrieve wallet information",
     });
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/debug/stripe-key:
+ *   get:
+ *     summary: Debug Stripe API key status and configuration
+ *     tags:
+ *       - Payment Processing
+ *     description: Returns masked Stripe API key information and validation results for debugging purposes
+ *     responses:
+ *       200:
+ *         description: Stripe API key debug information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Stripe API key debug information"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     keyInfo:
+ *                       type: object
+ *                       properties:
+ *                         masked:
+ *                           type: string
+ *                           description: "Masked Stripe API key showing first 4 and last 4 characters"
+ *                           example: "sk_t***************************abc123"
+ *                         length:
+ *                           type: integer
+ *                           description: "Total length of the Stripe API key"
+ *                           example: 107
+ *                         validFormat:
+ *                           type: boolean
+ *                           description: "Whether the Stripe API key has valid format"
+ *                           example: true
+ *                         keyType:
+ *                           type: string
+ *                           enum: [secret, publishable, unknown]
+ *                           description: "Type of Stripe API key"
+ *                           example: "secret"
+ *                         startsWithSk:
+ *                           type: boolean
+ *                           description: "Whether the API key starts with 'sk_'"
+ *                           example: true
+ *                         error:
+ *                           type: string
+ *                           nullable: true
+ *                           description: "Error message if key format is invalid"
+ *                           example: null
+ *                     testResult:
+ *                       type: object
+ *                       properties:
+ *                         isValid:
+ *                           type: boolean
+ *                           description: "Whether the Stripe API key is valid and functional"
+ *                           example: true
+ *                         error:
+ *                           type: string
+ *                           nullable: true
+ *                           description: "Error message if validation failed"
+ *                           example: null
+ *                         accountId:
+ *                           type: string
+ *                           description: "Stripe account ID"
+ *                           example: "acct_1234567890"
+ *                         accountType:
+ *                           type: string
+ *                           description: "Stripe account type"
+ *                           example: "standard"
+ *                         country:
+ *                           type: string
+ *                           description: "Account country"
+ *                           example: "US"
+ *       401:
+ *         description: Stripe API key is invalid or missing
+ *       500:
+ *         description: Server error during Stripe API key testing
+ */
+router.get("/debug/stripe-key", async (req, res) => {
+  try {
+    console.log("PaymentRoutes: Debug Stripe API key request");
+
+    // Get masked API key info
+    const keyInfo = getMaskedStripeKey();
+
+    // Test the API key
+    const testResult = await testStripeKey();
+
+    return res.status(200).json({
+      success: true,
+      message: "Stripe API key debug information",
+      data: {
+        keyInfo: {
+          masked: keyInfo.masked,
+          length: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          keyType: keyInfo.keyType,
+          startsWithSk: keyInfo.startsWithSk,
+          startsWithPk: keyInfo.startsWithPk,
+          error: keyInfo.error,
+        },
+        testResult: {
+          isValid: testResult.isValid,
+          error: testResult.error,
+          details: testResult.details,
+          accountId: testResult.accountId,
+          accountType: testResult.accountType,
+          country: testResult.country,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("PaymentRoutes: Error in debugStripeKey:", error);
+
+    // Still try to return basic key info even if test fails
+    try {
+      const keyInfo = getMaskedStripeKey();
+      return res.status(500).json({
+        success: false,
+        error: "Failed to test Stripe API key",
+        details: error.message,
+        keyInfo: {
+          masked: keyInfo.masked,
+          length: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          keyType: keyInfo.keyType,
+          startsWithSk: keyInfo.startsWithSk,
+          error: keyInfo.error,
+        },
+      });
+    } catch (keyError) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to get Stripe API key information",
+        details: error.message,
+      });
+    }
   }
 });
 
