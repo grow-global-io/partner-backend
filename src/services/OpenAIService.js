@@ -551,12 +551,65 @@ ${context}`;
   }
 
   /**
+   * @description Get masked API key for debugging (shows first 4 and last 4 characters)
+   * @returns {Object} Masked API key info
+   */
+  getMaskedApiKey() {
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return {
+        masked: "NOT_SET",
+        length: 0,
+        isValid: false,
+        error: "OPENAI_API_KEY environment variable is not set",
+      };
+    }
+
+    if (apiKey.length < 8) {
+      return {
+        masked: "TOO_SHORT",
+        length: apiKey.length,
+        isValid: false,
+        error: "API key is too short (should be at least 8 characters)",
+      };
+    }
+
+    const first4 = apiKey.substring(0, 4);
+    const last4 = apiKey.substring(apiKey.length - 4);
+    const masked = `${first4}${"*".repeat(
+      Math.max(0, apiKey.length - 8)
+    )}${last4}`;
+
+    return {
+      masked,
+      length: apiKey.length,
+      isValid: apiKey.startsWith("sk-") && apiKey.length > 20,
+      startsWithSk: apiKey.startsWith("sk-"),
+      error: null,
+    };
+  }
+
+  /**
    * @description Validate OpenAI API key with comprehensive checks
    * @returns {Promise<boolean>} True if valid and functional, false otherwise
    */
   async validateApiKey() {
     try {
       console.log("OpenAIService: Validating API key...");
+
+      // First check the key format
+      const keyInfo = this.getMaskedApiKey();
+      console.log(
+        `OpenAIService: API key info - ${keyInfo.masked} (length: ${keyInfo.length})`
+      );
+
+      if (!keyInfo.isValid) {
+        console.error(
+          `OpenAIService: API key format invalid - ${keyInfo.error}`
+        );
+        return false;
+      }
 
       // Test 1: List models (quick check)
       const models = await this.client.models.list();
@@ -596,7 +649,56 @@ ${context}`;
       return true;
     } catch (error) {
       console.error("OpenAIService: API key validation failed:", error.message);
+      const keyInfo = this.getMaskedApiKey();
+      console.error(`OpenAIService: Using API key: ${keyInfo.masked}`);
       return false;
+    }
+  }
+
+  /**
+   * @description Test API key with detailed validation result
+   * @returns {Promise<Object>} Detailed validation result
+   */
+  async testApiKey() {
+    try {
+      const keyInfo = this.getMaskedApiKey();
+
+      if (!keyInfo.isValid) {
+        return {
+          isValid: false,
+          error: keyInfo.error || "API key format is invalid",
+          keyInfo,
+          details:
+            "Check that your API key starts with 'sk-' and is the correct length",
+        };
+      }
+
+      // Make a simple API call to test the key
+      const response = await this.client.models.list();
+
+      return {
+        isValid: true,
+        error: null,
+        keyInfo,
+        testResult: "API key is valid and working",
+        modelCount: response.data.length,
+        hasGPT4: response.data.some((model) => model.id.includes("gpt-4")),
+      };
+    } catch (error) {
+      const keyInfo = this.getMaskedApiKey();
+
+      return {
+        isValid: false,
+        error: error.message,
+        keyInfo,
+        testResult: "API key validation failed",
+        details:
+          error.status === 401
+            ? "Invalid API key - check your key is correct"
+            : error.status === 429
+            ? "Rate limit exceeded - try again later"
+            : "Network or API error",
+      };
     }
   }
 
@@ -606,11 +708,18 @@ ${context}`;
    */
   async getHealthStatus() {
     try {
+      const keyInfo = this.getMaskedApiKey();
       const isValid = await this.validateApiKey();
 
       return {
         status: isValid ? "healthy" : "unhealthy",
-        apiKey: process.env.OPENAI_API_KEY ? "configured" : "missing",
+        apiKey: {
+          configured: process.env.OPENAI_API_KEY ? true : false,
+          masked: keyInfo.masked,
+          length: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          startsWithSk: keyInfo.startsWithSk,
+        },
         models: {
           embedding: "text-embedding-3-small",
           chatPrimary: "gpt-4o",
@@ -625,9 +734,17 @@ ${context}`;
         lastValidation: new Date().toISOString(),
       };
     } catch (error) {
+      const keyInfo = this.getMaskedApiKey();
       return {
         status: "error",
         error: error.message,
+        apiKey: {
+          configured: process.env.OPENAI_API_KEY ? true : false,
+          masked: keyInfo.masked,
+          length: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          startsWithSk: keyInfo.startsWithSk,
+        },
         lastValidation: new Date().toISOString(),
       };
     }

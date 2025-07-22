@@ -61,7 +61,7 @@ class ExcelController {
   }
 
   /**
-   * @description Handle OpenAI API errors
+   * @description Handle OpenAI API errors with debugging information
    * @param {Error} error - Error object
    * @param {Object} res - Express response object
    * @private
@@ -69,13 +69,25 @@ class ExcelController {
   handleOpenAIError(error, res) {
     console.error("OpenAIService error:", error);
 
+    // Get masked API key for debugging
+    const keyInfo = this.openAIService.getMaskedApiKey();
+    console.error(
+      `Using API key: ${keyInfo.masked} (length: ${keyInfo.length})`
+    );
+
     // Check if API key is invalid
     if (error.message.includes("API key")) {
       return res.status(401).json({
         success: false,
         error: "Failed to generate LLM response",
-        details:
-          "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
+        details: `Invalid API key. Please check your OPENAI_API_KEY environment variable.`,
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+          validFormat: keyInfo.isValid,
+          startsWithSk: keyInfo.startsWithSk,
+          error: keyInfo.error,
+        },
       });
     }
 
@@ -88,6 +100,10 @@ class ExcelController {
         success: false,
         error: "Failed to generate LLM response",
         details: "Rate limit exceeded. Please try again later.",
+        debug: {
+          maskedApiKey: keyInfo.masked,
+          keyLength: keyInfo.length,
+        },
       });
     }
 
@@ -96,6 +112,11 @@ class ExcelController {
       success: false,
       error: "Failed to generate LLM response",
       details: error.message,
+      debug: {
+        maskedApiKey: keyInfo.masked,
+        keyLength: keyInfo.length,
+        validFormat: keyInfo.isValid,
+      },
     });
   }
 
@@ -2916,6 +2937,78 @@ Keep the response concise and actionable.`;
       return "Targeted outreach with personalized messaging recommended";
     } else {
       return "Further market research recommended - consider refining search criteria";
+    }
+  }
+
+  /**
+   * @description Debug endpoint to check OpenAI API key status
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} API key debug information
+   */
+  async debugApiKey(req, res) {
+    try {
+      console.log("ExcelController: Debug API key request");
+
+      // Get masked API key info
+      const keyInfo = this.openAIService.getMaskedApiKey();
+
+      // Test the API key
+      const testResult = await this.openAIService.testApiKey();
+
+      // Get health status
+      const healthStatus = await this.openAIService.getHealthStatus();
+
+      return res.status(200).json({
+        success: true,
+        message: "API key debug information",
+        data: {
+          keyInfo: {
+            masked: keyInfo.masked,
+            length: keyInfo.length,
+            validFormat: keyInfo.isValid,
+            startsWithSk: keyInfo.startsWithSk,
+            error: keyInfo.error,
+          },
+          testResult: {
+            isValid: testResult.isValid,
+            error: testResult.error,
+            details: testResult.details,
+            modelCount: testResult.modelCount,
+            hasGPT4: testResult.hasGPT4,
+          },
+          healthStatus: {
+            status: healthStatus.status,
+            apiKeyConfigured: healthStatus.apiKey.configured,
+            validFormat: healthStatus.apiKey.validFormat,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("ExcelController: Error in debugApiKey:", error);
+
+      // Still try to return basic key info even if test fails
+      try {
+        const keyInfo = this.openAIService.getMaskedApiKey();
+        return res.status(500).json({
+          success: false,
+          error: "Failed to test API key",
+          details: error.message,
+          keyInfo: {
+            masked: keyInfo.masked,
+            length: keyInfo.length,
+            validFormat: keyInfo.isValid,
+            startsWithSk: keyInfo.startsWithSk,
+            error: keyInfo.error,
+          },
+        });
+      } catch (keyError) {
+        return res.status(500).json({
+          success: false,
+          error: "Failed to get API key information",
+          details: error.message,
+        });
+      }
     }
   }
 
