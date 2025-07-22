@@ -235,6 +235,73 @@ class ExcelModel {
         take: limit * 10, // Get more rows to filter from
       });
 
+      // DEBUG: Check the structure of the first few rows
+      console.log(`🔍 DATABASE STRUCTURE DEBUG:`);
+      if (rows.length > 0) {
+        const firstRow = rows[0];
+        console.log(`  First row keys: ${Object.keys(firstRow).join(", ")}`);
+        console.log(`  Embedding field type: ${typeof firstRow.embedding}`);
+        console.log(
+          `  Embedding is array: ${Array.isArray(firstRow.embedding)}`
+        );
+        console.log(
+          `  Embedding length: ${firstRow.embedding?.length || "NULL"}`
+        );
+
+        if (firstRow.embedding && Array.isArray(firstRow.embedding)) {
+          console.log(
+            `  Embedding sample: [${firstRow.embedding
+              .slice(0, 5)
+              .join(", ")}...]`
+          );
+          console.log(
+            `  Embedding data types: ${firstRow.embedding
+              .slice(0, 5)
+              .map((v) => typeof v)
+              .join(", ")}`
+          );
+        } else {
+          console.log(`  Embedding value: ${firstRow.embedding}`);
+          console.log(
+            `  Embedding JSON stringified: ${JSON.stringify(
+              firstRow.embedding
+            )}`
+          );
+
+          // Try to convert if it's a JSON object that should be an array
+          if (firstRow.embedding && typeof firstRow.embedding === "object") {
+            console.log(`  Attempting to convert embedding object to array...`);
+            const keys = Object.keys(firstRow.embedding);
+            console.log(
+              `  Object keys sample: ${keys.slice(0, 10).join(", ")}`
+            );
+
+            // Check if it's an object with numeric keys (array-like)
+            const isArrayLike = keys.every((key) => !isNaN(parseInt(key)));
+            console.log(`  Is array-like object: ${isArrayLike}`);
+
+            if (isArrayLike) {
+              const convertedArray = Object.values(firstRow.embedding);
+              console.log(`  Converted array length: ${convertedArray.length}`);
+              console.log(
+                `  Converted array sample: [${convertedArray
+                  .slice(0, 5)
+                  .join(", ")}...]`
+              );
+            }
+          }
+        }
+
+        console.log(
+          `  Content preview: ${(firstRow.content || "").substring(0, 100)}...`
+        );
+        console.log(
+          `  RowData keys: ${Object.keys(firstRow.rowData || {}).join(", ")}`
+        );
+      } else {
+        console.log(`  No rows found in database!`);
+      }
+
       console.log(`📊 Retrieved ${rows.length} rows from database`);
 
       // DEBUG: Check for Ajmer data in retrieved rows
@@ -272,29 +339,158 @@ class ExcelModel {
         });
       }
 
-      // Calculate cosine similarity for each row
-      const results = rows
-        .map((row) => {
-          const similarity = this.calculateCosineSimilarity(
-            embedding,
-            row.embedding
+      // Calculate cosine similarity for each row with detailed debugging
+      console.log(`🔍 SIMILARITY CALCULATION DEBUG:`);
+      console.log(`Query embedding length: ${embedding?.length || "NULL"}`);
+      console.log(`Query embedding type: ${typeof embedding}`);
+      console.log(
+        `Query embedding sample: [${
+          embedding?.slice(0, 5).join(", ") || "NULL"
+        }...]`
+      );
+
+      const results = [];
+      let validEmbeddingCount = 0;
+      let nullEmbeddingCount = 0;
+      let similarityScores = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+
+        // Check if row has valid embedding and convert if necessary
+        let rowEmbedding = row.embedding;
+
+        if (!rowEmbedding) {
+          nullEmbeddingCount++;
+          if (i < 3) {
+            console.log(
+              `  Row ${i}: NULL embedding - ${
+                row.rowData?.Company || "Unknown"
+              }`
+            );
+          }
+          continue;
+        }
+
+        // Convert object to array if needed (MongoDB JSON storage issue)
+        if (!Array.isArray(rowEmbedding) && typeof rowEmbedding === "object") {
+          const keys = Object.keys(rowEmbedding);
+          const isArrayLike = keys.every((key) => !isNaN(parseInt(key)));
+
+          if (isArrayLike) {
+            rowEmbedding = Object.values(rowEmbedding);
+            if (i < 3) {
+              console.log(
+                `  Row ${i}: Converted object to array (length: ${
+                  rowEmbedding.length
+                }) - ${row.rowData?.Company || "Unknown"}`
+              );
+            }
+          } else {
+            nullEmbeddingCount++;
+            if (i < 3) {
+              console.log(
+                `  Row ${i}: Invalid embedding object - ${
+                  row.rowData?.Company || "Unknown"
+                }`
+              );
+            }
+            continue;
+          }
+        } else if (!Array.isArray(rowEmbedding)) {
+          nullEmbeddingCount++;
+          if (i < 3) {
+            console.log(
+              `  Row ${i}: Invalid embedding type (${typeof rowEmbedding}) - ${
+                row.rowData?.Company || "Unknown"
+              }`
+            );
+          }
+          continue;
+        }
+
+        validEmbeddingCount++;
+
+        const similarity = this.calculateCosineSimilarity(
+          embedding,
+          rowEmbedding
+        );
+        similarityScores.push(similarity);
+
+        if (i < 3) {
+          console.log(
+            `  Row ${i}: Similarity ${similarity.toFixed(4)} - ${
+              row.rowData?.Company || "Unknown"
+            }`
           );
-          return {
+          console.log(`    Row embedding length: ${rowEmbedding.length}`);
+          console.log(
+            `    Row embedding sample: [${rowEmbedding
+              .slice(0, 5)
+              .join(", ")}...]`
+          );
+        }
+
+        if (similarity > minScore) {
+          results.push({
             ...row,
             score: similarity,
             embedding: undefined, // Don't send embeddings to client
-          };
-        })
-        .filter((row) => row.score > minScore)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
+          });
+        }
+      }
+
+      console.log(`📊 EMBEDDING STATISTICS:`);
+      console.log(`  Total rows: ${rows.length}`);
+      console.log(`  Valid embeddings: ${validEmbeddingCount}`);
+      console.log(`  Null/Invalid embeddings: ${nullEmbeddingCount}`);
+      console.log(
+        `  Similarity scores range: ${Math.min(...similarityScores).toFixed(
+          4
+        )} - ${Math.max(...similarityScores).toFixed(4)}`
+      );
+      console.log(
+        `  Average similarity: ${(
+          similarityScores.reduce((a, b) => a + b, 0) / similarityScores.length
+        ).toFixed(4)}`
+      );
+      console.log(
+        `  Scores above minScore (${minScore}): ${
+          similarityScores.filter((s) => s > minScore).length
+        }`
+      );
+
+      // Sort by similarity score
+      results.sort((a, b) => b.score - a.score);
+
+      // Limit results
+      const finalResults = results.slice(0, limit);
 
       console.log(
-        `🎯 Final results: ${results.length} rows after similarity filtering`
+        `🎯 Final results: ${finalResults.length} rows after similarity filtering`
       );
+
+      if (finalResults.length > 0) {
+        console.log(`📋 Top results:`);
+        finalResults.slice(0, 3).forEach((result, idx) => {
+          const company = result.rowData?.Company || "Unknown";
+          const city = result.rowData?.City || "Unknown";
+          console.log(
+            `  [${idx + 1}] Score: ${result.score.toFixed(
+              4
+            )} - ${company} (${city})`
+          );
+        });
+      } else {
+        console.log(`❌ NO RESULTS PASSED SIMILARITY THRESHOLD!`);
+        console.log(
+          `💡 Consider lowering minScore from ${minScore} to 0.0 for debugging`
+        );
+      }
+
       console.log(`=== END VECTOR SEARCH ===\n`);
 
-      return results;
+      return finalResults;
     } catch (error) {
       console.error("ExcelModel: Error in vector search:", error);
       throw error;
@@ -309,11 +505,34 @@ class ExcelModel {
    */
   calculateCosineSimilarity(vecA, vecB) {
     try {
+      // Detailed validation and debugging
+      if (!vecA || !vecB) {
+        console.log(
+          `❌ Cosine similarity: One or both vectors are null/undefined`
+        );
+        return 0;
+      }
+
       if (!Array.isArray(vecA) || !Array.isArray(vecB)) {
+        console.log(`❌ Cosine similarity: One or both inputs are not arrays`);
+        console.log(
+          `  vecA type: ${typeof vecA}, isArray: ${Array.isArray(vecA)}`
+        );
+        console.log(
+          `  vecB type: ${typeof vecB}, isArray: ${Array.isArray(vecB)}`
+        );
         return 0;
       }
 
       if (vecA.length !== vecB.length) {
+        console.log(
+          `❌ Cosine similarity: Vector length mismatch - ${vecA.length} vs ${vecB.length}`
+        );
+        return 0;
+      }
+
+      if (vecA.length === 0) {
+        console.log(`❌ Cosine similarity: Empty vectors`);
         return 0;
       }
 
@@ -321,19 +540,53 @@ class ExcelModel {
       let normA = 0;
       let normB = 0;
 
+      // Check for non-numeric values
       for (let i = 0; i < vecA.length; i++) {
+        if (typeof vecA[i] !== "number" || typeof vecB[i] !== "number") {
+          console.log(`❌ Cosine similarity: Non-numeric values at index ${i}`);
+          console.log(`  vecA[${i}]: ${vecA[i]} (${typeof vecA[i]})`);
+          console.log(`  vecB[${i}]: ${vecB[i]} (${typeof vecB[i]})`);
+          return 0;
+        }
+
+        if (isNaN(vecA[i]) || isNaN(vecB[i])) {
+          console.log(`❌ Cosine similarity: NaN values at index ${i}`);
+          return 0;
+        }
+
         dotProduct += vecA[i] * vecB[i];
         normA += vecA[i] * vecA[i];
         normB += vecB[i] * vecB[i];
       }
 
       if (normA === 0 || normB === 0) {
+        console.log(
+          `❌ Cosine similarity: Zero norm - normA: ${normA}, normB: ${normB}`
+        );
         return 0;
       }
 
-      return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+      const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+
+      // Validate result
+      if (isNaN(similarity)) {
+        console.log(`❌ Cosine similarity: Result is NaN`);
+        console.log(
+          `  dotProduct: ${dotProduct}, normA: ${normA}, normB: ${normB}`
+        );
+        return 0;
+      }
+
+      // Cosine similarity should be between -1 and 1, but we'll normalize to 0-1
+      const normalizedSimilarity = Math.max(
+        0,
+        Math.min(1, (similarity + 1) / 2)
+      );
+
+      return normalizedSimilarity;
     } catch (error) {
       console.error("ExcelModel: Error calculating cosine similarity:", error);
+      console.error("Error details:", error.stack);
       return 0;
     }
   }

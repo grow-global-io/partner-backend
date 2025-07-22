@@ -1,4 +1,4 @@
-const { Configuration, OpenAIApi } = require("openai");
+const OpenAI = require("openai");
 
 /**
  * @description OpenAI service for embeddings and chat completions
@@ -6,12 +6,11 @@ const { Configuration, OpenAIApi } = require("openai");
  */
 class OpenAIService {
   constructor() {
-    const configuration = new Configuration({
+    this.client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
-    this.openai = new OpenAIApi(configuration);
-    this.model = "gpt-3.5-turbo-16k";
-    this.embeddingModel = "text-embedding-ada-002";
+    this.model = "gpt-4o";
+    this.embeddingModel = "text-embedding-3-large";
   }
 
   /**
@@ -21,11 +20,11 @@ class OpenAIService {
    */
   async generateEmbedding(text) {
     try {
-      const response = await this.openai.createEmbedding({
+      const response = await this.client.embeddings.create({
         model: this.embeddingModel,
         input: text,
       });
-      return response.data.data[0].embedding;
+      return response.data[0].embedding;
     } catch (error) {
       console.error("OpenAIService: Error generating embedding:", error);
       throw error;
@@ -101,7 +100,7 @@ class OpenAIService {
       ];
 
       // Get chat completion
-      const completion = await this.openai.createChatCompletion({
+      const completion = await this.client.chat.completions.create({
         model: this.model,
         messages: messages,
         temperature: 0.7,
@@ -109,7 +108,7 @@ class OpenAIService {
       });
 
       return {
-        answer: completion.data.choices[0].message.content,
+        answer: completion.choices[0].message.content,
         model: this.model,
         relevantChunks: relevantChunks.length,
         sources: relevantChunks.map((chunk) => ({
@@ -117,7 +116,7 @@ class OpenAIService {
           score: chunk.score,
           fileName: fileName,
         })),
-        usage: completion.data.usage,
+        usage: completion.usage,
       };
     } catch (error) {
       console.error("OpenAIService: Error generating chat response:", error);
