@@ -564,6 +564,150 @@ router.post("/find-leads", (req, res) => excelController.findLeads(req, res));
 
 /**
  * @swagger
+ * /api/leadgen/debug/api-key:
+ *   get:
+ *     summary: Debug OpenAI API key status and configuration
+ *     tags: [System Health]
+ *     description: Returns masked API key information and validation results for debugging purposes
+ *     responses:
+ *       200:
+ *         description: API key debug information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "API key debug information"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     keyInfo:
+ *                       type: object
+ *                       properties:
+ *                         masked:
+ *                           type: string
+ *                           description: "Masked API key showing first 4 and last 4 characters"
+ *                           example: "sk-1***************************abc123"
+ *                         length:
+ *                           type: integer
+ *                           description: "Total length of the API key"
+ *                           example: 51
+ *                         validFormat:
+ *                           type: boolean
+ *                           description: "Whether the API key has valid format"
+ *                           example: true
+ *                         startsWithSk:
+ *                           type: boolean
+ *                           description: "Whether the API key starts with 'sk-'"
+ *                           example: true
+ *                         error:
+ *                           type: string
+ *                           nullable: true
+ *                           description: "Error message if key format is invalid"
+ *                           example: null
+ *                     testResult:
+ *                       type: object
+ *                       properties:
+ *                         isValid:
+ *                           type: boolean
+ *                           description: "Whether the API key is valid and functional"
+ *                           example: true
+ *                         error:
+ *                           type: string
+ *                           nullable: true
+ *                           description: "Error message if validation failed"
+ *                           example: null
+ *                         details:
+ *                           type: string
+ *                           nullable: true
+ *                           description: "Additional details about the validation"
+ *                           example: null
+ *                         modelCount:
+ *                           type: integer
+ *                           description: "Number of available models"
+ *                           example: 45
+ *                         hasGPT4:
+ *                           type: boolean
+ *                           description: "Whether GPT-4 models are available"
+ *                           example: true
+ *                     healthStatus:
+ *                       type: object
+ *                       properties:
+ *                         status:
+ *                           type: string
+ *                           enum: [healthy, unhealthy, error]
+ *                           description: "Overall health status"
+ *                           example: "healthy"
+ *                         apiKeyConfigured:
+ *                           type: boolean
+ *                           description: "Whether API key is configured"
+ *                           example: true
+ *                         validFormat:
+ *                           type: boolean
+ *                           description: "Whether API key format is valid"
+ *                           example: true
+ *       401:
+ *         description: API key is invalid or missing
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to test API key"
+ *                 details:
+ *                   type: string
+ *                   example: "Invalid API key - check your key is correct"
+ *                 keyInfo:
+ *                   type: object
+ *                   properties:
+ *                     masked:
+ *                       type: string
+ *                       example: "NOT_SET"
+ *                     length:
+ *                       type: integer
+ *                       example: 0
+ *                     validFormat:
+ *                       type: boolean
+ *                       example: false
+ *                     startsWithSk:
+ *                       type: boolean
+ *                       example: false
+ *                     error:
+ *                       type: string
+ *                       example: "OPENAI_API_KEY environment variable is not set"
+ *       500:
+ *         description: Server error during API key testing
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to get API key information"
+ *                 details:
+ *                   type: string
+ *                   example: "Unexpected error occurred"
+ */
+router.get("/debug/api-key", (req, res) =>
+  excelController.debugApiKey(req, res)
+);
+
+/**
+ * @swagger
  * /api/leadgen/health:
  *   get:
  *     summary: Check S3 connectivity and permissions
