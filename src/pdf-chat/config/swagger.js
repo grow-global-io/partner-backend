@@ -168,6 +168,106 @@ const options = {
             },
           },
         },
+        StripeKeyDebugResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: true,
+            },
+            message: {
+              type: "string",
+              example: "Stripe API key debug information",
+            },
+            data: {
+              type: "object",
+              properties: {
+                keyInfo: {
+                  type: "object",
+                  properties: {
+                    masked: {
+                      type: "string",
+                      description:
+                        "Masked Stripe API key showing first 4 and last 4 characters",
+                      example: "sk_t***************************abc123",
+                    },
+                    length: {
+                      type: "integer",
+                      description: "Total length of the Stripe API key",
+                      example: 107,
+                    },
+                    validFormat: {
+                      type: "boolean",
+                      description:
+                        "Whether the Stripe API key has valid format",
+                      example: true,
+                    },
+                    keyType: {
+                      type: "string",
+                      enum: ["secret", "publishable", "unknown"],
+                      description: "Type of Stripe API key",
+                      example: "secret",
+                    },
+                    startsWithSk: {
+                      type: "boolean",
+                      description: "Whether the API key starts with 'sk_'",
+                      example: true,
+                    },
+                    startsWithPk: {
+                      type: "boolean",
+                      description: "Whether the API key starts with 'pk_'",
+                      example: false,
+                    },
+                    error: {
+                      type: "string",
+                      nullable: true,
+                      description: "Error message if key format is invalid",
+                      example: null,
+                    },
+                  },
+                },
+                testResult: {
+                  type: "object",
+                  properties: {
+                    isValid: {
+                      type: "boolean",
+                      description:
+                        "Whether the Stripe API key is valid and functional",
+                      example: true,
+                    },
+                    error: {
+                      type: "string",
+                      nullable: true,
+                      description: "Error message if validation failed",
+                      example: null,
+                    },
+                    details: {
+                      type: "string",
+                      nullable: true,
+                      description: "Additional details about the validation",
+                      example: null,
+                    },
+                    accountId: {
+                      type: "string",
+                      description: "Stripe account ID",
+                      example: "acct_1234567890",
+                    },
+                    accountType: {
+                      type: "string",
+                      description: "Stripe account type",
+                      example: "standard",
+                    },
+                    country: {
+                      type: "string",
+                      description: "Account country",
+                      example: "US",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
         WebhookRequest: {
           type: "object",
           properties: {
