@@ -4,9 +4,10 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Leadgen (Excel) API Documentation",
+      title: "Leadgen & Payment API Documentation",
       version: "1.0.0",
-      description: "API documentation for Excel file processing and querying",
+      description:
+        "API documentation for Excel file processing, querying, and payment processing",
     },
     servers: [
       {
@@ -197,6 +198,159 @@ const options = {
             },
           },
         },
+        PaymentSessionRequest: {
+          type: "object",
+          required: ["walletId", "mode", "line_items", "metadata", "noOfDocs"],
+          properties: {
+            walletId: {
+              type: "string",
+              description: "Unique identifier for the wallet",
+              example: "wallet-123",
+            },
+            mode: {
+              type: "string",
+              description: "Payment mode",
+              example: "payment",
+            },
+            line_items: {
+              type: "array",
+              description: "Array of items to purchase",
+              items: {
+                type: "object",
+                properties: {
+                  price_data: {
+                    type: "object",
+                    properties: {
+                      currency: {
+                        type: "string",
+                        example: "USD",
+                      },
+                      product_data: {
+                        type: "object",
+                        properties: {
+                          name: {
+                            type: "string",
+                            example: "Premium Document Plan",
+                          },
+                          description: {
+                            type: "string",
+                            example: "50 additional documents for your wallet",
+                          },
+                        },
+                      },
+                      unit_amount: {
+                        type: "integer",
+                        example: 2999,
+                      },
+                    },
+                  },
+                  quantity: {
+                    type: "integer",
+                    example: 1,
+                  },
+                },
+              },
+            },
+            metadata: {
+              type: "object",
+              description: "Additional metadata for the payment",
+              properties: {
+                plan_type: {
+                  type: "string",
+                  example: "premium",
+                },
+                user_id: {
+                  type: "string",
+                  example: "user_456",
+                },
+                invoice_id: {
+                  type: "string",
+                  example: "INV-001",
+                },
+              },
+            },
+            noOfDocs: {
+              type: "number",
+              description: "Number of documents included in the plan",
+              example: 50,
+            },
+          },
+        },
+        PaymentSessionResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: true,
+            },
+            sessionId: {
+              type: "string",
+              description: "Payment session identifier",
+              example: "cs_test_123456789",
+            },
+            url: {
+              type: "string",
+              description: "Payment URL to redirect user",
+              example: "https://checkout.stripe.com/pay/cs_test_123456789",
+            },
+            message: {
+              type: "string",
+              example: "Payment session created successfully",
+            },
+          },
+        },
+        ErrorResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: false,
+            },
+            error: {
+              type: "string",
+              description: "Error message",
+            },
+            details: {
+              type: "string",
+              description: "Additional error details",
+            },
+          },
+        },
+        WalletInfoResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: true,
+            },
+            data: {
+              type: "object",
+              properties: {
+                walletId: {
+                  type: "string",
+                  example: "wallet-123",
+                },
+                documentsCount: {
+                  type: "integer",
+                  example: 25,
+                },
+                documentsUsed: {
+                  type: "integer",
+                  example: 10,
+                },
+                documentsRemaining: {
+                  type: "integer",
+                  example: 15,
+                },
+                lastUpdated: {
+                  type: "string",
+                  format: "date-time",
+                  example: "2024-01-15T10:30:00Z",
+                },
+              },
+            },
+          },
+        },
       },
     },
     paths: {
@@ -342,7 +496,7 @@ const options = {
       },
     },
   },
-  apis: ["./src/leadgen/routes/*.js"],
+  apis: ["./src/leadgen/routes/*.js", "./src/routes/paymentRoutes.js"],
 };
 
 module.exports = swaggerJsdoc(options);
