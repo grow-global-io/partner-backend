@@ -351,6 +351,67 @@ const options = {
             },
           },
         },
+        TokenBalanceResponse: {
+          type: "object",
+          properties: {
+            success: {
+              type: "boolean",
+              example: true,
+            },
+            email: {
+              type: "string",
+              format: "email",
+              example: "user@example.com",
+            },
+            balance: {
+              type: "string",
+              description: "GLL token balance in ether units",
+              example: "1500.75",
+            },
+            message: {
+              type: "string",
+              example: "Token balance retrieved successfully",
+            },
+          },
+        },
+        WebhookRequest: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              description: "Type of webhook event",
+              example: "checkout.session.completed",
+            },
+            data: {
+              type: "object",
+              properties: {
+                object: {
+                  type: "object",
+                  properties: {
+                    id: {
+                      type: "string",
+                      description: "Session identifier",
+                      example: "session_123",
+                    },
+                    metadata: {
+                      type: "object",
+                      properties: {
+                        walletId: {
+                          type: "string",
+                          example: "wallet-123",
+                        },
+                        noOfDocs: {
+                          type: "string",
+                          example: "10",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     },
     paths: {

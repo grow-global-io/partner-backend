@@ -128,7 +128,7 @@ const MANUFACTURER_STEPS = {
     message: "📍 Step 5 of 6\n\nWhere is this product made? (City, State)",
     field: "location",
   },
-  
+
   6: {
     message: "🛒 Step 6 of 6\n\nDo you sell this product online?",
     field: "sellsOnline",
@@ -1396,10 +1396,51 @@ bot.on("message", async (msg) => {
   // Handle email input for account linking FIRST
   if (usersAwaitingEmail.has(chatId) && msg.text) {
     console.log("Processing email:", msg.text);
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    // Email validation using simple string operations to avoid regex vulnerabilities
+    function isValidEmail(email) {
+      if (!email || typeof email !== "string") return false;
+
+      const trimmed = email.trim();
+      if (trimmed.length === 0 || trimmed.length > 254) return false;
+
+      // Must contain exactly one @ symbol
+      const atIndex = trimmed.indexOf("@");
+      if (atIndex === -1 || atIndex !== trimmed.lastIndexOf("@")) return false;
+      if (atIndex === 0 || atIndex === trimmed.length - 1) return false;
+
+      const localPart = trimmed.substring(0, atIndex);
+      const domainPart = trimmed.substring(atIndex + 1);
+
+      // Basic local part validation
+      if (localPart.length === 0 || localPart.length > 64) return false;
+      if (localPart.startsWith(".") || localPart.endsWith(".")) return false;
+      if (localPart.includes("..")) return false;
+
+      // Basic domain part validation
+      if (domainPart.length === 0 || domainPart.length > 253) return false;
+      if (domainPart.startsWith(".") || domainPart.endsWith(".")) return false;
+      if (domainPart.includes("..")) return false;
+      if (!domainPart.includes(".")) return false;
+
+      // Simple character validation
+      const validLocalChars = /^[a-zA-Z0-9._%+-]+$/;
+      if (!validLocalChars.test(localPart)) return false;
+
+      const validDomainChars = /^[a-zA-Z0-9.-]+$/;
+      if (!validDomainChars.test(domainPart)) return false;
+
+      // Check domain has valid TLD
+      const lastDotIndex = domainPart.lastIndexOf(".");
+      if (lastDotIndex === -1 || domainPart.length - lastDotIndex - 1 < 2)
+        return false;
+
+      return true;
+    }
+
     const email = msg.text.trim();
 
-    if (!emailRegex.test(email)) {
+    if (!isValidEmail(email)) {
       await sendMessageWithTracking(
         chatId,
         "❌ Invalid email format. Please provide a valid email address.",

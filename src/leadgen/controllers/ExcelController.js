@@ -3402,8 +3402,42 @@ Keep the response concise and actionable.`;
    */
   isValidEmail(email) {
     if (!email || typeof email !== "string") return false;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email.trim());
+
+    const trimmed = email.trim();
+    if (trimmed.length === 0 || trimmed.length > 254) return false;
+
+    // Must contain exactly one @ symbol
+    const atIndex = trimmed.indexOf("@");
+    if (atIndex === -1 || atIndex !== trimmed.lastIndexOf("@")) return false;
+    if (atIndex === 0 || atIndex === trimmed.length - 1) return false;
+
+    const localPart = trimmed.substring(0, atIndex);
+    const domainPart = trimmed.substring(atIndex + 1);
+
+    // Basic local part validation
+    if (localPart.length === 0 || localPart.length > 64) return false;
+    if (localPart.startsWith(".") || localPart.endsWith(".")) return false;
+    if (localPart.includes("..")) return false;
+
+    // Basic domain part validation
+    if (domainPart.length === 0 || domainPart.length > 253) return false;
+    if (domainPart.startsWith(".") || domainPart.endsWith(".")) return false;
+    if (domainPart.includes("..")) return false;
+    if (!domainPart.includes(".")) return false;
+
+    // Simple character validation using basic regex (safe patterns)
+    const validLocalChars = /^[a-zA-Z0-9._%+-]+$/;
+    if (!validLocalChars.test(localPart)) return false;
+
+    const validDomainChars = /^[a-zA-Z0-9.-]+$/;
+    if (!validDomainChars.test(domainPart)) return false;
+
+    // Check domain has valid TLD
+    const lastDotIndex = domainPart.lastIndexOf(".");
+    if (lastDotIndex === -1 || domainPart.length - lastDotIndex - 1 < 2)
+      return false;
+
+    return true;
   }
 
   /**
@@ -3924,9 +3958,14 @@ Keep the response concise and actionable.`;
    * @private
    */
   isValidWebsite(website) {
-    const websiteRegex =
-      /(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?/;
-    return websiteRegex.test(website);
+    if (!website || typeof website !== "string") return false;
+    try {
+      const url = website.startsWith("http") ? website : `http://${website}`;
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // Enhanced extraction methods
