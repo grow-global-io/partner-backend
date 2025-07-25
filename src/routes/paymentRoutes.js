@@ -7,6 +7,7 @@
 const express = require("express");
 const axios = require("axios");
 const prisma = require("../config/db");
+const { getMyBalance } = require("../config/blockchain");
 
 const router = express.Router();
 
@@ -832,6 +833,103 @@ router.get("/wallet/:walletId", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to retrieve wallet information",
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/balance/{email}:
+ *   get:
+ *     summary: Get GLL token balance for user
+ *     description: Retrieves the GLL token balance for a user by their email address
+ *     tags:
+ *       - Wallet Management
+ *     parameters:
+ *       - name: email
+ *         in: path
+ *         required: true
+ *         description: User's email address
+ *         schema:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: Token balance retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenBalanceResponse'
+ *       400:
+ *         description: Invalid email format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               success: false
+ *               error: "Invalid email format"
+ *       404:
+ *         description: User not found or wallet address not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *             example:
+ *               success: false
+ *               error: "Email not found. Please login to gll.one first."
+ *       500:
+ *         description: Error retrieving token balance
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get("/balance/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email format",
+      });
+    }
+
+    // Get token balance using blockchain service
+    const balance = await getMyBalance(email);
+
+    res.status(200).json({
+      success: true,
+      email: email,
+      balance: balance,
+      message: "Token balance retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Token balance query error:", error);
+
+    // Handle specific error cases
+    if (error.message.includes("Email not found")) {
+      return res.status(404).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
+    if (error.message.includes("Wallet address not found")) {
+      return res.status(404).json({
+        success: false,
+        error: error.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve token balance",
+      details: error.message,
     });
   }
 });
