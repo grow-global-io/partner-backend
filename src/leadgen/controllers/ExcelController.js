@@ -3402,7 +3402,9 @@ Keep the response concise and actionable.`;
    */
   isValidEmail(email) {
     if (!email || typeof email !== "string") return false;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Using atomic groups to prevent catastrophic backtracking
+    const emailRegex =
+      /^(?=[^\s@]*@[^\s@]*\.[^\s@]*$)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     return emailRegex.test(email.trim());
   }
 
@@ -3924,9 +3926,14 @@ Keep the response concise and actionable.`;
    * @private
    */
   isValidWebsite(website) {
-    const websiteRegex =
-      /(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?/;
-    return websiteRegex.test(website);
+    if (!website || typeof website !== "string") return false;
+    try {
+      const url = website.startsWith("http") ? website : `http://${website}`;
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // Enhanced extraction methods

@@ -1396,7 +1396,8 @@ bot.on("message", async (msg) => {
   // Handle email input for account linking FIRST
   if (usersAwaitingEmail.has(chatId) && msg.text) {
     console.log("Processing email:", msg.text);
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Using atomic groups to prevent catastrophic backtracking
+    const emailRegex = /^(?=[^\s@]*@[^\s@]*\.[^\s@]*$)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     const email = msg.text.trim();
 
     if (!emailRegex.test(email)) {

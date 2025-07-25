@@ -890,8 +890,9 @@ router.get("/balance/:email", async (req, res) => {
   try {
     const { email } = req.params;
 
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Basic email validation - using atomic groups to prevent catastrophic backtracking
+    const emailRegex =
+      /^(?=[^\s@]*@[^\s@]*\.[^\s@]*$)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
