@@ -1,15 +1,88 @@
 const express = require("express");
 const ExcelController = require("../controllers/ExcelController");
+const ChatController = require("../controllers/ChatController");
 const { body, validationResult } = require("express-validator");
 
 const router = express.Router();
 
-// Initialize controller
+// Initialize controllers
 const excelController = new ExcelController();
+const chatController = new ChatController();
 
 /**
  * @swagger
  * components:
+ *   schemas:
+ *     ChatSession:
+ *       type: object
+ *       properties:
+ *         chatId:
+ *           type: string
+ *           description: Unique chat session identifier
+ *         messageCount:
+ *           type: integer
+ *           description: Number of question-answer pairs stored
+ *         status:
+ *           type: string
+ *           enum: [new, gathering, active, idle]
+ *           description: Current session status
+ *         metadata:
+ *           type: object
+ *           properties:
+ *             lastActivity:
+ *               type: string
+ *               format: date-time
+ *             totalQuestions:
+ *               type: integer
+ *             sessionAge:
+ *               type: integer
+ *               description: Session age in milliseconds
+ *
+ *     LeadGenerationResponse:
+ *       type: object
+ *       properties:
+ *         message:
+ *           type: string
+ *           description: Summary message about lead generation results
+ *         leads:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               companyName:
+ *                 type: string
+ *               contactPerson:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               website:
+ *                 type: string
+ *               industry:
+ *                 type: string
+ *               region:
+ *                 type: string
+ *               score:
+ *                 type: number
+ *                 minimum: 0
+ *                 maximum: 100
+ *               matchReason:
+ *                 type: string
+ *         metadata:
+ *           type: object
+ *           properties:
+ *             totalFound:
+ *               type: integer
+ *             processingTime:
+ *               type: integer
+ *             searchCriteria:
+ *               type: object
+ *             chatId:
+ *               type: string
+ *             questionAnswerCount:
+ *               type: integer
+ *
  *   schemas:
  *     ExcelDocument:
  *       type: object
@@ -70,6 +143,365 @@ const excelController = new ExcelController();
  *           type: object
  *           description: Row metadata
  */
+
+/**
+ * @swagger
+ * /api/leadgen/store-qa:
+ *   post:
+ *     summary: Store question-answer pair in chat session
+ *     tags: [Chat System]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - question
+ *               - answer
+ *             properties:
+ *               chatId:
+ *                 type: string
+ *                 description: Chat session ID (optional, will create if not provided)
+ *                 example: "12345678-1234-4123-8123-123456789012"
+ *               question:
+ *                 type: string
+ *                 description: Predefined question from frontend
+ *                 maxLength: 500
+ *                 example: "What industry are you in?"
+ *               answer:
+ *                 type: string
+ *                 description: User's varied answer
+ *                 maxLength: 2000
+ *                 example: "I am in the textile manufacturing business"
+ *     responses:
+ *       200:
+ *         description: Question-answer pair stored successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/ChatSession'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Validation error"
+ *                 message:
+ *                   type: string
+ *                   example: "Both question and answer are required"
+ *                 code:
+ *                   type: string
+ *                   example: "MISSING_REQUIRED_FIELDS"
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/store-qa",
+  [
+    body("question")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Question is required")
+      .isLength({ max: 500 })
+      .withMessage("Question must be less than 500 characters"),
+    body("answer")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Answer is required")
+      .isLength({ max: 2000 })
+      .withMessage("Answer must be less than 2000 characters"),
+    body("chatId")
+      .optional()
+      .isUUID(4)
+      .withMessage("ChatId must be a valid UUID v4"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation error",
+        message: "Invalid input parameters",
+        details: errors.array(),
+        code: "VALIDATION_ERROR",
+      });
+    }
+    await chatController.storeQuestionAnswer(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/generate-leads:
+ *   post:
+ *     summary: Generate leads from chat history using LLM analysis
+ *     tags: [Chat System]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - chatId
+ *             properties:
+ *               chatId:
+ *                 type: string
+ *                 description: Chat session ID
+ *                 example: "12345678-1234-4123-8123-123456789012"
+ *     responses:
+ *       200:
+ *         description: Leads generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/LeadGenerationResponse'
+ *       400:
+ *         description: Validation error or insufficient data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Validation error"
+ *                 message:
+ *                   type: string
+ *                   example: "chatId is required"
+ *                 code:
+ *                   type: string
+ *                   example: "MISSING_CHAT_ID"
+ *       404:
+ *         description: Chat session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Chat not found"
+ *                 message:
+ *                   type: string
+ *                   example: "Chat session not found or has expired"
+ *                 code:
+ *                   type: string
+ *                   example: "CHAT_NOT_FOUND"
+ *       500:
+ *         description: Lead generation failed
+ */
+router.post(
+  "/generate-leads",
+  [body("chatId").isUUID(4).withMessage("ChatId must be a valid UUID v4")],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation error",
+        message: "Invalid chatId format",
+        details: errors.array(),
+        code: "VALIDATION_ERROR",
+      });
+    }
+    await chatController.generateLeads(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/chat/{chatId}:
+ *   get:
+ *     summary: Get chat session information
+ *     tags: [Chat System]
+ *     parameters:
+ *       - in: path
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Chat session ID
+ *     responses:
+ *       200:
+ *         description: Chat information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     chatId:
+ *                       type: string
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     lastActivity:
+ *                       type: string
+ *                       format: date-time
+ *                     questionCount:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *                     questionAnswers:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                           question:
+ *                             type: string
+ *                           answer:
+ *                             type: string
+ *                           questionType:
+ *                             type: string
+ *       404:
+ *         description: Chat session not found
+ *       400:
+ *         description: Invalid chatId format
+ */
+router.get("/chat/:chatId", async (req, res) => {
+  await chatController.getChatInfo(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/chat-health:
+ *   get:
+ *     summary: Get chat system health status and statistics
+ *     tags: [Chat System]
+ *     responses:
+ *       200:
+ *         description: Health status retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       enum: [healthy, warning, error]
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     cache:
+ *                       type: object
+ *                       properties:
+ *                         totalSessions:
+ *                           type: integer
+ *                         activeSessions:
+ *                           type: integer
+ *                         memoryUsage:
+ *                           type: object
+ *                         status:
+ *                           type: string
+ *                     leadGeneration:
+ *                       type: object
+ *                       properties:
+ *                         totalGenerations:
+ *                           type: integer
+ *                         successfulGenerations:
+ *                           type: integer
+ *                         successRate:
+ *                           type: integer
+ *                         status:
+ *                           type: string
+ *                     system:
+ *                       type: object
+ *                       properties:
+ *                         uptime:
+ *                           type: number
+ *                         memoryUsage:
+ *                           type: object
+ *                         nodeVersion:
+ *                           type: string
+ *       500:
+ *         description: Health check failed
+ */
+router.get("/chat-health", async (req, res) => {
+  await chatController.getHealthStatus(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/clear-expired:
+ *   post:
+ *     summary: Manually clear expired chat sessions (maintenance endpoint)
+ *     tags: [Chat System]
+ *     responses:
+ *       200:
+ *         description: Expired sessions cleared successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Cleared 5 expired sessions"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     clearedSessions:
+ *                       type: integer
+ *                     remainingSessions:
+ *                       type: integer
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *       500:
+ *         description: Cleanup failed
+ */
+router.post("/clear-expired", async (req, res) => {
+  await chatController.clearExpiredSessions(req, res);
+});
 
 /**
  * @swagger
