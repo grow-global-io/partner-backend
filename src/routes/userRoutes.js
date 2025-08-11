@@ -5,10 +5,45 @@ const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
+
+// Rate limiters for creator posts endpoints
+const createPostLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // limit each IP to 10 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many post creation requests, please try again later."
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+const likeCommentLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 50, // limit each IP to 50 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many like/comment requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const generalPostLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // Function to read airdrop data from Google Sheets
 async function readAirdropData() {
@@ -2269,7 +2304,7 @@ router.get('/airdrop-claims', async (req, res) => {
 });
 
 // POST endpoint for creator posts with media upload support
-router.post('/creator-posts', upload.array('media', 10), async (req, res) => {
+router.post('/creator-posts', createPostLimiter, upload.array('media', 10), async (req, res) => {
     try {
         const { id, content, username, profilePicture, timestamp } = req.body;
 
@@ -2409,7 +2444,7 @@ router.post('/creator-posts', upload.array('media', 10), async (req, res) => {
 });
 
 // GET endpoint for fetching all creator posts (social media feed)
-router.get('/creator-posts', async (req, res) => {
+router.get('/creator-posts', generalPostLimiter, async (req, res) => {
     try {
         const { 
             page = 1, 
@@ -2545,7 +2580,7 @@ router.get('/creator-posts', async (req, res) => {
 });
 
 // GET endpoint for fetching a single creator post by ID
-router.get('/creator-posts/:postId', async (req, res) => {
+router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
     try {
         const { postId } = req.params;
 
@@ -2616,7 +2651,7 @@ router.get('/creator-posts/:postId', async (req, res) => {
 });
 
 // GET endpoint for fetching creator posts by email (creator profile feed)
-router.get('/creator-posts/by-email/:email', async (req, res) => {
+router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res) => {
     try {
         const { email } = req.params;
         const { 
@@ -2783,7 +2818,7 @@ router.get('/creator-posts/by-email/:email', async (req, res) => {
 });
 
 // GET endpoint for fetching creator profile by username
-router.get('/creator-profile/by-username/:username', async (req, res) => {
+router.get('/creator-profile/by-username/:username', generalPostLimiter, async (req, res) => {
     try {
         const { username } = req.params;
         
@@ -2850,7 +2885,7 @@ router.get('/creator-profile/by-username/:username', async (req, res) => {
 });
 
 // GET endpoint for fetching creator posts by username
-router.get('/creator-posts/by-username/:username', async (req, res) => {
+router.get('/creator-posts/by-username/:username', generalPostLimiter, async (req, res) => {
     try {
         const { username } = req.params;
         const { 
@@ -3020,7 +3055,7 @@ router.get('/creator-posts/by-username/:username', async (req, res) => {
 // ===== LIKE & COMMENT SYSTEM ENDPOINTS =====
 
 // 1. Like/Unlike a Post
-router.post('/creator-posts/:postId/like', async (req, res) => {
+router.post('/creator-posts/:postId/like', likeCommentLimiter, async (req, res) => {
     try {
         const { postId } = req.params;
         const { username, profilePicture } = req.body;
@@ -3104,7 +3139,7 @@ router.post('/creator-posts/:postId/like', async (req, res) => {
 });
 
 // 2. Get Post Likes
-router.get('/creator-posts/:postId/likes', async (req, res) => {
+router.get('/creator-posts/:postId/likes', generalPostLimiter, async (req, res) => {
     try {
         const { postId } = req.params;
 
@@ -3150,7 +3185,7 @@ router.get('/creator-posts/:postId/likes', async (req, res) => {
 });
 
 // 3. Add Comment to Post
-router.post('/creator-posts/:postId/comment', async (req, res) => {
+router.post('/creator-posts/:postId/comment', likeCommentLimiter, async (req, res) => {
     try {
         const { postId } = req.params;
         const { username, profilePicture, content } = req.body;
@@ -3219,7 +3254,7 @@ router.post('/creator-posts/:postId/comment', async (req, res) => {
 });
 
 // 4. Get Post Comments
-router.get('/creator-posts/:postId/comments', async (req, res) => {
+router.get('/creator-posts/:postId/comments', generalPostLimiter, async (req, res) => {
     try {
         const { postId } = req.params;
         const { page = 1, limit = 20 } = req.query;
@@ -3312,7 +3347,7 @@ router.get('/creator-posts/:postId/comments', async (req, res) => {
 });
 
 // 5. Like/Unlike a Comment
-router.post('/creator-posts/comments/:commentId/like', async (req, res) => {
+router.post('/creator-posts/comments/:commentId/like', likeCommentLimiter, async (req, res) => {
     try {
         const { commentId } = req.params;
         const { username, profilePicture } = req.body;
