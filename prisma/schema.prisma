@@ -357,3 +357,71 @@ model AirdropClaim {
   @@unique([email]) // Ensure one claim per email (if provided)
   @@index([claimedAt])
 }
+
+// Add new model for creator posts
+model CreatorPost {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId         String   @unique // External post ID from frontend
+  content        String
+  username       String
+  profilePicture String?
+  timestamp      DateTime
+  images         String[] @default([]) // Array of image URLs
+  videos         String[] @default([]) // Array of video URLs
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations for likes and comments
+  likes    PostLike[]
+  comments Comment[]
+
+  @@index([timestamp])
+}
+
+// Post Likes Table
+model PostLike {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId    String   @db.ObjectId
+  username  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post CreatorPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, username], name: "postId_username")
+  @@index([postId])
+  @@index([username])
+}
+
+// Comments Table
+model Comment {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId         String   @db.ObjectId
+  username       String
+  profilePicture String
+  content        String
+  timestamp      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  post  CreatorPost   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  likes CommentLike[]
+
+  @@index([postId])
+  @@index([username])
+}
+
+// Comment Likes Table
+model CommentLike {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  commentId String   @db.ObjectId
+  username  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, username], name: "commentId_username")
+  @@index([commentId])
+  @@index([username])
+}
