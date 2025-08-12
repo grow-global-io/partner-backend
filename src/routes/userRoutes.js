@@ -5,10 +5,45 @@ const AWS = require('aws-sdk');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
 
 const router = express.Router();
+
+// Rate limiters for creator posts endpoints
+const createPostLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // limit each IP to 10 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many post creation requests, please try again later."
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+const likeCommentLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 50, // limit each IP to 50 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many like/comment requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+const generalPostLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 // Function to read airdrop data from Google Sheets
 async function readAirdropData() {
@@ -281,7 +316,7 @@ router.post('/personal-details-creator', async (req, res) => {
                     email: email,
                     phone: phone,
                     nationality: nationality,
-                    description: businessDescription || "",
+                    aboutMe: businessDescription || "",
                     userPhotos: businessPhotos || [],
                     userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : [],
                     gllBalance: 0, // Initially set to 0, will be updated in the final step
@@ -308,9 +343,9 @@ router.post('/personal-details-creator', async (req, res) => {
                     email: email,
                     phone: phone,
                     nationality: nationality,
-                    description: businessDescription || tempCreator.description || "",
+                    aboutMe: businessDescription || tempCreator.aboutMe || "",
                     userPhotos: businessPhotos || tempCreator.userPhotos || [],
-                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || [])
+                    userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
                     // Don't update gllBalance here
                 }
             });
@@ -537,7 +572,6 @@ router.post('/register-creator', async (req, res) => {
                 terms: terms !== undefined ? terms : tempCreator.terms,
                 apiKey: apiKey || tempCreator.apiKey,
                 aboutMe: aboutMe ? aboutMe.trim() : tempCreator.aboutMe || '', // Add aboutMe field
-                description: businessDescription || tempCreator.description || "",
                 userPhotos: businessPhotos || tempCreator.userPhotos || [],
                 userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
                 // Set GLL balance to 100.0 upon successful completion of all steps
@@ -2269,5 +2303,1131 @@ router.get('/airdrop-claims', async (req, res) => {
     }
 });
 
-module.exports = router;
+// POST endpoint for creator posts with media upload support
+router.post('/creator-posts', createPostLimiter, upload.array('media', 10), async (req, res) => {
+    try {
+        const { id, content, username, profilePicture, timestamp } = req.body;
 
+        // Validation: Check all fields are present
+        if (!id || !content || !username || !timestamp) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required fields: id, content, username, and timestamp are required"
+            });
+        }
+
+        // Content validation: Max 1000 characters
+        if (content.length > 1000) {
+            return res.status(400).json({
+                success: false,
+                message: "Content exceeds maximum length of 1000 characters"
+            });
+        }
+
+        // Validate timestamp format
+        const parsedTimestamp = new Date(timestamp);
+        if (isNaN(parsedTimestamp.getTime())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid timestamp format"
+            });
+        }
+
+        // Check for duplicate post ID
+        const existingPost = await prisma.creatorPost.findUnique({
+            where: { postId: id }
+        });
+
+        if (existingPost) {
+            return res.status(409).json({
+                success: false,
+                message: "Post with this ID already exists"
+            });
+        }
+
+        // Handle media file uploads
+        let imageUrls = [];
+        let videoUrls = [];
+
+        if (req.files && req.files.length > 0) {
+            // Process each uploaded file
+            for (const file of req.files) {
+                const fileContent = fs.readFileSync(file.path);
+                let folderName = '';
+                let urlArray = null;
+
+                // Determine file type and folder
+                if (file.mimetype.startsWith('image/')) {
+                    folderName = 'creator-posts/images';
+                    urlArray = imageUrls;
+                } else if (file.mimetype.startsWith('video/')) {
+                    folderName = 'creator-posts/videos';
+                    urlArray = videoUrls;
+                } else {
+                    return res.status(400).json({ 
+                        success: false,
+                        message: `Invalid file type: ${file.originalname}. Only images and videos are allowed.` 
+                    });
+                }
+
+                const params = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `${folderName}/${Date.now()}-${file.originalname}`,
+                    Body: fileContent,
+                    ContentType: file.mimetype,
+                };
+
+                const uploadResult = await s3.upload(params).promise();
+                urlArray.push(uploadResult.Location);
+
+                // Delete the temporary file
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+
+        // Create the post with media URLs
+        const newPost = await prisma.creatorPost.create({
+            data: {
+                postId: id,
+                content: content,
+                username: username,
+                profilePicture: profilePicture || null,
+                timestamp: parsedTimestamp,
+                images: imageUrls,
+                videos: videoUrls
+            }
+        });
+
+        // Return success response
+        res.status(201).json({
+            success: true,
+            message: "Post created successfully",
+            data: {
+                id: newPost.postId,
+                content: newPost.content,
+                username: newPost.username,
+                profilePicture: newPost.profilePicture,
+                timestamp: newPost.timestamp,
+                images: newPost.images,
+                videos: newPost.videos,
+                createdAt: newPost.createdAt
+            }
+        });
+
+    } catch (error) {
+        console.error("Error creating creator post:", error);
+        
+        // Clean up temporary files if they exist and there was an error
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+        
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while creating post"
+        });
+    }
+});
+
+// GET endpoint for fetching all creator posts (social media feed)
+router.get('/creator-posts', generalPostLimiter, async (req, res) => {
+    try {
+        const { 
+            page = 1, 
+            limit = 10, 
+            sort = 'timestamp', 
+            order = 'desc',
+            username 
+        } = req.query;
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        
+        if (pageNum < 1 || limitNum < 1 || limitNum > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-50"
+            });
+        }
+
+        // Validate sort parameters
+        const allowedSortFields = ['timestamp', 'createdAt', 'username'];
+        const allowedOrderValues = ['asc', 'desc'];
+        
+        if (!allowedSortFields.includes(sort)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid sort field. Allowed values: timestamp, createdAt, username"
+            });
+        }
+
+        if (!allowedOrderValues.includes(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid order. Allowed values: asc, desc"
+            });
+        }
+
+        // Calculate skip value for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build where clause for filtering
+        const whereClause = {};
+        if (username) {
+            whereClause.username = {
+                contains: username,
+                mode: 'insensitive' // Case-insensitive search
+            };
+        }
+
+        // Fetch posts with pagination and sorting
+        const posts = await prisma.creatorPost.findMany({
+            where: whereClause,
+            orderBy: {
+                [sort]: order
+            },
+            skip: skip,
+            take: limitNum,
+            select: {
+                id: true,
+                postId: true,
+                content: true,
+                username: true,
+                profilePicture: true,
+                timestamp: true,
+                createdAt: true,
+                updatedAt: true,
+                images: true,
+                videos: true,
+                _count: {
+                    select: {
+                        likes: true,
+                        comments: true
+                    }
+                }
+            }
+        });
+
+        // Get total count for pagination
+        const totalPosts = await prisma.creatorPost.count({
+            where: whereClause
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(totalPosts / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        // Format response data
+        const formattedPosts = posts.map(post => ({
+            id: post.postId,
+            content: post.content,
+            username: post.username,
+            profilePicture: post.profilePicture,
+            timestamp: post.timestamp,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            images: post.images,
+            videos: post.videos,
+            likes: post._count.likes,
+            comments: post._count.comments
+        }));
+
+        // Return success response
+        res.status(200).json({
+            success: true,
+            message: "Posts retrieved successfully",
+            data: {
+                posts: formattedPosts,
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalPosts: totalPosts,
+                    postsPerPage: limitNum,
+                    hasNextPage: hasNextPage,
+                    hasPrevPage: hasPrevPage
+                },
+                filters: {
+                    sort: sort,
+                    order: order,
+                    username: username || null
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching creator posts:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching posts"
+        });
+    }
+});
+
+// GET endpoint for fetching a single creator post by ID
+router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
+    try {
+        const { postId } = req.params;
+
+        if (!postId) {
+            return res.status(400).json({
+                success: false,
+                message: "Post ID is required"
+            });
+        }
+
+        const post = await prisma.creatorPost.findUnique({
+            where: { postId: postId },
+            select: {
+                id: true,
+                postId: true,
+                content: true,
+                username: true,
+                profilePicture: true,
+                timestamp: true,
+                createdAt: true,
+                updatedAt: true,
+                images: true,
+                videos: true,
+                _count: {
+                    select: {
+                        likes: true,
+                        comments: true
+                    }
+                }
+            }
+        });
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found"
+            });
+        }
+
+        // Format response data
+        const formattedPost = {
+            id: post.postId,
+            content: post.content,
+            username: post.username,
+            profilePicture: post.profilePicture,
+            timestamp: post.timestamp,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            images: post.images,
+            videos: post.videos,
+            likes: post._count.likes,
+            comments: post._count.comments
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "Post retrieved successfully",
+            data: formattedPost
+        });
+
+    } catch (error) {
+        console.error("Error fetching creator post:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching post"
+        });
+    }
+});
+
+// GET endpoint for fetching creator posts by email (creator profile feed)
+router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { 
+            page = 1, 
+            limit = 10, 
+            sort = 'timestamp', 
+            order = 'desc'
+        } = req.query;
+
+        // Decode URL-encoded email
+        const decodedEmail = decodeURIComponent(email);
+
+        if (!decodedEmail) {
+            return res.status(400).json({
+                success: false,
+                message: "Email is required"
+            });
+        }
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        
+        if (pageNum < 1 || limitNum < 1 || limitNum > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-50"
+            });
+        }
+
+        // Validate sort parameters
+        const allowedSortFields = ['timestamp', 'createdAt'];
+        const allowedOrderValues = ['asc', 'desc'];
+        
+        if (!allowedSortFields.includes(sort)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid sort field. Allowed values: timestamp, createdAt"
+            });
+        }
+
+        if (!allowedOrderValues.includes(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid order. Allowed values: asc, desc"
+            });
+        }
+
+        // Calculate skip value for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // First, find the creator by email to get their username
+        const creator = await prisma.Creator.findUnique({
+            where: { email: decodedEmail },
+            select: {
+                username: true,
+                name: true,
+                profilePicture: true
+            }
+        });
+
+        if (!creator) {
+            return res.status(404).json({
+                success: false,
+                message: "Creator not found with this email"
+            });
+        }
+
+        // Fetch posts by username OR name (since posts might be stored with either)
+        const posts = await prisma.creatorPost.findMany({
+            where: {
+                OR: [
+                    { username: creator.username },
+                    { username: creator.name }
+                ]
+            },
+            orderBy: {
+                [sort]: order
+            },
+            skip: skip,
+            take: limitNum,
+            select: {
+                id: true,
+                postId: true,
+                content: true,
+                username: true,
+                profilePicture: true,
+                timestamp: true,
+                createdAt: true,
+                updatedAt: true,
+                images: true,
+                videos: true,
+                _count: {
+                    select: {
+                        likes: true,
+                        comments: true
+                    }
+                }
+            }
+        });
+
+        // Get total count for pagination
+        const totalPosts = await prisma.creatorPost.count({
+            where: {
+                OR: [
+                    { username: creator.username },
+                    { username: creator.name }
+                ]
+            }
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(totalPosts / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        // Format response data
+        const formattedPosts = posts.map(post => ({
+            id: post.postId,
+            content: post.content,
+            username: post.username,
+            profilePicture: post.profilePicture || creator.profilePicture, // Use creator's profile picture as fallback
+            timestamp: post.timestamp,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            images: post.images,
+            videos: post.videos
+        }));
+
+        // Return success response
+        res.status(200).json({
+            success: true,
+            message: "Creator posts retrieved successfully",
+            data: {
+                creator: {
+                    email: decodedEmail,
+                    username: creator.username,
+                    name: creator.name,
+                    profilePicture: creator.profilePicture
+                },
+                posts: formattedPosts,
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalPosts: totalPosts,
+                    postsPerPage: limitNum,
+                    hasNextPage: hasNextPage,
+                    hasPrevPage: hasPrevPage
+                },
+                filters: {
+                    sort: sort,
+                    order: order
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching creator posts by email:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching creator posts"
+        });
+    }
+});
+
+// GET endpoint for fetching creator profile by username
+router.get('/creator-profile/by-username/:username', generalPostLimiter, async (req, res) => {
+    try {
+        const { username } = req.params;
+        
+        // Decode URL-encoded username
+        const decodedUsername = decodeURIComponent(username);
+        
+        if (!decodedUsername) {
+            return res.status(400).json({
+                success: false,
+                message: "Username is required"
+            });
+        }
+
+        // Find creator by username
+        const creator = await prisma.Creator.findUnique({
+            where: { username: decodedUsername },
+            select: {
+                email: true,
+                name: true,
+                username: true,
+                instagramUsername: true,
+                profilePicture: true,
+                aboutMe: true,
+                ifscCode: true, // To determine KYC completion
+                createdAt: true,
+                updatedAt: true
+            }
+        });
+
+        if (!creator) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // Check if KYC is complete (has IFSC code)
+        const isKycComplete = creator.ifscCode && creator.ifscCode.trim() !== '';
+
+        // Format response data
+        const profileData = {
+            email: creator.email,
+            name: creator.name,
+            username: creator.username,
+            instagramUsername: creator.instagramUsername || '',
+            profilePicture: creator.profilePicture || '',
+            aboutMe: creator.aboutMe || '',
+            isKycComplete: isKycComplete
+        };
+
+        res.status(200).json({
+            success: true,
+            message: "User profile retrieved successfully",
+            data: profileData
+        });
+
+    } catch (error) {
+        console.error("Error fetching creator profile by username:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching user profile"
+        });
+    }
+});
+
+// GET endpoint for fetching creator posts by username
+router.get('/creator-posts/by-username/:username', generalPostLimiter, async (req, res) => {
+    try {
+        const { username } = req.params;
+        const { 
+            page = 1, 
+            limit = 10, 
+            sort = 'timestamp', 
+            order = 'desc'
+        } = req.query;
+
+        // Decode URL-encoded username
+        const decodedUsername = decodeURIComponent(username);
+
+        if (!decodedUsername) {
+            return res.status(400).json({
+                success: false,
+                message: "Username is required"
+            });
+        }
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        
+        if (pageNum < 1 || limitNum < 1 || limitNum > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-50"
+            });
+        }
+
+        // Validate sort parameters
+        const allowedSortFields = ['timestamp', 'createdAt'];
+        const allowedOrderValues = ['asc', 'desc'];
+        
+        if (!allowedSortFields.includes(sort)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid sort field. Allowed values: timestamp, createdAt"
+            });
+        }
+
+        if (!allowedOrderValues.includes(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid order. Allowed values: asc, desc"
+            });
+        }
+
+        // Calculate skip value for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // First, find the creator by username to get their details
+        const creator = await prisma.Creator.findUnique({
+            where: { username: decodedUsername },
+            select: {
+                email: true,
+                username: true,
+                name: true,
+                profilePicture: true
+            }
+        });
+
+        if (!creator) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        // Fetch posts by username OR name (since posts might be stored with either)
+        const posts = await prisma.creatorPost.findMany({
+            where: {
+                OR: [
+                    { username: creator.username },
+                    { username: creator.name }
+                ]
+            },
+            orderBy: {
+                [sort]: order
+            },
+            skip: skip,
+            take: limitNum,
+            select: {
+                id: true,
+                postId: true,
+                content: true,
+                username: true,
+                profilePicture: true,
+                timestamp: true,
+                createdAt: true,
+                updatedAt: true,
+                images: true,
+                videos: true,
+                _count: {
+                    select: {
+                        likes: true,
+                        comments: true
+                    }
+                }
+            }
+        });
+
+        // Get total count for pagination
+        const totalPosts = await prisma.creatorPost.count({
+            where: {
+                OR: [
+                    { username: creator.username },
+                    { username: creator.name }
+                ]
+            }
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(totalPosts / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        // Format response data
+        const formattedPosts = posts.map(post => ({
+            id: post.postId,
+            content: post.content,
+            username: post.username,
+            profilePicture: post.profilePicture || creator.profilePicture, // Use creator's profile picture as fallback
+            timestamp: post.timestamp,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            images: post.images,
+            videos: post.videos
+        }));
+
+        // Return success response
+        res.status(200).json({
+            success: true,
+            message: "Posts retrieved successfully",
+            data: {
+                creator: {
+                    email: creator.email,
+                    username: creator.username,
+                    name: creator.name,
+                    profilePicture: creator.profilePicture
+                },
+                posts: formattedPosts,
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalPosts: totalPosts,
+                    postsPerPage: limitNum,
+                    hasNextPage: hasNextPage,
+                    hasPrevPage: hasPrevPage
+                },
+                filters: {
+                    sort: sort,
+                    order: order
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching creator posts by username:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching posts"
+        });
+    }
+});
+
+// ===== LIKE & COMMENT SYSTEM ENDPOINTS =====
+
+// 1. Like/Unlike a Post
+router.post('/creator-posts/:postId/like', likeCommentLimiter, async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { username, profilePicture } = req.body;
+
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                message: "Username is required"
+            });
+        }
+
+        // Find the post by postId
+        const post = await prisma.creatorPost.findUnique({
+            where: { postId: postId }
+        });
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found"
+            });
+        }
+
+        // Check if user already liked the post
+        const existingLike = await prisma.postLike.findUnique({
+            where: {
+                postId_username: {
+                    postId: post.id,
+                    username: username
+                }
+            }
+        });
+
+        let liked = false;
+        let totalLikes = 0;
+
+        if (existingLike) {
+            // Unlike the post
+            await prisma.postLike.delete({
+                where: {
+                    postId_username: {
+                        postId: post.id,
+                        username: username
+                    }
+                }
+            });
+            liked = false;
+        } else {
+            // Like the post
+            await prisma.postLike.create({
+                data: {
+                    postId: post.id,
+                    username: username
+                }
+            });
+            liked = true;
+        }
+
+        // Get updated total likes count
+        totalLikes = await prisma.postLike.count({
+            where: { postId: post.id }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: liked ? "Post liked successfully" : "Post unliked successfully",
+            data: {
+                postId: postId,
+                liked: liked,
+                totalLikes: totalLikes
+            }
+        });
+
+    } catch (error) {
+        console.error("Error liking/unliking post:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while processing like"
+        });
+    }
+});
+
+// 2. Get Post Likes
+router.get('/creator-posts/:postId/likes', generalPostLimiter, async (req, res) => {
+    try {
+        const { postId } = req.params;
+
+        // Find the post by postId
+        const post = await prisma.creatorPost.findUnique({
+            where: { postId: postId }
+        });
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found"
+            });
+        }
+
+        // Get all likes for the post
+        const likes = await prisma.postLike.findMany({
+            where: { postId: post.id },
+            select: { username: true },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        const likedBy = likes.map(like => like.username);
+        const totalLikes = likes.length;
+
+        res.status(200).json({
+            success: true,
+            message: "Likes retrieved successfully",
+            data: {
+                postId: postId,
+                likedBy: likedBy,
+                totalLikes: totalLikes
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching post likes:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching likes"
+        });
+    }
+});
+
+// 3. Add Comment to Post
+router.post('/creator-posts/:postId/comment', likeCommentLimiter, async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { username, profilePicture, content } = req.body;
+
+        if (!username || !content) {
+            return res.status(400).json({
+                success: false,
+                message: "Username and content are required"
+            });
+        }
+
+        if (content.length > 500) {
+            return res.status(400).json({
+                success: false,
+                message: "Comment content exceeds maximum length of 500 characters"
+            });
+        }
+
+        // Find the post by postId
+        const post = await prisma.creatorPost.findUnique({
+            where: { postId: postId }
+        });
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found"
+            });
+        }
+
+        // Create the comment
+        const comment = await prisma.comment.create({
+            data: {
+                postId: post.id,
+                username: username,
+                profilePicture: profilePicture || '',
+                content: content,
+                timestamp: new Date()
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            message: "Comment added successfully",
+            data: {
+                id: comment.id,
+                postId: postId,
+                username: comment.username,
+                profilePicture: comment.profilePicture,
+                content: comment.content,
+                timestamp: comment.timestamp,
+                createdAt: comment.createdAt,
+                updatedAt: comment.updatedAt,
+                likes: 0,
+                isLiked: false
+            }
+        });
+
+    } catch (error) {
+        console.error("Error adding comment:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while adding comment"
+        });
+    }
+});
+
+// 4. Get Post Comments
+router.get('/creator-posts/:postId/comments', generalPostLimiter, async (req, res) => {
+    try {
+        const { postId } = req.params;
+        const { page = 1, limit = 20 } = req.query;
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        
+        if (pageNum < 1 || limitNum < 1 || limitNum > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-50"
+            });
+        }
+
+        // Find the post by postId
+        const post = await prisma.creatorPost.findUnique({
+            where: { postId: postId }
+        });
+
+        if (!post) {
+            return res.status(404).json({
+                success: false,
+                message: "Post not found"
+            });
+        }
+
+        // Calculate skip value for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // Get comments with pagination
+        const comments = await prisma.comment.findMany({
+            where: { postId: post.id },
+            orderBy: { createdAt: 'desc' },
+            skip: skip,
+            take: limitNum,
+            include: {
+                likes: true
+            }
+        });
+
+        // Get total count for pagination
+        const totalComments = await prisma.comment.count({
+            where: { postId: post.id }
+        });
+
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(totalComments / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        // Format comments with like counts
+        const formattedComments = comments.map(comment => ({
+            id: comment.id,
+            postId: postId,
+            username: comment.username,
+            profilePicture: comment.profilePicture,
+            content: comment.content,
+            timestamp: comment.timestamp,
+            createdAt: comment.createdAt,
+            updatedAt: comment.updatedAt,
+            likes: comment.likes.length,
+            isLiked: false // This would need to be calculated based on current user
+        }));
+
+        res.status(200).json({
+            success: true,
+            message: "Comments retrieved successfully",
+            data: {
+                postId: postId,
+                comments: formattedComments,
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalComments: totalComments,
+                    commentsPerPage: limitNum,
+                    hasNextPage: hasNextPage,
+                    hasPrevPage: hasPrevPage
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching comments:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching comments"
+        });
+    }
+});
+
+// 5. Like/Unlike a Comment
+router.post('/creator-posts/comments/:commentId/like', likeCommentLimiter, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        const { username, profilePicture } = req.body;
+
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                message: "Username is required"
+            });
+        }
+
+        // Find the comment
+        const comment = await prisma.comment.findUnique({
+            where: { id: commentId }
+        });
+
+        if (!comment) {
+            return res.status(404).json({
+                success: false,
+                message: "Comment not found"
+            });
+        }
+
+        // Check if user already liked the comment
+        const existingLike = await prisma.commentLike.findUnique({
+            where: {
+                commentId_username: {
+                    commentId: commentId,
+                    username: username
+                }
+            }
+        });
+
+        let liked = false;
+        let totalLikes = 0;
+
+        if (existingLike) {
+            // Unlike the comment
+            await prisma.commentLike.delete({
+                where: {
+                    commentId_username: {
+                        commentId: commentId,
+                        username: username
+                    }
+                }
+            });
+            liked = false;
+        } else {
+            // Like the comment
+            await prisma.commentLike.create({
+                data: {
+                    commentId: commentId,
+                    username: username
+                }
+            });
+            liked = true;
+        }
+
+        // Get updated total likes count
+        totalLikes = await prisma.commentLike.count({
+            where: { commentId: commentId }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: liked ? "Comment liked successfully" : "Comment unliked successfully",
+            data: {
+                commentId: commentId,
+                liked: liked,
+                totalLikes: totalLikes
+            }
+        });
+
+    } catch (error) {
+        console.error("Error liking/unliking comment:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while processing comment like"
+        });
+    }
+});
+
+module.exports = router;

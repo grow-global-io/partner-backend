@@ -7,4 +7,5 @@ examples
 .env.local
 .env.development.local
 .env.test.local
+.kiro
 .env.production.local
