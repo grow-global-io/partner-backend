@@ -425,3 +425,20 @@ model CommentLike {
   @@index([commentId])
   @@index([username])
 }
+
+// Creator Services model
+model CreatorService {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  email       String // Creator's email
+  title       String // Service title
+  description String // Service description (max 40 chars)
+  price       String // Service price
+  status      String   @default("available") // available, busy, unavailable
+  icon        String   @default("bi-briefcase") // Bootstrap icon class
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Index for faster queries
+  @@index([email])
+  @@map("creatorServices")
+}
