@@ -3430,4 +3430,176 @@ router.post('/creator-posts/comments/:commentId/like', likeCommentLimiter, async
     }
 });
 
+// ===== CREATOR SERVICES ENDPOINTS =====
+
+// 1. GET /creatorService/:email - Fetch creator's services
+router.get('/creatorService/:email', generalPostLimiter, async (req, res) => {
+    try {
+        const { email } = req.params;
+        const decodedEmail = decodeURIComponent(email);
+        
+        const services = await prisma.creatorService.findMany({
+            where: { email: decodedEmail },
+            orderBy: { createdAt: 'desc' }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Services retrieved successfully",
+            data: services
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching creator services:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch services',
+            error: error.message
+        });
+    }
+});
+
+// 2. POST /creatorService - Create new service
+router.post('/creatorService', createPostLimiter, async (req, res) => {
+    try {
+        const { email, title, description, price, status, icon } = req.body;
+        
+        // Validation
+        if (!email || !title || !description || !price) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields'
+            });
+        }
+        
+        // Validate description length (40 characters max)
+        if (description.length > 40) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 40 characters or less'
+            });
+        }
+        
+        const service = await prisma.creatorService.create({
+            data: {
+                email,
+                title: title.trim(),
+                description: description.trim(),
+                price: price.trim(),
+                status: status || 'available',
+                icon: icon || 'bi-briefcase'
+            }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Service created successfully",
+            data: service
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error creating creator service:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create service',
+            error: error.message
+        });
+    }
+});
+
+// 3. PUT /creatorService/:id - Update service
+router.put('/creatorService/:id', createPostLimiter, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, title, description, price, status, icon } = req.body;
+        
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+        
+        // Validate description length if provided
+        if (description && description.length > 40) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 40 characters or less'
+            });
+        }
+        
+        const service = await prisma.creatorService.update({
+            where: { id },
+            data: {
+                ...(title && { title: title.trim() }),
+                ...(description && { description: description.trim() }),
+                ...(price && { price: price.trim() }),
+                ...(status && { status }),
+                ...(icon && { icon }),
+                updatedAt: new Date()
+            }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Service updated successfully",
+            data: service
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error updating creator service:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update service',
+            error: error.message
+        });
+    }
+});
+
+// 4. DELETE /creatorService/:id - Delete service
+router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email } = req.body;
+        
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+        
+        // Optional: Verify the service belongs to the user
+        const existingService = await prisma.creatorService.findFirst({
+            where: { id, email }
+        });
+        
+        if (!existingService) {
+            return res.status(404).json({
+                success: false,
+                message: 'Service not found or unauthorized'
+            });
+        }
+        
+        await prisma.creatorService.delete({
+            where: { id }
+        });
+        
+        const responseData = {
+            success: true,
+            message: 'Service deleted successfully'
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error deleting creator service:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete service',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
