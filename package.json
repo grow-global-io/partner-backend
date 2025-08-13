@@ -33,6 +33,7 @@
     "ethers": "^6.13.7",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
     "express-validator": "^7.2.1",
     "langchain": "^0.3.27",
     "mongodb": "^6.16.0",
