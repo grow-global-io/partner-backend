@@ -95,7 +95,7 @@ async function readAirdropData() {
 }
 
 // Health check endpoint
-router.get('/health', (req, res) => {
+router.get('/healths', (req, res) => {
     res.json({
         success: true,
         message: 'User API is working',
