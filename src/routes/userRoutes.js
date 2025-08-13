@@ -2454,7 +2454,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
             username 
         } = req.query;
 
-        
+
         // Validate pagination parameters
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
@@ -3599,6 +3599,23 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
             success: false,
             message: 'Failed to delete service',
             error: error.message
+        });
+    }
+});
+
+router.get('/test-route', async (req, res) => {
+    try {
+        const responseData = {
+            success: true,
+            message: "Test route executed successfully"
+        };
+        res.send(responseData);
+    } catch (error) {
+        console.error("Error in test route:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to execute test route',
+            error: error.message    
         });
     }
 });
