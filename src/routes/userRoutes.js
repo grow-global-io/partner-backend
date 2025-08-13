@@ -3603,7 +3603,7 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
     }
 });
 
-router.get('/test-route', async (req, res) => {
+router.get('/test-route', (req, res) => {
     try {
         const responseData = {
             success: true,
