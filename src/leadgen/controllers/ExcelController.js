@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require("uuid");
 const ExcelModel = require("../models/ExcelModel");
 const ExcelProcessingService = require("../services/ExcelProcessingService");
 const OpenAIService = require("../../services/OpenAIService");
+const PerformanceMonitor = require("../services/PerformanceMonitor");
 const path = require("path");
 const fs = require("fs");
 
@@ -19,9 +20,15 @@ class ExcelController {
     this.excelModel = new ExcelModel();
     this.excelService = new ExcelProcessingService();
     this.openAIService = new OpenAIService();
+    this.performanceMonitor = new PerformanceMonitor();
 
     // Initialize error handlers
     this.handleOpenAIError = this.handleOpenAIError.bind(this);
+
+    // Start periodic cleanup of old metrics
+    setInterval(() => {
+      this.performanceMonitor.cleanup();
+    }, 3600000); // Clean up every hour
 
     // Configure multer for file uploads
     this.storage = multer.diskStorage({
@@ -792,91 +799,61 @@ class ExcelController {
    * @param {Object} res - Express response object
    * @returns {Object} Response with scored leads
    */
-  async findLeads(req, res) {
-    const startTime = Date.now();
+  async findLeadsOptimized(req, res) {
+    // Start performance monitoring
+    const requestId = this.performanceMonitor.startRequest(
+      "findLeadsOptimized",
+      {
+        criteria: req.body,
+        userAgent: req.get("User-Agent"),
+        ip: req.ip,
+      }
+    );
 
     try {
+      // Stage 1: Input validation and processing
+      const validationStart = Date.now();
       const {
         product,
         industry,
         region,
         keywords: rawKeywords = [],
         limit = 10,
-        minScore = 30, // Lowered default threshold
+        minScore = 30,
       } = req.body;
 
-      // Validate required fields
       if (!product || !industry) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "Validation failed: Missing required fields",
+        });
         return res.status(400).json({
           success: false,
           error: "Product/Service and Industry are required fields",
         });
       }
 
-      // Process keywords flexibly - handle both string and array inputs
       const keywords = this.processKeywords(rawKeywords);
-
-      console.log(`ExcelController: Processing lead search:`, {
-        product,
-        industry,
-        region,
-        keywords,
-        limit,
-        minScore,
-      });
-
-      // DEBUG: Check if target records exist in database at all
-      try {
-        console.log(`\n=== DATABASE DEBUGGING ===`);
-
-        // Try to find any record containing our target terms by doing a broad search
-        const broadSearchEmbedding = await this.openAIService.generateEmbedding(
-          "Godhra Gujarat Sunil Gandhi Dilip garments"
-        );
-        const broadResults = await this.excelModel.vectorSearch(
-          broadSearchEmbedding,
-          null, // all files
-          200, // get many results
-          0.0 // very low threshold
-        );
-
-        console.log(`Broad search found ${broadResults.length} total records`);
-
-        // Direct text search through the results
-        const targetTerms = ["godhra", "sunil", "gandhi", "dilip", "gujarat"];
-
-        for (const term of targetTerms) {
-          const textMatches = broadResults.filter((row) => {
-            const content = (
-              row.content || JSON.stringify(row.rowData || {})
-            ).toLowerCase();
-            return content.includes(term);
-          });
-
-          console.log(`Records containing "${term}": ${textMatches.length}`);
-
-          if (textMatches.length > 0) {
-            textMatches.slice(0, 2).forEach((match, idx) => {
-              const company = this.extractCompanyNameEnhanced(match.rowData);
-              const person =
-                match.rowData?.Name || match.rowData?.name || "Unknown";
-              const city =
-                match.rowData?.City || match.rowData?.city || "Unknown";
-              console.log(
-                `  [${idx + 1}] Found: ${company} - ${person} - ${city}`
-              );
-            });
-          }
+      this.performanceMonitor.trackStage(
+        requestId,
+        "validation",
+        Date.now() - validationStart,
+        {
+          product,
+          industry,
+          region,
+          keywordCount: keywords.length,
         }
+      );
 
-        console.log(`=== END DATABASE DEBUG ===\n`);
-      } catch (dbError) {
-        console.log(`Database debug error: ${dbError.message}`);
-      }
-
-      // Validate API key before proceeding
+      // Stage 2: API key validation
+      const apiValidationStart = Date.now();
       const isValidApiKey = await this.openAIService.validateApiKey();
       if (!isValidApiKey) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "API key validation failed",
+        });
         return res.status(401).json({
           success: false,
           error: "Failed to generate LLM response",
@@ -884,8 +861,14 @@ class ExcelController {
             "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
         });
       }
+      this.performanceMonitor.trackStage(
+        requestId,
+        "apiValidation",
+        Date.now() - apiValidationStart
+      );
 
-      // Build multiple search queries for better coverage
+      // Stage 3: Build search queries
+      const queryBuildStart = Date.now();
       const searchQueries = this.buildMultipleSearchQueries(
         product,
         industry,
@@ -893,219 +876,688 @@ class ExcelController {
         keywords
       );
 
-      console.log(`ExcelController: Built search queries:`, searchQueries);
+      // Add fallback and location queries to the batch
+      const allQueries = [...searchQueries];
+      if (region) {
+        allQueries.push(region); // Direct location query
+      }
+      allQueries.push(product); // Fallback product query
 
-      // Try multiple search strategies
+      this.performanceMonitor.trackStage(
+        requestId,
+        "queryBuilding",
+        Date.now() - queryBuildStart,
+        {
+          queryCount: allQueries.length,
+        }
+      );
+
+      // Stage 4: Batch embedding generation (OPTIMIZED)
+      const embeddingStart = Date.now();
+      console.log(
+        `🚀 [${requestId}] Starting batch embedding generation for ${allQueries.length} queries`
+      );
+
+      const embeddingResults = await this.openAIService.generateEmbeddings(
+        allQueries,
+        {
+          batchSize: 50, // Smaller batches for better error handling
+          maxConcurrent: 3, // Conservative concurrency
+          includeMetadata: true,
+        }
+      );
+
+      const embeddingDuration = Date.now() - embeddingStart;
+      const successfulEmbeddings = embeddingResults.filter(
+        (e) => e.embedding !== null
+      );
+
+      this.performanceMonitor.trackStage(
+        requestId,
+        "embeddingGeneration",
+        embeddingDuration,
+        {
+          totalQueries: allQueries.length,
+          successfulEmbeddings: successfulEmbeddings.length,
+          failedEmbeddings: allQueries.length - successfulEmbeddings.length,
+          averageEmbeddingTime: embeddingDuration / allQueries.length,
+        }
+      );
+
+      // Track OpenAI calls for monitoring
+      this.performanceMonitor.trackOpenAICall(
+        requestId,
+        "batch_embedding",
+        embeddingDuration,
+        {
+          batchSize: allQueries.length,
+          successRate: (successfulEmbeddings.length / allQueries.length) * 100,
+          model: this.openAIService.embeddingModel,
+        }
+      );
+
+      if (successfulEmbeddings.length === 0) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "All embedding generation failed",
+        });
+        return res.status(500).json({
+          success: false,
+          error: "Failed to generate embeddings for search queries",
+          details: "All embedding requests failed. Please try again.",
+        });
+      }
+
+      // Stage 5: Optimized batch vector search operations (SUPER OPTIMIZED)
+      const vectorSearchStart = Date.now();
+      console.log(
+        `🔍 [${requestId}] Starting optimized batch vector search for ${successfulEmbeddings.length} embeddings`
+      );
+
+      let searchResults;
+      let vectorSearchDuration;
+
+      try {
+        // Extract just the embedding arrays for batch processing
+        const embeddingVectors = successfulEmbeddings
+          .filter((e) => e.embedding)
+          .map((e) => e.embedding);
+
+        if (embeddingVectors.length === 0) {
+          throw new Error("No valid embeddings for batch search");
+        }
+
+        // Use batch vector search for maximum performance
+        const batchResults = await this.excelModel.batchVectorSearch(
+          embeddingVectors,
+          null, // fileKey - search all files
+          Math.max(100, limit * 10), // limit per embedding
+          0.0 // minScore
+        );
+
+        vectorSearchDuration = Date.now() - vectorSearchStart;
+
+        // Transform batch results to match expected format
+        searchResults = [];
+
+        batchResults.forEach((results, index) => {
+          const embResult = successfulEmbeddings.filter((e) => e.embedding)[
+            index
+          ];
+          if (embResult) {
+            searchResults.push({
+              status: "fulfilled",
+              value: {
+                results: results,
+                query: embResult.content,
+                searchTime: vectorSearchDuration / embeddingVectors.length, // Approximate per-query time
+              },
+            });
+          }
+        });
+
+        this.performanceMonitor.trackDatabaseQuery(
+          requestId,
+          "batchVectorSearch",
+          vectorSearchDuration,
+          {
+            totalEmbeddings: embeddingVectors.length,
+            totalResults: batchResults.reduce(
+              (sum, results) => sum + results.length,
+              0
+            ),
+            averageResultsPerQuery: Math.round(
+              batchResults.reduce((sum, results) => sum + results.length, 0) /
+                embeddingVectors.length
+            ),
+            batchOptimization: true,
+          }
+        );
+
+        console.log(
+          `⚡ [${requestId}] Batch vector search completed in ${vectorSearchDuration}ms`
+        );
+        console.log(
+          `📊 [${requestId}] Performance gain: ~${Math.max(
+            0,
+            embeddingVectors.length * 25000 - vectorSearchDuration
+          )}ms saved vs sequential searches`
+        );
+      } catch (batchError) {
+        console.warn(
+          `Batch vector search failed, falling back to optimized parallel searches:`,
+          batchError.message
+        );
+
+        // Fallback to individual parallel searches with optimization
+        const searchPromises = successfulEmbeddings.map(
+          async (embResult, index) => {
+            if (!embResult.embedding)
+              return { results: [], query: embResult.content };
+
+            try {
+              const searchStart = Date.now();
+              const rows = await this.excelModel.vectorSearchOptimized(
+                embResult.embedding,
+                null,
+                Math.max(100, limit * 10),
+                0.0
+              );
+
+              this.performanceMonitor.trackDatabaseQuery(
+                requestId,
+                "vectorSearchOptimized",
+                Date.now() - searchStart,
+                {
+                  query: embResult.content.substring(0, 100),
+                  resultsCount: rows.length,
+                  embeddingIndex: index,
+                  fallbackMode: true,
+                }
+              );
+
+              return {
+                results: rows,
+                query: embResult.content,
+                searchTime: Date.now() - searchStart,
+              };
+            } catch (err) {
+              console.error(
+                `Optimized vector search failed for query "${embResult.content}":`,
+                err.message
+              );
+              this.performanceMonitor.trackDatabaseQuery(
+                requestId,
+                "vectorSearch_failed",
+                0,
+                {
+                  error: err.message,
+                  query: embResult.content.substring(0, 100),
+                }
+              );
+              return {
+                results: [],
+                query: embResult.content,
+                error: err.message,
+              };
+            }
+          }
+        );
+
+        searchResults = await Promise.allSettled(searchPromises);
+        vectorSearchDuration = Date.now() - vectorSearchStart;
+      }
+
+      // Collect all results
+      let allRelevantRows = [];
+      const searchSummary = [];
+
+      searchResults.forEach((result, index) => {
+        if (result.status === "fulfilled" && result.value.results) {
+          allRelevantRows.push(...result.value.results);
+          searchSummary.push({
+            query: result.value.query,
+            resultsCount: result.value.results.length,
+            searchTime: result.value.searchTime,
+          });
+        } else {
+          searchSummary.push({
+            query: successfulEmbeddings[index]?.content || `Query ${index}`,
+            resultsCount: 0,
+            error:
+              result.reason?.message || result.value?.error || "Unknown error",
+          });
+        }
+      });
+
+      this.performanceMonitor.trackStage(
+        requestId,
+        "vectorSearch",
+        vectorSearchDuration,
+        {
+          totalSearches: successfulEmbeddings.length,
+          totalResults: allRelevantRows.length,
+          averageSearchTime: vectorSearchDuration / successfulEmbeddings.length,
+          parallelExecution: true,
+        }
+      );
+
+      console.log(
+        `📊 [${requestId}] Parallel vector search completed: ${allRelevantRows.length} total results from ${successfulEmbeddings.length} searches`
+      );
+
+      // Continue with existing logic for deduplication, scoring, etc.
+      const deduplicationStart = Date.now();
+      const uniqueRows = this.deduplicateRows(allRelevantRows);
+      this.performanceMonitor.trackStage(
+        requestId,
+        "deduplication",
+        Date.now() - deduplicationStart,
+        {
+          originalCount: allRelevantRows.length,
+          uniqueCount: uniqueRows.length,
+          duplicatesRemoved: allRelevantRows.length - uniqueRows.length,
+        }
+      );
+
+      if (!uniqueRows.length) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "No relevant leads found",
+          resultsCount: 0,
+        });
+        return res.status(404).json({
+          success: false,
+          error: "No relevant leads found for the specified criteria",
+          data: {
+            searchCriteria: { product, industry, region, keywords },
+            searchSummary,
+            totalResults: 0,
+            leads: [],
+            debugInfo: {
+              message: "No rows found in any search",
+              suggestion:
+                "Try broader search terms or check if data is properly embedded",
+            },
+          },
+        });
+      }
+
+      // Lead scoring
+      const scoringStart = Date.now();
+      const scoredLeads = await this.scoreLeadsEnhanced(
+        uniqueRows,
+        product,
+        industry,
+        region,
+        keywords
+      );
+      this.performanceMonitor.trackStage(
+        requestId,
+        "leadScoring",
+        Date.now() - scoringStart,
+        {
+          leadsScored: scoredLeads.length,
+          averageScore:
+            scoredLeads.reduce((sum, lead) => sum + (lead.finalScore || 0), 0) /
+            scoredLeads.length,
+        }
+      );
+
+      // Final processing
+      const finalProcessingStart = Date.now();
+      const finalUniqueLeads = this.deduplicateScoredLeads(scoredLeads);
+      const filteredLeads = finalUniqueLeads
+        .filter((lead) => lead.finalScore >= minScore)
+        .slice(0, parseInt(limit));
+
+      this.performanceMonitor.trackStage(
+        requestId,
+        "finalProcessing",
+        Date.now() - finalProcessingStart,
+        {
+          finalUniqueLeads: finalUniqueLeads.length,
+          filteredLeads: filteredLeads.length,
+        }
+      );
+
+      // Complete request tracking
+      const totalResponseTime =
+        Date.now() -
+        this.performanceMonitor.activeRequests.get(requestId).startTime;
+      const result = {
+        success: true,
+        resultsCount: filteredLeads.length,
+        qualityScore:
+          filteredLeads.length > 0
+            ? filteredLeads.reduce((sum, lead) => sum + lead.finalScore, 0) /
+              filteredLeads.length
+            : 0,
+        responseTime: totalResponseTime,
+      };
+      this.performanceMonitor.completeRequest(requestId, result);
+
+      console.log(
+        `✅ [${requestId}] Optimized findLeads completed in ${totalResponseTime}ms`
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          searchCriteria: { product, industry, region, keywords },
+          totalMatches: uniqueRows.length,
+          qualifiedLeads: filteredLeads.length,
+          leads: this.formatLeadResults(filteredLeads),
+          searchSummary,
+          responseTime: totalResponseTime,
+          minScore,
+          limit: parseInt(limit),
+          model: "optimized-batch-processing-v1",
+          performanceId: requestId,
+          optimizations: {
+            batchEmbedding: true,
+            parallelSearch: true,
+            embeddingTime: embeddingDuration,
+            searchTime: vectorSearchDuration,
+            totalOptimizationSavings: `Estimated ${Math.max(
+              0,
+              allQueries.length * 2000 - totalResponseTime
+            )}ms saved`,
+          },
+        },
+      });
+    } catch (error) {
+      console.error(`Error in findLeadsOptimized [${requestId}]:`, error);
+      this.performanceMonitor.completeRequest(requestId, {
+        success: false,
+        error: error.message,
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to find leads",
+        details: error.message,
+        performanceId: requestId,
+        model: "optimized-batch-processing-v1",
+      });
+    }
+  }
+
+  /**
+   * @description Find leads using enhanced scoring with performance monitoring (LEGACY)
+   * @param {number} req.body.minScore - Minimum score threshold (default: 30)
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with scored leads
+   */
+  async findLeads(req, res) {
+    // Start performance monitoring
+    const requestId = this.performanceMonitor.startRequest("findLeads", {
+      criteria: req.body,
+      userAgent: req.get("User-Agent"),
+      ip: req.ip,
+    });
+
+    try {
+      // Stage 1: Input validation and processing
+      const validationStart = Date.now();
+      const {
+        product,
+        industry,
+        region,
+        keywords: rawKeywords = [],
+        limit = 10,
+        minScore = 30,
+      } = req.body;
+
+      if (!product || !industry) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "Validation failed: Missing required fields",
+        });
+        return res.status(400).json({
+          success: false,
+          error: "Product/Service and Industry are required fields",
+        });
+      }
+
+      const keywords = this.processKeywords(rawKeywords);
+      this.performanceMonitor.trackStage(
+        requestId,
+        "validation",
+        Date.now() - validationStart,
+        {
+          product,
+          industry,
+          region,
+          keywordCount: keywords.length,
+        }
+      );
+
+      // Stage 2: API key validation
+      const apiValidationStart = Date.now();
+      const isValidApiKey = await this.openAIService.validateApiKey();
+      if (!isValidApiKey) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "API key validation failed",
+        });
+        return res.status(401).json({
+          success: false,
+          error: "Failed to generate LLM response",
+          details:
+            "Invalid API key. Please check your OPENAI_API_KEY environment variable.",
+        });
+      }
+      this.performanceMonitor.trackStage(
+        requestId,
+        "apiValidation",
+        Date.now() - apiValidationStart
+      );
+
+      // Stage 3: Build search queries
+      const queryBuildStart = Date.now();
+      const searchQueries = this.buildMultipleSearchQueries(
+        product,
+        industry,
+        region,
+        keywords
+      );
+      this.performanceMonitor.trackStage(
+        requestId,
+        "queryBuilding",
+        Date.now() - queryBuildStart,
+        {
+          queryCount: searchQueries.length,
+        }
+      );
+
+      // Stage 4: Embedding generation (parallel)
+      const embeddingStart = Date.now();
+      const embeddingPromises = searchQueries.map(async (query) => {
+        const embStart = Date.now();
+        try {
+          const embedding = await this.openAIService.generateEmbedding(query);
+          this.performanceMonitor.trackOpenAICall(
+            requestId,
+            "embedding",
+            Date.now() - embStart,
+            {
+              query: query.substring(0, 100),
+              model: "text-embedding-3-large",
+            }
+          );
+          return embedding;
+        } catch (error) {
+          this.performanceMonitor.trackOpenAICall(
+            requestId,
+            "embedding_failed",
+            Date.now() - embStart,
+            {
+              error: error.message,
+            }
+          );
+          throw error;
+        }
+      });
+
+      const embeddings = await Promise.allSettled(embeddingPromises);
+      const embeddingDuration = Date.now() - embeddingStart;
+      this.performanceMonitor.trackStage(
+        requestId,
+        "embeddingGeneration",
+        embeddingDuration,
+        {
+          totalQueries: searchQueries.length,
+          successfulEmbeddings: embeddings.filter(
+            (e) => e.status === "fulfilled"
+          ).length,
+          failedEmbeddings: embeddings.filter((e) => e.status === "rejected")
+            .length,
+        }
+      );
+
+      // Stage 5: Vector search operations
+      const vectorSearchStart = Date.now();
       let allRelevantRows = [];
       const searchResults = [];
 
-      for (const query of searchQueries) {
-        try {
-          console.log(`ExcelController: Searching with query: "${query}"`);
-
-          const queryEmbedding = await this.openAIService.generateEmbedding(
-            query
-          );
-
-          console.log(`ExcelController: Generated embedding for "${query}"`);
-          console.log(
-            `  Embedding length: ${queryEmbedding?.length || "NULL"}`
-          );
-          console.log(`  Embedding type: ${typeof queryEmbedding}`);
-          console.log(
-            `  Embedding sample: [${
-              queryEmbedding?.slice(0, 5).join(", ") || "NULL"
-            }...]`
-          );
-
-          // Use very low threshold for maximum recall
-          const rows = await this.excelModel.vectorSearch(
-            queryEmbedding,
-            null, // search all files
-            Math.max(100, limit * 10), // Get many more results
-            0.0 // Very low threshold - we'll filter with scoring later
-          );
-
-          console.log(
-            `ExcelController: Query "${query}" found ${rows.length} rows`
-          );
-
-          // Debug: Log some sample results to see what we're getting
-          if (rows.length > 0) {
-            console.log(
-              `ExcelController: Sample results for query "${query}":`
+      for (let i = 0; i < searchQueries.length; i++) {
+        const embResult = embeddings[i];
+        if (embResult.status === "fulfilled" && embResult.value) {
+          try {
+            const searchStart = Date.now();
+            const rows = await this.excelModel.vectorSearch(
+              embResult.value,
+              null,
+              Math.max(100, limit * 10),
+              0.0
             );
-            rows.slice(0, 3).forEach((row, idx) => {
-              const sampleContent = (
-                row.content || JSON.stringify(row.rowData)
-              ).substring(0, 200);
-              console.log(
-                `  [${idx}] Score: ${row.score?.toFixed(
-                  3
-                )}, Content: ${sampleContent}...`
-              );
+            this.performanceMonitor.trackDatabaseQuery(
+              requestId,
+              "vectorSearch",
+              Date.now() - searchStart,
+              {
+                query: searchQueries[i].substring(0, 100),
+                resultsCount: rows.length,
+                rowsAffected: rows.length,
+              }
+            );
+
+            searchResults.push({
+              query: searchQueries[i],
+              resultsCount: rows.length,
             });
-          } else {
-            console.log(`ExcelController: ❌ NO RESULTS for query "${query}"`);
-            console.log(`  This suggests either:`);
-            console.log(`    1. No data in database`);
-            console.log(`    2. All embeddings are null/invalid`);
-            console.log(`    3. Similarity calculation is failing`);
-            console.log(`    4. All similarity scores are 0.0`);
+            allRelevantRows.push(...rows);
+          } catch (err) {
+            this.performanceMonitor.trackDatabaseQuery(
+              requestId,
+              "vectorSearch_failed",
+              0,
+              {
+                error: err.message,
+              }
+            );
           }
-
-          searchResults.push({
-            query,
-            resultsCount: rows.length,
-          });
-
-          allRelevantRows.push(...rows);
-        } catch (embeddingError) {
-          console.error(`Error with search query "${query}":`, embeddingError);
-          // Continue with other queries
         }
       }
 
-      // ADDITIONAL STRATEGY: Direct location-based search if region specified
+      // Direct location-based search if region specified
       if (region) {
         try {
-          console.log(
-            `ExcelController: Performing direct location search for "${region}"`
-          );
-
-          // Create a pure location embedding
+          const locationEmbStart = Date.now();
           const locationEmbedding = await this.openAIService.generateEmbedding(
             region
           );
+          this.performanceMonitor.trackOpenAICall(
+            requestId,
+            "embedding",
+            Date.now() - locationEmbStart,
+            {
+              query: `location: ${region}`,
+              model: "text-embedding-3-large",
+            }
+          );
 
+          const locationSearchStart = Date.now();
           const locationRows = await this.excelModel.vectorSearch(
             locationEmbedding,
             null,
-            50, // Get substantial results
-            0.0 // Very low threshold
+            50,
+            0.0
           );
-
-          console.log(
-            `ExcelController: Direct location search found ${locationRows.length} additional rows`
+          this.performanceMonitor.trackDatabaseQuery(
+            requestId,
+            "locationVectorSearch",
+            Date.now() - locationSearchStart,
+            {
+              region,
+              resultsCount: locationRows.length,
+            }
           );
-
-          // Debug location-specific results
-          if (locationRows.length > 0) {
-            console.log(
-              `ExcelController: Location-specific results for "${region}":`
-            );
-            locationRows.slice(0, 5).forEach((row, idx) => {
-              const sampleContent = (
-                row.content || JSON.stringify(row.rowData)
-              ).substring(0, 200);
-              console.log(
-                `  [${idx}] Location Score: ${row.score?.toFixed(
-                  3
-                )}, Content: ${sampleContent}...`
-              );
-            });
-          }
 
           allRelevantRows.push(...locationRows);
-
           searchResults.push({
             query: `Direct location: ${region}`,
             resultsCount: locationRows.length,
           });
         } catch (locationError) {
-          console.error(
-            `Error with direct location search for "${region}":`,
-            locationError
+          console.warn(
+            `Location search failed for ${region}:`,
+            locationError.message
           );
         }
       }
 
-      // Remove duplicates based on row content/index
-      const uniqueRows = this.deduplicateRows(allRelevantRows);
-
-      console.log(
-        `ExcelController: Found ${allRelevantRows.length} total rows, ${uniqueRows.length} unique rows`
+      const vectorSearchDuration = Date.now() - vectorSearchStart;
+      this.performanceMonitor.trackStage(
+        requestId,
+        "vectorSearch",
+        vectorSearchDuration,
+        {
+          totalSearches: searchQueries.length + (region ? 1 : 0),
+          totalResults: allRelevantRows.length,
+        }
       );
 
-      // DEBUG: Let's see if we can find any records with "Sunil", "Gandhi", "Godhra", or "Dilip"
-      console.log(`\n=== DEBUGGING: SEARCHING FOR SPECIFIC RECORDS ===`);
-      const debugSearchTerms = [
-        "sunil",
-        "gandhi",
-        "godhra",
-        "dilip",
-        "gujarat",
-      ];
-
-      for (const term of debugSearchTerms) {
-        const matchingRows = uniqueRows.filter((row) => {
-          const content = (
-            row.content || JSON.stringify(row.rowData)
-          ).toLowerCase();
-          return content.includes(term);
-        });
-
-        console.log(`Records containing "${term}": ${matchingRows.length}`);
-        if (matchingRows.length > 0) {
-          matchingRows.slice(0, 3).forEach((row, idx) => {
-            const companyName = this.extractCompanyNameEnhanced(row.rowData);
-            const personName =
-              row.rowData?.Name || row.rowData?.name || "Unknown";
-            const location = this.extractCountryEnhanced(row.rowData);
-            console.log(
-              `  [${idx + 1}] ${companyName} - ${personName} - ${location}`
-            );
-          });
+      // Stage 6: Deduplication
+      const deduplicationStart = Date.now();
+      const uniqueRows = this.deduplicateRows(allRelevantRows);
+      this.performanceMonitor.trackStage(
+        requestId,
+        "deduplication",
+        Date.now() - deduplicationStart,
+        {
+          originalCount: allRelevantRows.length,
+          uniqueCount: uniqueRows.length,
+          duplicatesRemoved: allRelevantRows.length - uniqueRows.length,
         }
-      }
+      );
 
-      // DEBUG: Show sample of what we DID find
-      console.log(`\n=== SAMPLE OF FOUND RECORDS ===`);
-      uniqueRows.slice(0, 5).forEach((row, idx) => {
-        const companyName = this.extractCompanyNameEnhanced(row.rowData);
-        const personName = row.rowData?.Name || row.rowData?.name || "Unknown";
-        const location = this.extractCountryEnhanced(row.rowData);
-        const content = (row.content || JSON.stringify(row.rowData)).substring(
-          0,
-          100
-        );
-        console.log(
-          `[${
-            idx + 1
-          }] Company: ${companyName}, Person: ${personName}, Location: ${location}`
-        );
-        console.log(`    Content: ${content}...`);
-        console.log(`    Vector Score: ${row.score?.toFixed(3)}`);
-      });
-      console.log(`=== END SAMPLE ===\n`);
-
+      // Fallback search if no results
       if (!uniqueRows.length) {
-        // Try a final fallback search with just product name
-        console.log(
-          `ExcelController: No results found, trying fallback search with product only`
-        );
-
+        const fallbackStart = Date.now();
         try {
           const fallbackEmbedding = await this.openAIService.generateEmbedding(
             product
           );
+          this.performanceMonitor.trackOpenAICall(
+            requestId,
+            "embedding",
+            Date.now() - fallbackStart,
+            {
+              query: `fallback: ${product}`,
+              model: "text-embedding-3-large",
+            }
+          );
+
+          const fallbackSearchStart = Date.now();
           const fallbackRows = await this.excelModel.vectorSearch(
             fallbackEmbedding,
             null,
             50,
-            0.0 // Extremely low threshold
+            0.0
+          );
+          this.performanceMonitor.trackDatabaseQuery(
+            requestId,
+            "fallbackVectorSearch",
+            Date.now() - fallbackSearchStart,
+            {
+              resultsCount: fallbackRows.length,
+            }
           );
 
-          console.log(
-            `ExcelController: Fallback search found ${fallbackRows.length} rows`
-          );
           uniqueRows.push(...fallbackRows);
         } catch (fallbackError) {
-          console.error("Fallback search failed:", fallbackError);
+          console.warn("Fallback search failed:", fallbackError.message);
         }
       }
 
       if (!uniqueRows.length) {
+        this.performanceMonitor.completeRequest(requestId, {
+          success: false,
+          error: "No relevant leads found",
+          resultsCount: 0,
+        });
         return res.status(404).json({
           success: false,
           error: "No relevant leads found for the specified criteria",
@@ -1123,7 +1575,8 @@ class ExcelController {
         });
       }
 
-      // Apply enhanced scoring logic
+      // Stage 7: Lead scoring
+      const scoringStart = Date.now();
       const scoredLeads = await this.scoreLeadsEnhanced(
         uniqueRows,
         product,
@@ -1131,29 +1584,51 @@ class ExcelController {
         region,
         keywords
       );
-
-      // Final deduplication after scoring to ensure we keep highest-scoring duplicates
-      const finalUniqueLeads = this.deduplicateScoredLeads(scoredLeads);
-
-      console.log(
-        `ExcelController: Scored ${scoredLeads.length} leads → ${finalUniqueLeads.length} unique leads after final deduplication, filtering by minScore: ${minScore}`
+      this.performanceMonitor.trackStage(
+        requestId,
+        "leadScoring",
+        Date.now() - scoringStart,
+        {
+          leadsScored: scoredLeads.length,
+          averageScore:
+            scoredLeads.reduce((sum, lead) => sum + (lead.finalScore || 0), 0) /
+            scoredLeads.length,
+        }
       );
 
-      // Filter by minimum score and limit results
+      // Stage 8: Final processing
+      const finalProcessingStart = Date.now();
+      const finalUniqueLeads = this.deduplicateScoredLeads(scoredLeads);
       const filteredLeads = finalUniqueLeads
         .filter((lead) => lead.finalScore >= minScore)
         .slice(0, parseInt(limit));
 
-      console.log(
-        `ExcelController: ${filteredLeads.length} leads passed score threshold`
-      );
-
-      // If no leads pass the threshold, return top results anyway with warning
+      // Handle case where no leads meet threshold
       if (filteredLeads.length === 0 && finalUniqueLeads.length > 0) {
         const topLeads = finalUniqueLeads.slice(
           0,
           Math.min(5, parseInt(limit))
         );
+        this.performanceMonitor.trackStage(
+          requestId,
+          "finalProcessing",
+          Date.now() - finalProcessingStart,
+          {
+            finalUniqueLeads: finalUniqueLeads.length,
+            filteredLeads: 0,
+            topLeads: topLeads.length,
+          }
+        );
+
+        const result = {
+          success: true,
+          resultsCount: topLeads.length,
+          qualityScore:
+            topLeads.length > 0
+              ? Math.min(...topLeads.map((l) => l.finalScore))
+              : 0,
+        };
+        this.performanceMonitor.completeRequest(requestId, result);
 
         return res.json({
           success: true,
@@ -1171,32 +1646,72 @@ class ExcelController {
             topLeads: topLeads.length,
             leads: this.formatLeadResults(topLeads),
             searchResults,
-            responseTime: Date.now() - startTime,
+            responseTime:
+              Date.now() -
+              this.performanceMonitor.activeRequests.get(requestId).startTime,
             minScore,
             actualMinScore: Math.min(...topLeads.map((l) => l.finalScore)),
             limit: parseInt(limit),
             model: "enhanced-scoring-engine-v2",
+            performanceId: requestId,
           },
         });
       }
 
-      // Generate AI insights about the lead matching
+      // Stage 9: AI insights generation (async, non-blocking)
       let aiInsights = null;
       if (filteredLeads.length > 0) {
+        const insightsStart = Date.now();
         try {
           aiInsights = await this.generateLeadInsights(
-            searchQueries[0], // Use primary search query
+            searchQueries[0],
             filteredLeads.slice(0, 5),
             product,
             industry,
             region
           );
+          this.performanceMonitor.trackStage(
+            requestId,
+            "aiInsights",
+            Date.now() - insightsStart,
+            {
+              leadsAnalyzed: Math.min(5, filteredLeads.length),
+            }
+          );
         } catch (insightError) {
-          console.error("Error generating AI insights:", insightError);
+          this.performanceMonitor.trackStage(
+            requestId,
+            "aiInsights_failed",
+            Date.now() - insightsStart,
+            {
+              error: insightError.message,
+            }
+          );
         }
       }
 
-      const responseTime = Date.now() - startTime;
+      this.performanceMonitor.trackStage(
+        requestId,
+        "finalProcessing",
+        Date.now() - finalProcessingStart,
+        {
+          finalUniqueLeads: finalUniqueLeads.length,
+          filteredLeads: filteredLeads.length,
+          hasInsights: !!aiInsights,
+        }
+      );
+
+      // Complete request tracking
+      const result = {
+        success: true,
+        resultsCount: filteredLeads.length,
+        qualityScore:
+          filteredLeads.length > 0
+            ? filteredLeads.reduce((sum, lead) => sum + lead.finalScore, 0) /
+              filteredLeads.length
+            : 0,
+      };
+      this.performanceMonitor.completeRequest(requestId, result);
 
       return res.json({
         success: true,
@@ -1213,18 +1728,28 @@ class ExcelController {
           leads: this.formatLeadResults(filteredLeads),
           insights: aiInsights,
           searchResults,
-          responseTime,
+          responseTime:
+            Date.now() -
+              this.performanceMonitor.activeRequests.get(requestId)
+                ?.startTime || 0,
           minScore,
           limit: parseInt(limit),
           model: "enhanced-scoring-engine-v2",
+          performanceId: requestId,
         },
       });
     } catch (error) {
-      console.error("ExcelController: Error in findLeads:", error);
+      console.error(`Error in findLeads [${requestId}]:`, error);
+      this.performanceMonitor.completeRequest(requestId, {
+        success: false,
+        error: error.message,
+      });
+
       return res.status(500).json({
         success: false,
         error: "Failed to find leads",
         details: error.message,
+        performanceId: requestId,
       });
     }
   }

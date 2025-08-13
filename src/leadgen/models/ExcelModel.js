@@ -205,7 +205,375 @@ class ExcelModel {
   }
 
   /**
-   * @description Search rows using vector similarity across all documents
+   * @description Optimized vector search using MongoDB Atlas Vector Search
+   * @param {Array<number>} embedding - Query embedding vector
+   * @param {string} fileKey - Optional file key to filter by specific document
+   * @param {number} limit - Maximum number of results
+   * @param {number} minScore - Minimum similarity score (0-1)
+   * @returns {Promise<Array>} Similar rows with scores
+   */
+  async vectorSearchOptimized(
+    embedding,
+    fileKey = null,
+    limit = 5,
+    minScore = 0.2
+  ) {
+    try {
+      console.log(`\n=== OPTIMIZED VECTOR SEARCH ===`);
+      console.log(`FileKey filter: ${fileKey || "ALL FILES"}`);
+      console.log(`Limit: ${limit}, MinScore: ${minScore}`);
+
+      // Use MongoDB Atlas Vector Search if available, otherwise fallback to current method
+      if (process.env.MONGODB_ATLAS_VECTOR_SEARCH === "true") {
+        return await this.vectorSearchAtlas(
+          embedding,
+          fileKey,
+          limit,
+          minScore
+        );
+      } else {
+        return await this.vectorSearchOptimizedInMemory(
+          embedding,
+          fileKey,
+          limit,
+          minScore
+        );
+      }
+    } catch (error) {
+      console.error("ExcelModel: Error in optimized vector search:", error);
+      // Fallback to original method if optimization fails
+      console.log("Falling back to original vector search method...");
+      return await this.vectorSearch(embedding, fileKey, limit, minScore);
+    }
+  }
+
+  /**
+   * @description MongoDB Atlas Vector Search implementation
+   * @param {Array<number>} embedding - Query embedding vector
+   * @param {string} fileKey - Optional file key to filter by specific document
+   * @param {number} limit - Maximum number of results
+   * @param {number} minScore - Minimum similarity score (0-1)
+   * @returns {Promise<Array>} Similar rows with scores
+   */
+  async vectorSearchAtlas(
+    embedding,
+    fileKey = null,
+    limit = 5,
+    minScore = 0.2
+  ) {
+    try {
+      // Build the aggregation pipeline for Atlas Vector Search
+      const pipeline = [
+        {
+          $vectorSearch: {
+            index: "vector_search_index", // This needs to be created in Atlas
+            path: "embedding",
+            queryVector: embedding,
+            numCandidates: Math.max(limit * 10, 100), // Search more candidates for better results
+            limit: limit * 2, // Get more results to filter by minScore
+          },
+        },
+        {
+          $addFields: {
+            score: { $meta: "vectorSearchScore" },
+          },
+        },
+      ];
+
+      // Add document filter if fileKey is specified
+      if (fileKey) {
+        pipeline.push({
+          $lookup: {
+            from: "ExcelDocument",
+            localField: "documentId",
+            foreignField: "_id",
+            as: "document",
+          },
+        });
+        pipeline.push({
+          $match: {
+            "document.fileKey": fileKey,
+          },
+        });
+      } else {
+        // Always include document info for response
+        pipeline.push({
+          $lookup: {
+            from: "ExcelDocument",
+            localField: "documentId",
+            foreignField: "_id",
+            as: "document",
+          },
+        });
+      }
+
+      // Filter by minimum score
+      pipeline.push({
+        $match: {
+          score: { $gte: minScore },
+        },
+      });
+
+      // Project the fields we need
+      pipeline.push({
+        $project: {
+          content: 1,
+          rowData: 1,
+          rowIndex: 1,
+          metadata: 1,
+          score: 1,
+          "document.fileName": 1,
+          "document.fileKey": 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      });
+
+      // Limit final results
+      pipeline.push({
+        $limit: limit,
+      });
+
+      console.log(
+        `🚀 Using MongoDB Atlas Vector Search with ${pipeline.length} pipeline stages`
+      );
+
+      const startTime = Date.now();
+      const results = await this.prisma.excelRow.aggregateRaw({
+        pipeline: pipeline,
+      });
+
+      const searchTime = Date.now() - startTime;
+      console.log(`⚡ Atlas Vector Search completed in ${searchTime}ms`);
+      console.log(
+        `📊 Found ${results.length} results above minScore ${minScore}`
+      );
+
+      // Transform results to match expected format
+      const transformedResults = results.map((result) => ({
+        id: result._id,
+        documentId: result.documentId,
+        content: result.content,
+        rowData: result.rowData,
+        rowIndex: result.rowIndex,
+        metadata: result.metadata,
+        score: result.score,
+        document: result.document?.[0] || null,
+        createdAt: result.createdAt,
+        updatedAt: result.updatedAt,
+      }));
+
+      console.log(`=== END OPTIMIZED ATLAS SEARCH ===\n`);
+      return transformedResults;
+    } catch (error) {
+      console.error("ExcelModel: Error in Atlas vector search:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * @description Optimized in-memory vector search with database optimizations
+   * @param {Array<number>} embedding - Query embedding vector
+   * @param {string} fileKey - Optional file key to filter by specific document
+   * @param {number} limit - Maximum number of results
+   * @param {number} minScore - Minimum similarity score (0-1)
+   * @returns {Promise<Array>} Similar rows with scores
+   */
+  async vectorSearchOptimizedInMemory(
+    embedding,
+    fileKey = null,
+    limit = 5,
+    minScore = 0.2
+  ) {
+    try {
+      const startTime = Date.now();
+
+      // Build optimized query with selective field loading
+      const whereClause = fileKey ? { document: { fileKey } } : {};
+
+      // Only load necessary fields to reduce memory usage
+      const rows = await this.prisma.excelRow.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          documentId: true,
+          content: true,
+          embedding: true,
+          rowData: true,
+          rowIndex: true,
+          metadata: true,
+          createdAt: true,
+          updatedAt: true,
+          document: {
+            select: {
+              fileName: true,
+              fileKey: true,
+            },
+          },
+        },
+        // Use database-level ordering to get more recent data first
+        orderBy: { createdAt: "desc" },
+        // Limit initial fetch to reduce memory usage
+        take: Math.min(1000, limit * 50), // Reasonable upper bound
+      });
+
+      const fetchTime = Date.now() - startTime;
+      console.log(`📊 Fetched ${rows.length} rows in ${fetchTime}ms`);
+
+      if (rows.length === 0) {
+        console.log(`❌ No rows found in database`);
+        return [];
+      }
+
+      // Optimized similarity calculation with early termination
+      const results = [];
+      const similarityStartTime = Date.now();
+
+      // Pre-calculate query vector norm for efficiency
+      const queryNorm = Math.sqrt(
+        embedding.reduce((sum, val) => sum + val * val, 0)
+      );
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+
+        // Validate and convert embedding
+        let rowEmbedding = this.normalizeEmbedding(row.embedding);
+        if (!rowEmbedding) continue;
+
+        // Optimized cosine similarity calculation
+        const similarity = this.calculateOptimizedCosineSimilarity(
+          embedding,
+          rowEmbedding,
+          queryNorm
+        );
+
+        if (similarity > minScore) {
+          results.push({
+            ...row,
+            score: similarity,
+            embedding: undefined, // Don't send embeddings to client
+          });
+
+          // Early termination if we have enough high-quality results
+          if (results.length >= limit * 3 && similarity > 0.8) {
+            console.log(
+              `⚡ Early termination at ${i + 1} rows with ${
+                results.length
+              } high-quality results`
+            );
+            break;
+          }
+        }
+      }
+
+      const similarityTime = Date.now() - similarityStartTime;
+      console.log(`🔍 Similarity calculation completed in ${similarityTime}ms`);
+
+      // Sort by similarity score (descending) and limit results
+      results.sort((a, b) => b.score - a.score);
+      const finalResults = results.slice(0, limit);
+
+      const totalTime = Date.now() - startTime;
+      console.log(
+        `✅ Optimized search completed in ${totalTime}ms (${fetchTime}ms fetch + ${similarityTime}ms similarity)`
+      );
+      console.log(
+        `📊 Final results: ${finalResults.length}/${results.length} results above minScore ${minScore}`
+      );
+
+      if (finalResults.length > 0) {
+        console.log(`🏆 Top results:`);
+        finalResults.slice(0, 3).forEach((result, idx) => {
+          const company =
+            result.rowData?.Company || result.rowData?.companyname || "Unknown";
+          const city =
+            result.rowData?.City || result.rowData?.city || "Unknown";
+          console.log(
+            `  [${idx + 1}] Score: ${result.score.toFixed(
+              4
+            )} - ${company} (${city})`
+          );
+        });
+      }
+
+      console.log(`=== END OPTIMIZED IN-MEMORY SEARCH ===\n`);
+      return finalResults;
+    } catch (error) {
+      console.error(
+        "ExcelModel: Error in optimized in-memory vector search:",
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @description Normalize embedding from various storage formats
+   * @param {*} embedding - Raw embedding data
+   * @returns {Array<number>|null} Normalized embedding array or null if invalid
+   */
+  normalizeEmbedding(embedding) {
+    if (!embedding) return null;
+
+    if (Array.isArray(embedding)) {
+      return embedding.every((val) => typeof val === "number")
+        ? embedding
+        : null;
+    }
+
+    if (typeof embedding === "object") {
+      const keys = Object.keys(embedding);
+      const isArrayLike = keys.every((key) => !isNaN(parseInt(key)));
+
+      if (isArrayLike) {
+        const converted = Object.values(embedding);
+        return converted.every((val) => typeof val === "number")
+          ? converted
+          : null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * @description Optimized cosine similarity calculation with pre-computed query norm
+   * @param {Array<number>} vecA - First vector
+   * @param {Array<number>} vecB - Second vector
+   * @param {number} normA - Pre-computed norm of vecA (optional)
+   * @returns {number} Cosine similarity score (0-1)
+   */
+  calculateOptimizedCosineSimilarity(vecA, vecB, normA = null) {
+    try {
+      if (vecA.length !== vecB.length) return 0;
+
+      let dotProduct = 0;
+      let normBSquared = 0;
+
+      // Single loop for both dot product and norm calculation
+      for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normBSquared += vecB[i] * vecB[i];
+      }
+
+      const normAValue =
+        normA || Math.sqrt(vecA.reduce((sum, val) => sum + val * val, 0));
+      const normB = Math.sqrt(normBSquared);
+
+      if (normAValue === 0 || normB === 0) return 0;
+
+      const similarity = dotProduct / (normAValue * normB);
+
+      // Normalize to 0-1 range
+      return Math.max(0, Math.min(1, (similarity + 1) / 2));
+    } catch (error) {
+      return 0;
+    }
+  }
+
+  /**
+   * @description Legacy vector search method (kept for fallback)
    * @param {Array<number>} embedding - Query embedding vector
    * @param {string} fileKey - Optional file key to filter by specific document
    * @param {number} limit - Maximum number of results
@@ -588,6 +956,293 @@ class ExcelModel {
       console.error("ExcelModel: Error calculating cosine similarity:", error);
       console.error("Error details:", error.stack);
       return 0;
+    }
+  }
+
+  /**
+   * @description Batch vector search for multiple embeddings (OPTIMIZED)
+   * @param {Array<Array<number>>} embeddings - Array of query embedding vectors
+   * @param {string} fileKey - Optional file key to filter by specific document
+   * @param {number} limit - Maximum number of results per embedding
+   * @param {number} minScore - Minimum similarity score (0-1)
+   * @returns {Promise<Array<Array>>} Array of search results for each embedding
+   */
+  async batchVectorSearch(
+    embeddings,
+    fileKey = null,
+    limit = 5,
+    minScore = 0.2
+  ) {
+    try {
+      console.log(`\n=== BATCH VECTOR SEARCH ===`);
+      console.log(`Processing ${embeddings.length} embeddings in batch`);
+      console.log(`FileKey filter: ${fileKey || "ALL FILES"}`);
+      console.log(`Limit: ${limit}, MinScore: ${minScore}`);
+
+      const startTime = Date.now();
+
+      // For MongoDB Atlas Vector Search, we can potentially use $facet for true batch processing
+      if (process.env.MONGODB_ATLAS_VECTOR_SEARCH === "true") {
+        return await this.batchVectorSearchAtlas(
+          embeddings,
+          fileKey,
+          limit,
+          minScore
+        );
+      }
+
+      // Optimized batch processing for in-memory calculation
+      // Load data once and reuse for all embeddings
+      const whereClause = fileKey ? { document: { fileKey } } : {};
+
+      const rows = await this.prisma.excelRow.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          documentId: true,
+          content: true,
+          embedding: true,
+          rowData: true,
+          rowIndex: true,
+          metadata: true,
+          createdAt: true,
+          updatedAt: true,
+          document: {
+            select: {
+              fileName: true,
+              fileKey: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: Math.min(1000, limit * 50),
+      });
+
+      const fetchTime = Date.now() - startTime;
+      console.log(
+        `📊 Fetched ${rows.length} rows once for batch processing in ${fetchTime}ms`
+      );
+
+      // Pre-process embeddings and normalize row embeddings once
+      const normalizedRows = rows
+        .map((row) => ({
+          ...row,
+          normalizedEmbedding: this.normalizeEmbedding(row.embedding),
+          embedding: undefined, // Remove original to save memory
+        }))
+        .filter((row) => row.normalizedEmbedding !== null);
+
+      console.log(
+        `🔧 Normalized ${normalizedRows.length}/${rows.length} row embeddings`
+      );
+
+      // Process each query embedding
+      const batchResults = [];
+      const processingStartTime = Date.now();
+
+      for (let embIndex = 0; embIndex < embeddings.length; embIndex++) {
+        const queryEmbedding = embeddings[embIndex];
+        const queryNorm = Math.sqrt(
+          queryEmbedding.reduce((sum, val) => sum + val * val, 0)
+        );
+
+        const results = [];
+
+        for (const row of normalizedRows) {
+          const similarity = this.calculateOptimizedCosineSimilarity(
+            queryEmbedding,
+            row.normalizedEmbedding,
+            queryNorm
+          );
+
+          if (similarity > minScore) {
+            results.push({
+              ...row,
+              score: similarity,
+              normalizedEmbedding: undefined, // Remove to save memory
+            });
+          }
+        }
+
+        // Sort and limit results for this embedding
+        results.sort((a, b) => b.score - a.score);
+        batchResults.push(results.slice(0, limit));
+      }
+
+      const processingTime = Date.now() - processingStartTime;
+      const totalTime = Date.now() - startTime;
+
+      console.log(`⚡ Batch processing completed in ${processingTime}ms`);
+      console.log(
+        `✅ Total batch search time: ${totalTime}ms (${fetchTime}ms fetch + ${processingTime}ms processing)`
+      );
+      console.log(
+        `📊 Results per embedding: ${batchResults
+          .map((r) => r.length)
+          .join(", ")}`
+      );
+      console.log(
+        `🚀 Performance gain: ~${
+          Math.round(
+            ((embeddings.length * fetchTime - totalTime) / 1000) * 100
+          ) / 100
+        }s saved vs individual searches`
+      );
+      console.log(`=== END BATCH VECTOR SEARCH ===\n`);
+
+      return batchResults;
+    } catch (error) {
+      console.error("ExcelModel: Error in batch vector search:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * @description MongoDB Atlas batch vector search using $facet
+   * @param {Array<Array<number>>} embeddings - Array of query embedding vectors
+   * @param {string} fileKey - Optional file key to filter by specific document
+   * @param {number} limit - Maximum number of results per embedding
+   * @param {number} minScore - Minimum similarity score (0-1)
+   * @returns {Promise<Array<Array>>} Array of search results for each embedding
+   */
+  async batchVectorSearchAtlas(
+    embeddings,
+    fileKey = null,
+    limit = 5,
+    minScore = 0.2
+  ) {
+    try {
+      console.log(`🚀 Using MongoDB Atlas Batch Vector Search with $facet`);
+
+      // Build facet stages for each embedding
+      const facetStages = {};
+
+      embeddings.forEach((embedding, index) => {
+        facetStages[`search_${index}`] = [
+          {
+            $vectorSearch: {
+              index: "vector_search_index",
+              path: "embedding",
+              queryVector: embedding,
+              numCandidates: Math.max(limit * 10, 100),
+              limit: limit * 2,
+            },
+          },
+          {
+            $addFields: {
+              score: { $meta: "vectorSearchScore" },
+            },
+          },
+          {
+            $match: {
+              score: { $gte: minScore },
+            },
+          },
+          {
+            $limit: limit,
+          },
+        ];
+      });
+
+      const pipeline = [
+        {
+          $facet: facetStages,
+        },
+      ];
+
+      // Add document lookup if needed
+      if (fileKey) {
+        // This is more complex with $facet, so we'll fall back to individual searches
+        console.log(
+          `⚠️  FileKey filtering with Atlas batch search not yet optimized, using individual searches`
+        );
+        const results = [];
+        for (const embedding of embeddings) {
+          const result = await this.vectorSearchAtlas(
+            embedding,
+            fileKey,
+            limit,
+            minScore
+          );
+          results.push(result);
+        }
+        return results;
+      }
+
+      const startTime = Date.now();
+      const results = await this.prisma.excelRow.aggregateRaw({
+        pipeline: pipeline,
+      });
+
+      const searchTime = Date.now() - startTime;
+      console.log(`⚡ Atlas Batch Vector Search completed in ${searchTime}ms`);
+
+      // Transform results
+      const batchResults = [];
+      for (let i = 0; i < embeddings.length; i++) {
+        const searchResults = results[0][`search_${i}`] || [];
+        const transformedResults = searchResults.map((result) => ({
+          id: result._id,
+          documentId: result.documentId,
+          content: result.content,
+          rowData: result.rowData,
+          rowIndex: result.rowIndex,
+          metadata: result.metadata,
+          score: result.score,
+          createdAt: result.createdAt,
+          updatedAt: result.updatedAt,
+        }));
+        batchResults.push(transformedResults);
+      }
+
+      console.log(
+        `📊 Atlas batch results: ${batchResults
+          .map((r) => r.length)
+          .join(", ")}`
+      );
+      return batchResults;
+    } catch (error) {
+      console.error("ExcelModel: Error in Atlas batch vector search:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * @description Create database indexes for better performance
+   * @returns {Promise<void>}
+   */
+  async createOptimizedIndexes() {
+    try {
+      console.log("🔧 Creating optimized database indexes...");
+
+      // Note: These would need to be created manually in MongoDB Atlas
+      // or through a migration script
+
+      const indexCommands = [
+        // Compound index for document filtering and date sorting
+        'db.ExcelRow.createIndex({ "documentId": 1, "createdAt": -1 })',
+
+        // Text index for content search (if needed)
+        'db.ExcelRow.createIndex({ "content": "text" })',
+
+        // Vector search index (Atlas only)
+        'db.ExcelRow.createIndex({ "embedding": "vector" }, { name: "vector_search_index", vectorSearchOptions: { numDimensions: 1536 } })',
+
+        // Compound index for rowData fields (adjust based on your data structure)
+        'db.ExcelRow.createIndex({ "rowData.Company": 1, "rowData.City": 1 })',
+        'db.ExcelRow.createIndex({ "rowData.companyname": 1, "rowData.city": 1 })',
+      ];
+
+      console.log("📋 Recommended MongoDB indexes to create manually:");
+      indexCommands.forEach((cmd, index) => {
+        console.log(`  ${index + 1}. ${cmd}`);
+      });
+
+      console.log(
+        "💡 Run these commands in MongoDB Atlas or your MongoDB shell for optimal performance"
+      );
+    } catch (error) {
+      console.error("ExcelModel: Error creating indexes:", error);
     }
   }
 

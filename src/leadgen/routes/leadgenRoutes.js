@@ -992,7 +992,131 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *       500:
  *         description: Server error
  */
-router.post("/find-leads", (req, res) => excelController.findLeads(req, res));
+router.post("/find-leads", (req, res) =>
+  excelController.findLeadsOptimized(req, res)
+);
+
+/**
+ * @swagger
+ * /api/leadgen/performance/metrics:
+ *   get:
+ *     summary: Get current performance metrics
+ *     tags: [Performance Monitoring]
+ *     responses:
+ *       200:
+ *         description: Performance metrics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     aggregated:
+ *                       type: object
+ *                       properties:
+ *                         totalRequests:
+ *                           type: integer
+ *                         averageResponseTime:
+ *                           type: integer
+ *                         p50:
+ *                           type: integer
+ *                         p95:
+ *                           type: integer
+ *                         p99:
+ *                           type: integer
+ *                         errorRate:
+ *                           type: number
+ *                         cacheHitRate:
+ *                           type: number
+ *                         openaiApiCalls:
+ *                           type: integer
+ *                         dbQueries:
+ *                           type: integer
+ *                     activeRequests:
+ *                       type: integer
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *       500:
+ *         description: Server error
+ */
+router.get("/performance/metrics", (req, res) => {
+  try {
+    const metrics = excelController.performanceMonitor.getMetrics();
+    res.json({
+      success: true,
+      data: metrics,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve performance metrics",
+      details: error.message,
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/leadgen/performance/report:
+ *   get:
+ *     summary: Get detailed performance report with recommendations
+ *     tags: [Performance Monitoring]
+ *     responses:
+ *       200:
+ *         description: Performance report generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                     stagePerformance:
+ *                       type: object
+ *                     recentRequests:
+ *                       type: array
+ *                     recommendations:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           type:
+ *                             type: string
+ *                             enum: [critical, warning, info]
+ *                           category:
+ *                             type: string
+ *                           message:
+ *                             type: string
+ *                           priority:
+ *                             type: integer
+ *       500:
+ *         description: Server error
+ */
+router.get("/performance/report", (req, res) => {
+  try {
+    const report = excelController.performanceMonitor.getPerformanceReport();
+    res.json({
+      success: true,
+      data: report,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Failed to generate performance report",
+      details: error.message,
+    });
+  }
+});
 
 /**
  * @swagger
