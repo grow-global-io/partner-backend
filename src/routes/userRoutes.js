@@ -2454,6 +2454,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
             username 
         } = req.query;
 
+        
         // Validate pagination parameters
         const pageNum = parseInt(page);
         const limitNum = parseInt(limit);
