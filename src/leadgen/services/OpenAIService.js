@@ -445,9 +445,7 @@ class OpenAIService {
         return false;
       }
 
-      console.log(
-        `OpenAIService: API key is present (length: ${apiKey.length})`
-      );
+      console.log("OpenAIService: API key is present");
 
       // Test with a simple embedding request
       const testResponse = await this.client.embeddings.create({
