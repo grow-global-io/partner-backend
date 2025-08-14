@@ -496,7 +496,6 @@ router.post('/register', async (req, res) => {
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
                 },
-                isRegistrationComplete: true
             }
         });
 
@@ -513,11 +512,15 @@ router.post('/register', async (req, res) => {
         amount = process.env.REGISTER_REWARD
         if (process.env.SWITCH === 'true') {
             try {
-                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
-                await sendTx.wait();
-                // console.log("✅ Registration GLL transaction completed");
+                if (!tempUser.walletAddress) {
+                    console.log("⚠️ User registration skipped blockchain transaction - no wallet address found for email:", tempUser.email);
+                } else {
+                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
+                    await sendTx.wait();
+                    console.log("✅ User registration GLL transaction completed for wallet:", tempUser.walletAddress);
+                }
             } catch (blockchainError) {
-                console.error("❌ Registration blockchain transaction failed:", blockchainError.message);
+                console.error("❌ User registration blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
         }
