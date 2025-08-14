@@ -175,6 +175,47 @@ async function syncGLLBalance(email) {
     }
 }
 
+router.post('/save-connect-wallet-creator', async (req, res) => {
+    const { name, email, walletAddress, glltag } = req.body;
+
+    const tempCreator = await prisma.Creator.findUnique({
+        where: { email }
+    });
+    try {
+        if (!tempCreator) {
+            const creator = await prisma.Creator.create({
+                data: {
+                    name: name,
+                    email: email,
+                    walletAddress: walletAddress,
+                    glltag: glltag
+                }
+            });
+            const responseData = {
+                message: "Creator added successfully"
+            };
+            res.send(encryptJSON(responseData));
+        } else {
+            const updatedCreator = await prisma.Creator.update({
+                where: { id: tempCreator.id },
+                data: {
+                    name: name,
+                    email: email,
+                    walletAddress: walletAddress,
+                    glltag: glltag
+                }
+            });
+            const responseData = {
+                message: "Creator details updated successfully"
+            };
+            res.send(encryptJSON(responseData));
+        }
+    } catch (error) {
+        // console.log("Error completing registration:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 router.post('/save-connect-wallet', async (req, res) => {
     const { name, email, walletAddress, glltag } = req.body;
 
@@ -597,17 +638,22 @@ router.post('/register-creator', async (req, res) => {
         /** Code to send GLL to email wallet *******/
         
         amount = process.env.REGISTER_REWARD
-        if(process.env.SWITCH === 'true' && tempCreator.walletAddress){
+        if(process.env.SWITCH === 'true'){
             try {
-                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
-                await sendTx.wait();
-                // console.log("✅ Creator registration GLL transaction completed");
+                // Get wallet address for creator
+                const creatorWalletAddress = await getCreatorWalletAddress(tempCreator.email);
+                
+                if (!creatorWalletAddress) {
+                    console.log("⚠️ Creator registration skipped blockchain transaction - no wallet address found for email:", tempCreator.email);
+                } else {
+                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), creatorWalletAddress);
+                    await sendTx.wait();
+                    console.log("✅ Creator registration GLL transaction completed for wallet:", creatorWalletAddress);
+                }
             } catch (blockchainError) {
                 console.error("❌ Creator registration blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else if(process.env.SWITCH === 'true' && !tempCreator.walletAddress) {
-            console.log("⚠️ Creator registration skipped blockchain transaction - no wallet address configured");
         }
         
         // await syncGLLBalance(email);
@@ -1899,11 +1945,11 @@ router.post('/claim', async (req, res) => {
         }
 
         if (existingClaim) {
-            console.log('Duplicate claim attempt detected:', {
-                walletAddress,
-                email,
-                existingClaimDate: existingClaim.claimedAt
-            });
+            // console.log('Duplicate claim attempt detected:', {
+            //     walletAddress,
+            //     email,
+            //     existingClaimDate: existingClaim.claimedAt
+            // });
             return res.status(409).json({ 
                 success: false,
                 error: "Airdrop has already been claimed for this wallet address or email",
@@ -1957,20 +2003,20 @@ router.post('/claim', async (req, res) => {
 
         // Read airdrop data from Google Sheets
         const airdropData = await readAirdropData();
-        console.log('Airdrop data loaded with', Object.keys(airdropData).length, 'entries');
+        // console.log('Airdrop data loaded with', Object.keys(airdropData).length, 'entries');
 
         // Determine which record to update and get the wallet address
         let targetRecord = user || creator;
         let targetWalletAddress = targetRecord.walletAddress;
         let targetEmail = targetRecord.email;
         
-        console.log('Target record found:', {
-            id: targetRecord.id,
-            email: targetEmail,
-            walletAddress: targetWalletAddress,
-            currentGllBalance: targetRecord.gllBalance,
-            userType: user ? 'user' : 'creator'
-        });
+        // console.log('Target record found:', {
+        //     id: targetRecord.id,
+        //     email: targetEmail,
+        //     walletAddress: targetWalletAddress,
+        //     currentGllBalance: targetRecord.gllBalance,
+        //     userType: user ? 'user' : 'creator'
+        // });
 
         // Check if user has a wallet address for blockchain transaction
         if (!targetWalletAddress) {
@@ -1989,15 +2035,15 @@ router.post('/claim', async (req, res) => {
             // User found in Google Sheets - use the amount from Google Sheets
             rewardAmount = airdropData[targetEmail.toLowerCase().trim()];
             rewardSource = 'excel_airdrop';
-            console.log(`User found in airdrop Google Sheets with amount: ${rewardAmount} GLL`);
+            // console.log(`User found in airdrop Google Sheets with amount: ${rewardAmount} GLL`);
         } else {
             // User not found in Google Sheets - use default reward amount
             rewardAmount = process.env.REGISTER_REWARD ? parseFloat(process.env.REGISTER_REWARD) : 100;
             rewardSource = 'default_reward';
-            console.log(`User not found in Google Sheets, using default reward: ${rewardAmount} GLL`);
+            // console.log(`User not found in Google Sheets, using default reward: ${rewardAmount} GLL`);
         }
 
-        console.log('Final reward amount to be added:', rewardAmount, 'from source:', rewardSource);
+        // console.log('Final reward amount to be added:', rewardAmount, 'from source:', rewardSource);
 
         // Update GLL balance in the database
         if (user) {
@@ -2058,7 +2104,7 @@ router.post('/claim', async (req, res) => {
         // Sync GLL balance between User and Creator tables if both exist
         if (targetEmail) {
             try {
-                console.log('Syncing GLL balance...');
+                // console.log('Syncing GLL balance...');
                 // Only sync if we updated a user record and there's also a creator record
                 if (user) {
                     const creator = await prisma.Creator.findUnique({
@@ -2072,7 +2118,7 @@ router.post('/claim', async (req, res) => {
                                 gllBalance: targetRecord.gllBalance + rewardAmount
                             }
                         });
-                        console.log('Creator GLL balance synced with user balance');
+                        // console.log('Creator GLL balance synced with user balance');
                     }
                 } else if (creator) {
                     const userRecord = await prisma.user.findUnique({
@@ -2086,10 +2132,10 @@ router.post('/claim', async (req, res) => {
                                 gllBalance: targetRecord.gllBalance + rewardAmount
                             }
                         });
-                        console.log('User GLL balance synced with creator balance');
+                        // console.log('User GLL balance synced with creator balance');
                     }
                 }
-                console.log('GLL balance synced successfully');
+                // console.log('GLL balance synced successfully');
             } catch (syncError) {
                 console.error("Warning: Could not sync GLL balance:", syncError.message);
             }
@@ -2146,7 +2192,7 @@ router.post('/claim', async (req, res) => {
                     } : null // Store Google Sheets row data if found
                 }
             });
-            console.log('Airdrop claim recorded successfully for:', targetWalletAddress);
+            // console.log('Airdrop claim recorded successfully for:', targetWalletAddress);
         } catch (claimRecordError) {
             console.error('Error recording airdrop claim:', claimRecordError.message);
             // Don't fail the entire request if just recording fails
@@ -2391,7 +2437,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -3634,5 +3680,37 @@ router.get('/test-route', (req, res) => {
         });
     }
 });
+
+// Helper function to get wallet address for creator
+async function getCreatorWalletAddress(email) {
+    try {
+        // First check if creator has wallet address
+        const creator = await prisma.Creator.findUnique({
+            where: { email },
+            select: { walletAddress: true }
+        });
+        
+        if (creator && creator.walletAddress) {
+            return creator.walletAddress;
+        }
+        
+        // If creator doesn't have wallet address, check if there's a user with same email
+        const user = await prisma.user.findUnique({
+            where: { email },
+            select: { walletAddress: true }
+        });
+        
+        if (user && user.walletAddress) {
+            return user.walletAddress;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error("Error getting creator wallet address:", error);
+        return null;
+    }
+}
+
+// Helper function to get user by ID or email
 
 module.exports = router;
