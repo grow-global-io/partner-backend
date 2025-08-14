@@ -432,6 +432,12 @@ router.post('/register', async (req, res) => {
             businessDescription,
             businessPhotos,
             businessVideo,
+            // New fields for enhanced user profile
+            socialMediaLink,
+            passion,
+            existingOnlineStoreLink,
+            profilePicture,
+            paymentPreference,
         } = req.body;
 
         // console.log('=== REGISTER ENDPOINT DEBUG ===');
@@ -492,10 +498,19 @@ router.post('/register', async (req, res) => {
                 description: businessDescription || tempUser.description || "",
                 userPhotos: businessPhotos || tempUser.userPhotos || [],
                 userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempUser.userVideos || []),
+                // New fields for enhanced user profile
+                socialMediaLink: socialMediaLink || tempUser.socialMediaLink || "",
+                passion: passion || tempUser.passion || "",
+                existingOnlineStoreLink: existingOnlineStoreLink || tempUser.existingOnlineStoreLink || "",
+                profilePicture: profilePicture || tempUser.profilePicture || "",
+                businessPhotos: businessPhotos || tempUser.businessPhotos || [],
+                businessVideo: businessVideo || tempUser.businessVideo || "",
+                businessDescription: businessDescription || tempUser.businessDescription || "",
+                paymentPreference: paymentPreference || tempUser.paymentPreference || "",
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
-                },
+                }
             }
         });
 

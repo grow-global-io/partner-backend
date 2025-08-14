@@ -43,6 +43,16 @@ model User {
   userPhotos              String[]  @default([])
   userVideos              String[]  @default([])
 
+  // New fields for enhanced user profile
+  socialMediaLink         String? // Step 2: Social profile
+  passion                 String? // Step 2: User's passion/interest
+  existingOnlineStoreLink String? // Step 2: Link to existing online store
+  profilePicture          String? // Step 2: User's profile picture
+  businessPhotos          String[] @default([]) // Step 3: Business photos
+  businessVideo           String? // Step 3: Business video
+  businessDescription     String? // Step 3: Business description
+  paymentPreference       String? // Step 3: How they prefer to receive payments
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
