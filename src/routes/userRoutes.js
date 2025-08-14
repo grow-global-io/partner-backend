@@ -302,7 +302,7 @@ router.post('/personal-details', async (req, res) => {
 
 // Save personal details from step 1 registration for creator
 router.post('/personal-details-creator', async (req, res) => {
-    const { name, username, email, phone, nationality, businessDescription, businessPhotos, businessVideo } = req.body;
+    const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo } = req.body;
 
     const tempCreator = await prisma.Creator.findUnique({
         where: { email }
@@ -316,16 +316,16 @@ router.post('/personal-details-creator', async (req, res) => {
                     email: email,
                     phone: phone,
                     nationality: nationality,
+                    profilePicture: profilePicture || null,
+                    passion: passion || "",
+                    existingOnlineStoreLink: existingOnlineStoreLink || "",
+                    paymentPreference: paymentPreference || "",
                     aboutMe: businessDescription || "",
                     userPhotos: businessPhotos || [],
                     userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : [],
                     gllBalance: 0, // Initially set to 0, will be updated in the final step
-                    accountName: "",
-                    accountNumber: "",
-                    ifscCode: "",
-                    bankBranch: "",
-                    bankName: "",
-                    apiKey: "",
+                    isKycComplete: false,
+                    isRegistrationComplete: false,
                     terms: true
                 }
             });
@@ -343,6 +343,10 @@ router.post('/personal-details-creator', async (req, res) => {
                     email: email,
                     phone: phone,
                     nationality: nationality,
+                    profilePicture: profilePicture || tempCreator.profilePicture,
+                    passion: passion || tempCreator.passion || "",
+                    existingOnlineStoreLink: existingOnlineStoreLink || tempCreator.existingOnlineStoreLink || "",
+                    paymentPreference: paymentPreference || tempCreator.paymentPreference || "",
                     aboutMe: businessDescription || tempCreator.aboutMe || "",
                     userPhotos: businessPhotos || tempCreator.userPhotos || [],
                     userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
@@ -450,7 +454,8 @@ router.post('/register', async (req, res) => {
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
-                }
+                },
+                isRegistrationComplete: true
             }
         });
 
@@ -505,14 +510,12 @@ router.post('/register-creator', async (req, res) => {
             email,
             phone,
             nationality,
-            accountName,
-            accountNumber,
-            ifscCode,
-            bankName,
-            bankBranch,
+            profilePicture,
+            passion,
+            existingOnlineStoreLink,
+            paymentPreference,
             instagramId,
             instagramUsername,
-            profilePicture,
             terms,
             apiKey,
             aboutMe,
@@ -561,14 +564,12 @@ router.post('/register-creator', async (req, res) => {
                 username: username || tempCreator.username,
                 phone: phone || tempCreator.phone,
                 nationality: nationality || tempCreator.nationality,
-                accountName: accountName || tempCreator.accountName,
-                accountNumber: accountNumber || tempCreator.accountNumber,
-                ifscCode: ifscCode || tempCreator.ifscCode,
-                bankName: bankName || tempCreator.bankName,
-                bankBranch: bankBranch || tempCreator.bankBranch,
+                profilePicture: profilePicture || tempCreator.profilePicture,
+                passion: passion || tempCreator.passion || "",
+                existingOnlineStoreLink: existingOnlineStoreLink || tempCreator.existingOnlineStoreLink || "",
+                paymentPreference: paymentPreference || tempCreator.paymentPreference || "",
                 instagramId: instagramId || tempCreator.instagramId,
                 instagramUsername: instagramUsername || tempCreator.instagramUsername,
-                profilePicture: profilePicture || tempCreator.profilePicture,
                 terms: terms !== undefined ? terms : tempCreator.terms,
                 apiKey: apiKey || tempCreator.apiKey,
                 aboutMe: aboutMe ? aboutMe.trim() : tempCreator.aboutMe || '', // Add aboutMe field
@@ -577,7 +578,10 @@ router.post('/register-creator', async (req, res) => {
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
-                }
+                },
+                isRegistrationComplete: true,
+                isKycComplete: true,
+                kycCompletedAt: new Date()
             }
         });
 
@@ -593,7 +597,7 @@ router.post('/register-creator', async (req, res) => {
         /** Code to send GLL to email wallet *******/
         
         amount = process.env.REGISTER_REWARD
-        if(process.env.SWITCH === 'true'){
+        if(process.env.SWITCH === 'true' && tempCreator.walletAddress){
             try {
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempCreator.walletAddress);
                 await sendTx.wait();
@@ -602,6 +606,8 @@ router.post('/register-creator', async (req, res) => {
                 console.error("❌ Creator registration blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
+        } else if(process.env.SWITCH === 'true' && !tempCreator.walletAddress) {
+            console.log("⚠️ Creator registration skipped blockchain transaction - no wallet address configured");
         }
         
         // await syncGLLBalance(email);
@@ -1596,39 +1602,18 @@ router.post('/ifscCode-verify', async (req, res) => {
 router.put('/creator-profile/:email', async (req, res) => {
     try {
         const { email } = req.params;
-        const { aboutMe } = req.body;
+        const { aboutMe, passion, existingOnlineStoreLink, paymentPreference } = req.body;
         
         // Decode URL-encoded email
         const decodedEmail = decodeURIComponent(email);
         
-        // console.log('Updating creator about me for email:', decodedEmail);
+        // console.log('Updating creator profile for email:', decodedEmail);
         
         // Validation
         if (!decodedEmail) {
             return res.status(400).json({ 
                 success: false,
                 message: "Email is required" 
-            });
-        }
-
-        if (aboutMe === undefined || aboutMe === null) {
-            return res.status(400).json({ 
-                success: false,
-                message: "aboutMe field is required" 
-            });
-        }
-
-        if (typeof aboutMe !== 'string') {
-            return res.status(400).json({ 
-                success: false,
-                message: "aboutMe must be a string" 
-            });
-        }
-
-        if (aboutMe.length > 500) {
-            return res.status(400).json({ 
-                success: false,
-                message: "About me cannot exceed 500 characters" 
             });
         }
 
@@ -1644,17 +1629,42 @@ router.put('/creator-profile/:email', async (req, res) => {
             });
         }
 
-        // Update the aboutMe field
+        // Prepare update data
+        const updateData = {};
+        
+        if (aboutMe !== undefined && aboutMe !== null) {
+            if (typeof aboutMe !== 'string') {
+                return res.status(400).json({ 
+                    success: false,
+                    message: "aboutMe must be a string" 
+                });
+            }
+            if (aboutMe.length > 500) {
+                return res.status(400).json({ 
+                    success: false,
+                    message: "About me cannot exceed 500 characters" 
+                });
+            }
+            updateData.aboutMe = aboutMe.trim();
+        }
+        
+        if (passion !== undefined) {
+            updateData.passion = passion.trim();
+        }
+        
+        if (existingOnlineStoreLink !== undefined) {
+            updateData.existingOnlineStoreLink = existingOnlineStoreLink.trim();
+        }
+        
+        if (paymentPreference !== undefined) {
+            updateData.paymentPreference = paymentPreference.trim();
+        }
+
+        // Update the creator profile
         const updatedCreator = await prisma.Creator.update({
             where: { email: decodedEmail },
-            data: {
-                aboutMe: aboutMe.trim() // Trim whitespace
-            }
+            data: updateData
         });
-
-        // Check if IFSC code exists to determine KYC completion status
-        const hasIfscCode = updatedCreator.ifscCode && updatedCreator.ifscCode.trim() !== '';
-        const isKycComplete = hasIfscCode;
 
         // Format response to match frontend expectations
         const profileData = {
@@ -1664,39 +1674,36 @@ router.put('/creator-profile/:email', async (req, res) => {
             instagramUsername: updatedCreator.instagramUsername || '',
             profilePicture: updatedCreator.profilePicture || '',
             aboutMe: updatedCreator.aboutMe || '',
-            isKycComplete: isKycComplete,
+            passion: updatedCreator.passion || '',
+            existingOnlineStoreLink: updatedCreator.existingOnlineStoreLink || '',
+            paymentPreference: updatedCreator.paymentPreference || '',
             phone: updatedCreator.phone || '',
             nationality: updatedCreator.nationality || '',
             instagramId: updatedCreator.instagramId || '',
-            bankDetails: {
-                ifscCode: updatedCreator.ifscCode || '',
-                bankName: updatedCreator.bankName || '',
-                bankBranch: updatedCreator.bankBranch || '',
-                accountNumber: updatedCreator.accountNumber || '',
-                accountName: updatedCreator.accountName || ''
-            },
+            isKycComplete: updatedCreator.isKycComplete || false,
+            kycCompletedAt: updatedCreator.kycCompletedAt || null,
+            isRegistrationComplete: updatedCreator.isRegistrationComplete || false,
             registrationTimestamp: updatedCreator.createdAt,
             apiKey: updatedCreator.apiKey || '',
             gllBalance: updatedCreator.gllBalance || 0,
             terms: updatedCreator.terms || false
         };
 
-        // console.log(`About me updated successfully for ${decodedEmail}`);
+        // console.log(`Creator profile updated successfully for ${decodedEmail}`);
 
         const responseData = {
             success: true,
-            message: "About me updated successfully",
+            message: "Creator profile updated successfully",
             data: profileData
         };
 
         // Send encrypted response
         res.send(encryptJSON(responseData));
-        
     } catch (error) {
-        console.error("Error updating about me:", error);
+        console.error("Error updating creator profile:", error);
         res.status(500).json({
             success: false,
-            message: "Something went wrong while updating about me",
+            message: "Something went wrong while updating creator profile",
             error: error.message
         });
     }
@@ -1742,17 +1749,15 @@ router.get('/creator-profile/:email', async (req, res) => {
             instagramUsername: creator.instagramUsername || '',
             profilePicture: creator.profilePicture || '',
             aboutMe: creator.aboutMe || '',
-            isKycComplete: isKycComplete,
+            passion: creator.passion || '',
+            existingOnlineStoreLink: creator.existingOnlineStoreLink || '',
+            paymentPreference: creator.paymentPreference || '',
             phone: creator.phone || '',
             nationality: creator.nationality || '',
             instagramId: creator.instagramId || '',
-            bankDetails: {
-                ifscCode: creator.ifscCode || '',
-                bankName: creator.bankName || '',
-                bankBranch: creator.bankBranch || '',
-                accountNumber: creator.accountNumber || '',
-                accountName: creator.accountName || ''
-            },
+            isKycComplete: creator.isKycComplete || false,
+            kycCompletedAt: creator.kycCompletedAt || null,
+            isRegistrationComplete: creator.isRegistrationComplete || false,
             registrationTimestamp: creator.createdAt,
             apiKey: creator.apiKey || '',
             gllBalance: creator.gllBalance || 0,
@@ -2843,7 +2848,12 @@ router.get('/creator-profile/by-username/:username', generalPostLimiter, async (
                 instagramUsername: true,
                 profilePicture: true,
                 aboutMe: true,
-                ifscCode: true, // To determine KYC completion
+                passion: true,
+                existingOnlineStoreLink: true,
+                paymentPreference: true,
+                isKycComplete: true,
+                kycCompletedAt: true,
+                isRegistrationComplete: true,
                 createdAt: true,
                 updatedAt: true
             }
@@ -2856,9 +2866,6 @@ router.get('/creator-profile/by-username/:username', generalPostLimiter, async (
             });
         }
 
-        // Check if KYC is complete (has IFSC code)
-        const isKycComplete = creator.ifscCode && creator.ifscCode.trim() !== '';
-
         // Format response data
         const profileData = {
             email: creator.email,
@@ -2867,15 +2874,23 @@ router.get('/creator-profile/by-username/:username', generalPostLimiter, async (
             instagramUsername: creator.instagramUsername || '',
             profilePicture: creator.profilePicture || '',
             aboutMe: creator.aboutMe || '',
-            isKycComplete: isKycComplete
+            passion: creator.passion || '',
+            existingOnlineStoreLink: creator.existingOnlineStoreLink || '',
+            paymentPreference: creator.paymentPreference || '',
+            isKycComplete: creator.isKycComplete || false,
+            kycCompletedAt: creator.kycCompletedAt || null,
+            isRegistrationComplete: creator.isRegistrationComplete || false
         };
 
-        res.status(200).json({
-            success: true,
-            message: "User profile retrieved successfully",
-            data: profileData
-        });
+        // console.log(`Creator profile for ${decodedUsername}:`, {
+        //     hasIfscCode,
+        //     isKycComplete,
+        //     gllBalance: creator.gllBalance
+        // });
 
+        // Send encrypted response
+        res.send(encryptJSON(profileData));
+        
     } catch (error) {
         console.error("Error fetching creator profile by username:", error);
         res.status(500).json({
