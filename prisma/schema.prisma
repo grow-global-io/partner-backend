@@ -34,7 +34,7 @@ model User {
   gllBalance              Float     @default(0)
   apiKey                  String?   @default("")
   bankName                String?   @default("")
-  bankBranch              String?   @default("")
+  bankBranch              String?
   telegramId              String? // Telegram chat ID for the user
   notificationPreferences Json? // Store notification preferences as JSON
   lastInteraction         DateTime? // Last time user interacted with the bot
@@ -79,7 +79,17 @@ model Creator {
   instagramUsername String?
   profilePicture    String?
 
-  // Bank and payment fields
+  // New fields replacing bank information
+  passion                 String? // Creator's passion/interest
+  existingOnlineStoreLink String? // Link to existing online store
+  paymentPreference       String? // How they prefer to receive payments
+
+  // KYC and Registration status fields
+  isKycComplete          Boolean   @default(false)
+  kycCompletedAt         DateTime?
+  isRegistrationComplete Boolean   @default(false)
+
+  // Legacy fields (keeping for backward compatibility)
   bankBranch    String?
   bankName      String?
   accountNumber String?
