@@ -3759,7 +3759,6 @@ router.post('/creator-reward-card1', async (req, res) => {
                 error: "Creator not found with this email" 
             });
         }
-
         // Check if creator has already completed this task
         const existingTask = await prisma.userCompletedTask.findUnique({
             where: {
@@ -3798,7 +3797,7 @@ router.post('/creator-reward-card1', async (req, res) => {
         });
 
 
-        
+
         // Perform blockchain transaction if SWITCH is enabled
         if (process.env.SWITCH === 'true') {
             try {
