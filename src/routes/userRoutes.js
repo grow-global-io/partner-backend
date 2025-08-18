@@ -3797,6 +3797,8 @@ router.post('/creator-reward-card1', async (req, res) => {
             }
         });
 
+
+        
         // Perform blockchain transaction if SWITCH is enabled
         if (process.env.SWITCH === 'true') {
             try {
