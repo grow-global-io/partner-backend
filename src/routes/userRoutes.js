@@ -3787,7 +3787,7 @@ router.post('/creator-reward-card1', async (req, res) => {
         });
 
         // Update GLL balance
-        const rewardAmount = parseFloat(process.env.CREATOR_TASK1_REWARD); // 50 GLL reward for creator task 1
+        const rewardAmount = parseFloat(process.env.CREATOR_TASK1_REWARD);
         await prisma.Creator.update({
             where: { id: creator.id },
             data: {
