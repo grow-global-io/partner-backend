@@ -3731,4 +3731,141 @@ async function getCreatorWalletAddress(email) {
 
 // Helper function to get user by ID or email
 
+// Creator Reward Card 1: Claim Your Creator ID
+router.post('/creator-reward-card1', async (req, res) => {
+    try {
+        const { 
+            email,
+            profilePicture,
+            socialMediaLink,
+            passion,
+            aboutMe
+        } = req.body;
+        
+        // Validate required fields
+        if (!email) {
+            return res.status(400).json({ 
+                error: "Email is required" 
+            });
+        }
+
+        // Find the creator by email
+        const creator = await prisma.Creator.findUnique({
+            where: { email }
+        });
+
+        if (!creator) {
+            return res.status(404).json({ 
+                error: "Creator not found with this email" 
+            });
+        }
+
+        // Check if creator has already completed this task
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task1'
+                }
+            }
+        });
+
+        if (existingTask) {
+            return res.status(409).json({ 
+                error: "Creator ID claim task has already been completed" 
+            });
+        }
+
+        // Update creator profile with provided information
+        const updatedCreator = await prisma.Creator.update({
+            where: { email },
+            data: {
+                profilePicture: profilePicture || creator.profilePicture,
+                aboutMe: aboutMe || creator.aboutMe || "",
+                passion: passion || creator.passion || ""
+            }
+        });
+
+        // Update GLL balance
+        const rewardAmount = parseFloat(process.env.CREATOR_TASK1_REWARD) || 50; // 50 GLL reward for creator task 1
+        await prisma.Creator.update({
+            where: { id: creator.id },
+            data: {
+                gllBalance: {
+                    increment: rewardAmount
+                }
+            }
+        });
+
+        // Perform blockchain transaction if SWITCH is enabled
+        if (process.env.SWITCH === 'true') {
+            try {
+                // Get wallet address for creator
+                const creatorWalletAddress = await getCreatorWalletAddress(creator.email);
+                
+                if (!creatorWalletAddress) {
+                    console.log("⚠️ Creator reward card 1 skipped blockchain transaction - no wallet address found for email:", creator.email);
+                } else {
+                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), creatorWalletAddress);
+                    await sendTx.wait();
+                    console.log("✅ Creator reward card 1 GLL transaction completed for wallet:", creatorWalletAddress);
+                }
+            } catch (blockchainError) {
+                console.error("❌ Creator reward card 1 blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
+
+        // Mark task as completed (use upsert to prevent duplicates)
+        const completedTask = await prisma.userCompletedTask.upsert({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task1'
+                }
+            },
+            update: {
+                completedAt: new Date()
+            },
+            create: {
+                userEmail: email,
+                taskId: 'creator_task1',
+                completedAt: new Date()
+            }
+        });
+
+        console.log(`✅ Creator task completed: ${email} - ${completedTask.taskId}`);
+
+        // Create response object
+        const responseData = {
+            success: true,
+            message: "Creator ID claimed successfully",
+            reward: `${rewardAmount} GLL`,
+            taskId: 'creator_task1',
+            taskTitle: "Claim Your Creator ID",
+            taskDescription: "Set up your profile and verify your email/social handle.",
+            category: "Onboarding",
+            progress: 100,
+            completed: true,
+            creator: {
+                email: updatedCreator.email,
+                name: updatedCreator.name,
+                username: updatedCreator.username,
+                profilePicture: updatedCreator.profilePicture,
+                aboutMe: updatedCreator.aboutMe,
+                gllBalance: updatedCreator.gllBalance + rewardAmount
+            }
+        };
+
+        // Send encrypted response
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error in creator reward card 1:", error);
+        res.status(500).json({ 
+            success: false,
+            error: error.message 
+        });
+    }
+});
+
 module.exports = router;
