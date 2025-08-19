@@ -3737,33 +3737,22 @@ router.post('/creator-reward-card1', async (req, res) => {
         const { 
             email,
             profilePicture,
-            socialMediaLink,
             passion,
-            aboutMe
+            aboutMe,
+            userId
         } = req.body;
         
-        // Validate required fields
-        if (!email) {
-            return res.status(400).json({ 
-                error: "Email is required" 
-            });
-        }
+        // Get user and email information
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
+        
+        // Get actual user info including email
+        const userInfo = user || { email: email };
 
-        // Find the creator by email
-        const creator = await prisma.Creator.findUnique({
-            where: { email }
-        });
-
-        if (!creator) {
-            return res.status(404).json({ 
-                error: "Creator not found with this email" 
-            });
-        }
-        // Check if creator has already completed this task
+        // Check if user has already completed this task
         const existingTask = await prisma.userCompletedTask.findUnique({
             where: {
                 userEmail_taskId: {
-                    userEmail: email,
+                    userEmail: userInfo.email,
                     taskId: 'creator_task1'
                 }
             }
@@ -3775,97 +3764,61 @@ router.post('/creator-reward-card1', async (req, res) => {
             });
         }
 
-        // Update creator profile with provided information
-        const updatedCreator = await prisma.Creator.update({
-            where: { email },
-            data: {
-                profilePicture: profilePicture || creator.profilePicture,
-                aboutMe: aboutMe || creator.aboutMe || "",
-                passion: passion || creator.passion || ""
-            }
-        });
+        // Update user profile with provided information
+        if (user) {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    profilePicture: profilePicture || user.profilePicture,
+                    passion: passion || user.passion || ""
+                }
+            });
+        }
 
         // Update GLL balance
-        const rewardAmount = parseFloat(process.env.CREATOR_TASK1_REWARD);
-        await prisma.Creator.update({
-            where: { id: creator.id },
-            data: {
-                gllBalance: {
-                    increment: rewardAmount
+        if (user) {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: parseFloat(process.env.CREATOR_TASK1_REWARD)
+                    }
                 }
-            }
-        });
+            });
 
-
-
-        // Perform blockchain transaction if SWITCH is enabled
-        if (process.env.SWITCH === 'true') {
-            try {
-                // Get wallet address for creator
-                const creatorWalletAddress = await getCreatorWalletAddress(creator.email);
-                
-                if (!creatorWalletAddress) {
-                    console.log("⚠️ Creator reward card 1 skipped blockchain transaction - no wallet address found for email:", creator.email);
-                } else {
-                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), creatorWalletAddress);
+            /** Code to send GLL to email wallet *******/
+            const amount = process.env.CREATOR_TASK1_REWARD;
+            if(process.env.SWITCH === 'true'){
+                try {
+                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
                     await sendTx.wait();
-                    console.log("✅ Creator reward card 1 GLL transaction completed for wallet:", creatorWalletAddress);
+                    // console.log("✅ Creator reward card 1 GLL transaction completed");
+                } catch (blockchainError) {
+                    console.error("❌ Creator reward card 1 blockchain transaction failed:", blockchainError.message);
+                    // Don't crash the endpoint, just log the error
                 }
-            } catch (blockchainError) {
-                console.error("❌ Creator reward card 1 blockchain transaction failed:", blockchainError.message);
-                // Don't crash the endpoint, just log the error
             }
         }
 
-        // Mark task as completed (use upsert to prevent duplicates)
-        const completedTask = await prisma.userCompletedTask.upsert({
-            where: {
-                userEmail_taskId: {
-                    userEmail: email,
-                    taskId: 'creator_task1'
-                }
-            },
-            update: {
-                completedAt: new Date()
-            },
-            create: {
-                userEmail: email,
+        // Mark task as completed
+        await prisma.userCompletedTask.create({
+            data: {
+                userEmail: userInfo.email,
                 taskId: 'creator_task1',
                 completedAt: new Date()
             }
         });
-
-        console.log(`✅ Creator task completed: ${email} - ${completedTask.taskId}`);
-
-        // Create response object
+        
         const responseData = {
-            success: true,
             message: "Creator ID claimed successfully",
-            reward: `${rewardAmount} GLL`,
-            taskId: 'creator_task1',
-            taskTitle: "Claim Your Creator ID",
-            taskDescription: "Set up your profile and verify your email/social handle.",
-            category: "Onboarding",
-            progress: 100,
-            completed: true,
-            creator: {
-                email: updatedCreator.email,
-                name: updatedCreator.name,
-                username: updatedCreator.username,
-                profilePicture: updatedCreator.profilePicture,
-                aboutMe: updatedCreator.aboutMe,
-                gllBalance: updatedCreator.gllBalance + rewardAmount
-            }
+            rewardId: 'creator_task1',
+            userEmail: userInfo.email,
+            user: user
         };
-
-        // Send encrypted response
         res.send(encryptJSON(responseData));
     } catch (error) {
-        console.error("Error in creator reward card 1:", error);
-        res.status(500).json({ 
-            success: false,
-            error: error.message 
-        });
+        // console.log("Error in creator reward card 1:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 
