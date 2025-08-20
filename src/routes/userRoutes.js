@@ -3781,13 +3781,13 @@ router.post('/creator-reward-card1', async (req, res) => {
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: 0.000000000000000000
+                        increment: parseFloat(process.env.CREATOR_TASK1_REWARD)
                     }
                 }
             });
 
             /** Code to send GLL to email wallet *******/
-            const amount = 0.000000000000000000;
+            const amount = process.env.CREATOR_TASK1_REWARD;
             if(process.env.SWITCH === 'true'){
                 try {
                     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
