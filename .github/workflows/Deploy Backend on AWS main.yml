@@ -72,6 +72,7 @@ jobs:
             --build-arg SWITCH=$SWITCH \
             --build-arg GOOGLE_SHEET_ID=$GOOGLE_SHEET_ID \
             --build-arg CREATOR_TASK1_REWARD=$CREATOR_TASK1_REWARD \
+            --build-arg CREATOR_TASK2_REWARD=$CREATOR_TASK2_REWARD 
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -100,6 +101,8 @@ jobs:
           SWITCH: ${{ secrets.SWITCH }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           CREATOR_TASK1_REWARD: ${{ secrets.CREATOR_TASK1_REWARD }}
+          CREATOR_TASK2_REWARD: ${{ secrets.CREATOR_TASK2_REWARD }}
+
       - name: Docker Tag
         run: docker tag ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} ${{ env.REPOSITORY_URI }}:${{ env.IMAGE_TAG }}
 
