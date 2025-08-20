@@ -65,7 +65,7 @@ jobs:
             --build-arg SWITCH=$SWITCH \
             --build-arg GOOGLE_SHEET_ID=$GOOGLE_SHEET_ID \
             --build-arg CREATOR_TASK1_REWARD=$CREATOR_TASK1_REWARD \
-            --build-arg CREATOR_TASK2_REWARD=$CREATOR_TASK2_REWARD 
+            --build-arg CREATOR_TASK2_REWARD=$CREATOR_TASK2_REWARD \
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
