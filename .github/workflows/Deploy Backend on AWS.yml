@@ -65,7 +65,7 @@ jobs:
             --build-arg SWITCH=$SWITCH \
             --build-arg GOOGLE_SHEETS_AIRDROP_ID=$GOOGLE_SHEETS_AIRDROP_ID \
             --build-arg CREATOR_TASK1_REWARD=$CREATOR_TASK1_REWARD \
-            --build-arg CREATOR_TASK2_REWARD=$CREATOR_TASK2_REWARD \
+            --build-arg CREATOR_TASK2_REWARD=$CREATOR_TASK2_REWARD 
 
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
         env:
