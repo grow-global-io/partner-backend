@@ -848,9 +848,6 @@ router.post("/wallet-balance", async (req, res) => {
 
     // Get masked API key for debugging
     const keyInfo = getMaskedStripeKey();
-    console.error(
-      `Using Stripe key: ${keyInfo.masked} (length: ${keyInfo.length})`
-    );
 
     // Handle different Stripe error types
     if (error.type === "StripeAuthenticationError") {
