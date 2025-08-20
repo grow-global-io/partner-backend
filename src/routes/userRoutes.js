@@ -745,8 +745,8 @@ async function getUserByIdOrEmail(userId, email) {
     let user = null;
     let userEmail = null;
 
-    // If userId is provided, we first try to find the user by ID
-    if (userId) {
+    // If userId is provided and looks like a valid ObjectId, try to find the user by ID
+    if (userId && /^[0-9a-fA-F]{24}$/.test(userId)) {
         user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -3781,17 +3781,18 @@ router.post('/creator-reward-card1', async (req, res) => {
                 where: { id: user.id },
                 data: {
                     gllBalance: {
-                        increment: parseFloat(process.env.CREATOR_TASK1_REWARD)
+                        increment: parseFloat(0.000000000000000000)
                     }
                 }
             });
 
             /** Code to send GLL to email wallet *******/
-            const amount = process.env.CREATOR_TASK1_REWARD;
+            const amount = 0.000000000000000000;
             if(process.env.SWITCH === 'true'){
                 try {
                     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
                     await sendTx.wait();
+                     console.log("✅ User registration GLL transaction completed for wallet:", sendTx);
                     // console.log("✅ Creator reward card 1 GLL transaction completed");
                 } catch (blockchainError) {
                     console.error("❌ Creator reward card 1 blockchain transaction failed:", blockchainError.message);
@@ -3818,6 +3819,105 @@ router.post('/creator-reward-card1', async (req, res) => {
         res.send(encryptJSON(responseData));
     } catch (error) {
         // console.log("Error in creator reward card 1:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Creator Reward Card 2: Share Your First Post
+router.post('/creator-reward-card2', async (req, res) => {
+    try {
+        const { 
+            email,
+            postLink,
+            valid,
+            userId
+        } = req.body;
+        
+        // Get user and email information
+        const { user, userEmail } = await getUserByIdOrEmail(userId, email);
+        
+        // Get actual user info including email
+        const userInfo = user || { email: email };
+
+        // Check if post is valid
+        if (valid === false) {
+            return res.status(400).json({ 
+                error: "Your Post Is Not Verified. Its not about GLL" 
+            });
+        }
+
+        // Check if user has already completed this task
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: userInfo.email,
+                    taskId: 'creator_task2'
+                }
+            }
+        });
+
+        if (existingTask) {
+            return res.status(409).json({ 
+                error: "Share your first post task has already been completed" 
+            });
+        }
+
+        // Create reward record in database
+        const reward = await prisma.rewards.create({
+            data: {
+                story: postLink || "",
+                userEmail: userInfo.email,
+                ...(user && { user: { connect: { id: user.id } } })
+            }
+        });
+
+        // Update GLL balance
+        if (user) {
+            const rewardAmount = parseFloat(process.env.CREATOR_TASK2_REWARD);
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    gllBalance: {
+                        increment: rewardAmount
+                    }
+                }
+            });
+
+
+            /** Code to send GLL to email wallet *******/
+            const amount = process.env.CREATOR_TASK2_REWARD;
+            if(process.env.SWITCH === 'true'){
+                try {
+                    const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
+                    await sendTx.wait();
+                    // console.log("✅ Creator reward card 2 GLL transaction completed");
+                } catch (blockchainError) {
+                    console.error("❌ Creator reward card 2 blockchain transaction failed:", blockchainError.message);
+                    // Don't crash the endpoint, just log the error
+                }
+            }
+        }
+
+        // Mark task as completed
+        await prisma.userCompletedTask.create({
+            data: {
+                userEmail: userInfo.email,
+                taskId: 'creator_task2',
+                completedAt: new Date()
+            }
+        });
+        
+        const responseData = {
+            message: "First post shared successfully",
+            rewardId: 'creator_task2',
+            postLink: postLink,
+            valid: valid,
+            userEmail: userInfo.email,
+            user: user
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // console.log("Error in creator reward card 2:", error);
         res.status(500).json({ error: error.message });
     }
 });
