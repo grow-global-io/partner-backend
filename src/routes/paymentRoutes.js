@@ -278,42 +278,21 @@ function validateWalletBalancePayload(payload) {
  */
 async function creditIonsToWallet(walletAddress, noOfIons) {
   try {
-    console.log("🚀 Starting creditIonsToWallet process");
-    console.log("📍 Wallet Address:", walletAddress);
-    console.log("🪙 Number of Ions:", noOfIons);
-
     const {
       phoneLinkContract,
       convertToEtherAmount,
     } = require("../config/blockchain");
 
-    console.log("✅ Blockchain dependencies loaded successfully");
-
     // Convert ions to token amount (assuming 1 ion = 1 GLL token)
     const tokenAmount = convertToEtherAmount(noOfIons.toString());
-    console.log("🔄 Converted token amount:", tokenAmount.toString());
 
-    // Transfer tokens to the wallet address using phoneLinkContract.getGLL
-    console.log(
-      "📡 Initiating blockchain transaction via phoneLinkContract.getGLL..."
-    );
     const transaction = await phoneLinkContract.getGLL(
       tokenAmount,
       walletAddress
     );
 
-    console.log("⏳ Transaction sent, waiting for confirmation...");
-    console.log("📋 Transaction hash:", transaction.hash);
-
     // Wait for transaction confirmation
     const receipt = await transaction.wait();
-
-    console.log("✅ Transaction confirmed successfully!");
-    console.log("🧾 Transaction receipt:", {
-      transactionHash: receipt.transactionHash,
-      blockNumber: receipt.blockNumber,
-      gasUsed: receipt.gasUsed.toString(),
-    });
 
     return {
       success: true,
@@ -429,9 +408,6 @@ router.post("/purchase-plan", async (req, res) => {
       apiKey: "growinvoice",
     };
 
-    console.log("Payment Gateway URL:", PAYMENT_GATEWAY_URL);
-    console.log("Payment Payload:", JSON.stringify(paymentPayload, null, 2));
-
     // Call payment gateway with proper headers
     const response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
       headers: {
@@ -450,11 +426,6 @@ router.post("/purchase-plan", async (req, res) => {
         "Payment gateway returned HTML error page instead of JSON. Please check the gateway URL and endpoint."
       );
     }
-
-    console.log(
-      "Payment Gateway Response:",
-      JSON.stringify(response.data, null, 2)
-    );
 
     // Validate response structure
     if (!response.data || typeof response.data !== "object") {
@@ -588,7 +559,6 @@ router.post("/stripe/purchase-plan", async (req, res) => {
       },
       quantity: item.quantity,
     }));
-    console.log("Stripe Line Items:", success_url, cancel_url);
     // Create Stripe checkout session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -822,12 +792,8 @@ router.post("/wallet-balance", async (req, res) => {
       payment_method_types: ["card"],
       line_items: stripeLineItems,
       mode: "payment",
-      success_url: success_url
-        ? success_url
-        : `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: cancel_url
-        ? cancel_url
-        : `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
+      cancel_url: `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
@@ -1058,12 +1024,8 @@ router.post("/gateway/wallet-balance", async (req, res) => {
     const paymentPayload = {
       line_items,
       mode: "payment",
-      success_url: success_url
-        ? success_url
-        : `${BASE_URL}/api/payments/gateway/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: cancel_url
-        ? cancel_url
-        : `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${BASE_URL}/api/payments/gateway/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
+      cancel_url: `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
