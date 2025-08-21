@@ -7,19 +7,156 @@
 const express = require("express");
 const axios = require("axios");
 const prisma = require("../config/db");
-const {
-  getMyBalance,
-  phoneLinkContract,
-  convertToEtherAmount,
-} = require("../config/blockchain");
+const fs = require("fs");
+const path = require("path");
+const { getMyBalance } = require("../config/blockchain");
 
 const router = express.Router();
 
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const BASE_URL = "https://backend.gll.one";
+const BASE_URL = "http://localhost:8000";
 const FRONTEND_URL = "http://localhost:3000";
+
+// Currency Cache Configuration
+const CACHE_FILE_PATH = path.join(__dirname, "../cache/currency_cache.json");
+let currencyCache = new Map();
+
+/**
+ * @description Initialize currency cache from file on server start
+ */
+function initializeCurrencyCache() {
+  try {
+    // Create cache directory if it doesn't exist
+    const cacheDir = path.dirname(CACHE_FILE_PATH);
+    if (!fs.existsSync(cacheDir)) {
+      fs.mkdirSync(cacheDir, { recursive: true });
+    }
+
+    // Load existing cache from file
+    if (fs.existsSync(CACHE_FILE_PATH)) {
+      const cacheData = JSON.parse(fs.readFileSync(CACHE_FILE_PATH, "utf8"));
+      currencyCache = new Map(Object.entries(cacheData));
+      console.log(
+        `💾 Currency cache loaded with ${currencyCache.size} entries`
+      );
+
+      // Clean expired entries on startup
+      cleanExpiredCacheEntries();
+    } else {
+      console.log("💾 No existing currency cache found, starting fresh");
+    }
+  } catch (error) {
+    console.error("❌ Error initializing currency cache:", error);
+    currencyCache = new Map();
+  }
+}
+
+/**
+ * @description Save currency cache to file
+ */
+function saveCurrencyCache() {
+  try {
+    const cacheObject = Object.fromEntries(currencyCache);
+    fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(cacheObject, null, 2));
+    console.log(`💾 Currency cache saved with ${currencyCache.size} entries`);
+  } catch (error) {
+    console.error("❌ Error saving currency cache:", error);
+  }
+}
+
+/**
+ * @description Clean expired cache entries (older than 24 hours)
+ */
+function cleanExpiredCacheEntries() {
+  const now = new Date();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  let removedCount = 0;
+
+  for (const [key, entry] of currencyCache.entries()) {
+    const entryTime = new Date(entry.timestamp);
+    if (now - entryTime > oneDayMs) {
+      currencyCache.delete(key);
+      removedCount++;
+    }
+  }
+
+  if (removedCount > 0) {
+    console.log(`🧹 Cleaned ${removedCount} expired cache entries`);
+    saveCurrencyCache();
+  }
+}
+
+/**
+ * @description Get cache key for currency pair
+ */
+function getCacheKey(from, to) {
+  return `${from.toUpperCase()}_${to.toUpperCase()}`;
+}
+
+/**
+ * @description Check if cache entry is valid (less than 24 hours old)
+ */
+function isCacheValid(cacheEntry) {
+  if (!cacheEntry || !cacheEntry.timestamp) return false;
+
+  const now = new Date();
+  const entryTime = new Date(cacheEntry.timestamp);
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  return now - entryTime < oneDayMs;
+}
+
+/**
+ * @description Get cached exchange rate or null if not available/expired
+ */
+function getCachedRate(from, to) {
+  const cacheKey = getCacheKey(from, to);
+  const cacheEntry = currencyCache.get(cacheKey);
+
+  if (cacheEntry && isCacheValid(cacheEntry)) {
+    console.log(
+      `💰 Using cached rate for ${from} → ${to}: ${cacheEntry.exchangeRate}`
+    );
+    return cacheEntry;
+  }
+
+  // Remove expired entry
+  if (cacheEntry && !isCacheValid(cacheEntry)) {
+    currencyCache.delete(cacheKey);
+    console.log(`🗑️ Removed expired cache entry for ${from} → ${to}`);
+  }
+
+  return null;
+}
+
+/**
+ * @description Cache exchange rate data
+ */
+function cacheExchangeRate(from, to, exchangeRate, rawResponse) {
+  const cacheKey = getCacheKey(from, to);
+  const cacheEntry = {
+    from: from.toUpperCase(),
+    to: to.toUpperCase(),
+    exchangeRate,
+    timestamp: new Date().toISOString(),
+    rawResponse,
+    cached: true,
+  };
+
+  currencyCache.set(cacheKey, cacheEntry);
+  console.log(`💾 Cached exchange rate for ${from} → ${to}: ${exchangeRate}`);
+
+  // Save to file for persistence
+  saveCurrencyCache();
+}
+
+// Initialize cache on module load
+initializeCurrencyCache();
+
+// Clean expired cache entries every hour
+setInterval(cleanExpiredCacheEntries, 60 * 60 * 1000);
 
 /**
  * @description Validates the request payload for payment processing
@@ -779,7 +916,7 @@ router.post("/wallet-balance", async (req, res) => {
               6
             )}...${walletAddress.substring(38)}`,
           },
-          unit_amount: amount, // Amount in smallest currency unit (cents for USD)
+          unit_amount: amount * 100, // Amount in smallest currency unit (cents for USD)
         },
         quantity: 1,
       },
@@ -969,14 +1106,7 @@ router.post("/wallet-balance", async (req, res) => {
 router.post("/gateway/wallet-balance", async (req, res) => {
   try {
     console.log("🎯 Creating payment gateway session for wallet balance");
-    const {
-      walletAddress,
-      noOfIons,
-      amount,
-      currency,
-      success_url,
-      cancel_url,
-    } = req.body;
+    const { walletAddress, noOfIons, amount, currency } = req.body;
 
     console.log("📋 Received wallet balance payment request:", {
       walletAddress,
@@ -1012,7 +1142,7 @@ router.post("/gateway/wallet-balance", async (req, res) => {
               6
             )}...${walletAddress.substring(38)}`,
           },
-          unit_amount: amount, // Amount in smallest currency unit (cents for USD)
+          unit_amount: amount * 100, // Amount in smallest currency unit (cents for USD)
         },
         quantity: 1,
       },
@@ -2294,6 +2424,459 @@ router.post("/validate-wallet", async (req, res) => {
       success: false,
       isValid: false,
       error: `Error validating wallet: ${error.message}`,
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/currency/convert:
+ *   get:
+ *     summary: Convert currency using live forex rates
+ *     description: Get live currency conversion rates using AnyAPI.io forex service
+ *     tags:
+ *       - Currency Exchange
+ *     parameters:
+ *       - name: from
+ *         in: query
+ *         required: true
+ *         description: Base currency code (e.g., USD, EUR, INR)
+ *         schema:
+ *           type: string
+ *           example: "USD"
+ *       - name: to
+ *         in: query
+ *         required: true
+ *         description: Target currency code (e.g., USD, EUR, INR)
+ *         schema:
+ *           type: string
+ *           example: "INR"
+ *       - name: amount
+ *         in: query
+ *         required: false
+ *         description: Amount to convert (default is 1)
+ *         schema:
+ *           type: number
+ *           example: 100
+ *     responses:
+ *       200:
+ *         description: Currency conversion successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     base:
+ *                       type: string
+ *                       example: "USD"
+ *                     target:
+ *                       type: string
+ *                       example: "INR"
+ *                     amount:
+ *                       type: number
+ *                       example: 100
+ *                     convertedAmount:
+ *                       type: number
+ *                       example: 8350.25
+ *                     exchangeRate:
+ *                       type: number
+ *                       example: 83.5025
+ *                     timestamp:
+ *                       type: string
+ *                       example: "2025-08-21T10:30:00Z"
+ *                 message:
+ *                   type: string
+ *                   example: "Currency conversion successful"
+ *       400:
+ *         description: Invalid request parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Missing required parameter: from"
+ *       500:
+ *         description: Currency conversion service error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Currency conversion service error"
+ */
+router.get("/currency/convert", async (req, res) => {
+  try {
+    const { from, to, amount = 1 } = req.query;
+
+    console.log("💱 Currency conversion request:", { from, to, amount });
+
+    // Validate required parameters
+    if (!from || !to) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Missing required parameters. Both 'from' and 'to' currency codes are required.",
+        example: "/api/payments/currency/convert?from=USD&to=INR&amount=100",
+      });
+    }
+
+    // Validate amount is a positive number
+    const convertAmount = parseFloat(amount);
+    if (isNaN(convertAmount) || convertAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Amount must be a positive number",
+      });
+    }
+
+    // Validate currency codes format (should be 3-letter codes)
+    const currencyCodeRegex = /^[A-Z]{3}$/;
+    const fromCurrency = from.toUpperCase();
+    const toCurrency = to.toUpperCase();
+
+    if (
+      !currencyCodeRegex.test(fromCurrency) ||
+      !currencyCodeRegex.test(toCurrency)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Currency codes must be 3-letter codes (e.g., USD, EUR, INR)",
+      });
+    }
+
+    // Check cache first
+    const cachedRate = getCachedRate(fromCurrency, toCurrency);
+    if (cachedRate) {
+      // Use cached exchange rate
+      const convertedAmount = convertAmount * cachedRate.exchangeRate;
+
+      const cacheResult = {
+        success: true,
+        data: {
+          base: fromCurrency,
+          target: toCurrency,
+          amount: convertAmount,
+          convertedAmount: parseFloat(convertedAmount.toFixed(4)),
+          exchangeRate: cachedRate.exchangeRate,
+          timestamp: cachedRate.timestamp,
+          cached: true,
+          cacheAge:
+            Math.round(
+              (new Date() - new Date(cachedRate.timestamp)) / (1000 * 60 * 60)
+            ) + " hours",
+        },
+        message: "Currency conversion successful (from cache)",
+      };
+
+      console.log("💰 Cached conversion result:", {
+        from: fromCurrency,
+        to: toCurrency,
+        amount: convertAmount,
+        converted: cacheResult.data.convertedAmount,
+        rate: cachedRate.exchangeRate,
+        cached: true,
+      });
+
+      return res.status(200).json(cacheResult);
+    }
+
+    // If not in cache, call API
+    console.log("🌐 No valid cache found, calling AnyAPI.io for fresh data...");
+
+    // AnyAPI.io configuration
+    const ANYAPI_KEY = "j86teo4u2i876bsus61n08vop55eqg6r8i4sblb9qh480rfblkt8pb";
+    const ANYAPI_URL = "https://anyapi.io/api/v1/exchange/convert";
+
+    // Build the API URL (use amount=1 to get base rate)
+    const apiUrl = `${ANYAPI_URL}?base=${fromCurrency}&to=${toCurrency}&amount=1&apiKey=${ANYAPI_KEY}`;
+
+    console.log("📋 Request URL:", apiUrl.replace(ANYAPI_KEY, "***API_KEY***"));
+    console.log("📊 API Call Stats:", {
+      cacheSize: currencyCache.size,
+      totalPairsInCache: Array.from(currencyCache.keys()),
+      requestedPair: `${fromCurrency}_${toCurrency}`,
+    });
+
+    // Make the API call
+    const response = await axios.get(apiUrl, {
+      timeout: 10000, // 10 second timeout
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "GrowLimitless-PaymentAPI/1.0",
+      },
+    });
+
+    console.log("✅ AnyAPI.io response received");
+    console.log("📊 Response data:", response.data);
+
+    // Check if the response is successful
+    if (!response.data) {
+      throw new Error("Empty response from currency conversion service");
+    }
+
+    // Extract exchange rate from response
+    const exchangeRate =
+      response.data.exchangeRate ||
+      response.data.rate ||
+      response.data.convertedAmount;
+
+    if (!exchangeRate) {
+      throw new Error("No exchange rate found in API response");
+    }
+
+    // Cache the exchange rate for 24 hours
+    cacheExchangeRate(fromCurrency, toCurrency, exchangeRate, response.data);
+
+    // Calculate converted amount
+    const convertedAmount = convertAmount * exchangeRate;
+
+    // Extract relevant data from the response
+    const conversionResult = {
+      success: true,
+      data: {
+        base: fromCurrency,
+        target: toCurrency,
+        amount: convertAmount,
+        convertedAmount: parseFloat(convertedAmount.toFixed(4)),
+        exchangeRate: exchangeRate,
+        timestamp: new Date().toISOString(),
+        cached: false,
+        rawResponse: response.data, // Include raw response for debugging
+      },
+      message: "Currency conversion successful (fresh from API)",
+    };
+
+    console.log("💰 Fresh conversion result:", {
+      from: fromCurrency,
+      to: toCurrency,
+      amount: convertAmount,
+      converted: conversionResult.data.convertedAmount,
+      rate: exchangeRate,
+      cached: false,
+      apiCallsToday: "This was a new API call",
+    });
+
+    res.status(200).json(conversionResult);
+  } catch (error) {
+    console.error("❌ Currency conversion error:", error);
+
+    // Handle different types of errors
+    let errorMessage = "Currency conversion service error";
+    let statusCode = 500;
+
+    if (error.response) {
+      // API responded with error status
+      console.error("🔍 API Error Response:", {
+        status: error.response.status,
+        data: error.response.data,
+        headers: error.response.headers,
+      });
+
+      if (error.response.status === 401) {
+        errorMessage = "Invalid API key for currency conversion service";
+      } else if (error.response.status === 400) {
+        errorMessage = "Invalid currency codes or parameters";
+        statusCode = 400;
+      } else if (error.response.status === 429) {
+        errorMessage =
+          "Currency conversion service rate limit exceeded. Using cached data if available.";
+
+        // Try to return cached data even if expired as fallback
+        const { from, to } = req.query;
+        if (from && to) {
+          const fallbackCache = currencyCache.get(
+            getCacheKey(from.toUpperCase(), to.toUpperCase())
+          );
+          if (fallbackCache) {
+            console.log(
+              "⚠️ Rate limited, but returning stale cache data as fallback"
+            );
+            const convertAmount = parseFloat(req.query.amount || 1);
+            const convertedAmount = convertAmount * fallbackCache.exchangeRate;
+
+            return res.status(200).json({
+              success: true,
+              data: {
+                base: from.toUpperCase(),
+                target: to.toUpperCase(),
+                amount: convertAmount,
+                convertedAmount: parseFloat(convertedAmount.toFixed(4)),
+                exchangeRate: fallbackCache.exchangeRate,
+                timestamp: fallbackCache.timestamp,
+                cached: true,
+                stale: true,
+                warning: "Rate limited - using stale cache data",
+              },
+              message:
+                "Currency conversion using stale cache due to rate limit",
+            });
+          }
+        }
+      } else {
+        errorMessage = `Currency conversion service error: ${error.response.status}`;
+      }
+    } else if (error.request) {
+      // Request was made but no response received
+      console.error("🔍 Network Error:", error.request);
+      errorMessage =
+        "Network error: Unable to reach currency conversion service";
+    } else {
+      // Error in request setup
+      console.error("🔍 Request Setup Error:", error.message);
+      errorMessage = `Request error: ${error.message}`;
+    }
+
+    res.status(statusCode).json({
+      success: false,
+      error: errorMessage,
+      cacheStats: {
+        totalCachedPairs: currencyCache.size,
+        availablePairs: Array.from(currencyCache.keys()),
+      },
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/currency/cache-stats:
+ *   get:
+ *     summary: Get currency cache statistics
+ *     description: View current cache status, entries, and management options
+ *     tags:
+ *       - Currency Exchange
+ *     responses:
+ *       200:
+ *         description: Cache statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalCachedPairs:
+ *                       type: number
+ *                       example: 5
+ *                     cacheEntries:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     apiCallsSaved:
+ *                       type: string
+ *                       example: "Estimated 10 API calls saved today"
+ */
+router.get("/currency/cache-stats", async (req, res) => {
+  try {
+    const cacheEntries = [];
+    const now = new Date();
+
+    for (const [key, entry] of currencyCache.entries()) {
+      const entryTime = new Date(entry.timestamp);
+      const ageHours = Math.round((now - entryTime) / (1000 * 60 * 60));
+      const isValid = isCacheValid(entry);
+
+      cacheEntries.push({
+        pair: key,
+        from: entry.from,
+        to: entry.to,
+        exchangeRate: entry.exchangeRate,
+        timestamp: entry.timestamp,
+        ageHours: ageHours,
+        isValid: isValid,
+        expiresIn: isValid ? `${24 - ageHours} hours` : "Expired",
+      });
+    }
+
+    const validEntries = cacheEntries.filter((entry) => entry.isValid);
+    const expiredEntries = cacheEntries.filter((entry) => !entry.isValid);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalCachedPairs: currencyCache.size,
+        validEntries: validEntries.length,
+        expiredEntries: expiredEntries.length,
+        cacheEntries: cacheEntries,
+        apiCallsSaved: `Estimated ${validEntries.length} API calls saved today`,
+        monthlySavings: `Potentially ${
+          validEntries.length * 30
+        } API calls saved per month`,
+        freeApiLimit: "30 calls per month",
+        cacheFilePath: CACHE_FILE_PATH,
+      },
+      message: "Currency cache statistics retrieved successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error getting cache stats:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to get cache statistics",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/currency/clear-cache:
+ *   delete:
+ *     summary: Clear currency cache
+ *     description: Clear all cached currency data (use with caution)
+ *     tags:
+ *       - Currency Exchange
+ *     responses:
+ *       200:
+ *         description: Cache cleared successfully
+ */
+router.delete("/currency/clear-cache", async (req, res) => {
+  try {
+    const entriesCleared = currencyCache.size;
+    currencyCache.clear();
+    saveCurrencyCache();
+
+    console.log(
+      `🧹 Currency cache manually cleared - ${entriesCleared} entries removed`
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Currency cache cleared successfully. ${entriesCleared} entries removed.`,
+      data: {
+        entriesCleared,
+        newCacheSize: currencyCache.size,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error clearing cache:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to clear currency cache",
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 });
