@@ -822,12 +822,8 @@ router.post("/wallet-balance", async (req, res) => {
       payment_method_types: ["card"],
       line_items: stripeLineItems,
       mode: "payment",
-      success_url: success_url
-        ? success_url
-        : `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: cancel_url
-        ? cancel_url
-        : `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
+      cancel_url: `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
