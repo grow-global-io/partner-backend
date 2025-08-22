@@ -83,7 +83,6 @@ const chatController = new ChatController();
  *             questionAnswerCount:
  *               type: integer
  *
- *   schemas:
  *     ExcelDocument:
  *       type: object
  *       properties:
@@ -871,8 +870,8 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *                 description: Maximum number of results
  *               minScore:
  *                 type: integer
- *                 default: 50
- *                 description: Minimum score threshold (0-100)
+ *                 default: 55
+ *                 description: Minimum score threshold (0-100). Leads with score < 55% will be filtered out
  *     responses:
  *       200:
  *         description: Leads found and scored successfully
@@ -994,6 +993,86 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  */
 router.post("/find-leads", (req, res) =>
   excelController.findLeadsOptimized(req, res)
+);
+
+/**
+ * @swagger
+ * /api/leadgen/filter-options:
+ *   get:
+ *     summary: Get hierarchical categories with subcategories and locations for frontend filters
+ *     tags: [Lead Generation]
+ *     description: Returns hierarchically structured filter options with categories as keys, containing 3-4 subcategories each with 3-4 locations
+ *     responses:
+ *       200:
+ *         description: Hierarchical filter options retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Hierarchical filter options retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     filterStructure:
+ *                       type: object
+ *                       description: Hierarchical structure with categories as keys
+ *                       additionalProperties:
+ *                         type: object
+ *                         description: Subcategories for each category
+ *                         additionalProperties:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                           description: Locations for each subcategory (max 4)
+ *                       example:
+ *                         "Computer":
+ *                           "Hardware": ["Mumbai", "Delhi", "Bangalore", "Pune"]
+ *                           "Software": ["Hyderabad", "Chennai", "Noida", "Gurgaon"]
+ *                           "Peripherals": ["Kolkata", "Ahmedabad", "Jaipur", "Lucknow"]
+ *                         "Apparel":
+ *                           "Garments": ["Ludhiana", "Tirupur", "Coimbatore", "Erode"]
+ *                           "Textile": ["Surat", "Ichalkaranji", "Bhiwandi", "Panipat"]
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalCategories:
+ *                           type: integer
+ *                           description: Total number of main categories
+ *                         totalSubcategories:
+ *                           type: integer
+ *                           description: Total number of subcategories across all categories
+ *                         totalLocations:
+ *                           type: integer
+ *                           description: Total number of locations across all subcategories
+ *                     lastUpdated:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when data was last retrieved
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to retrieve filter options"
+ *                 details:
+ *                   type: string
+ *                   description: Detailed error message
+ */
+router.get("/filter-options", (req, res) =>
+  excelController.getFilterOptions(req, res)
 );
 
 /**

@@ -819,7 +819,7 @@ class ExcelController {
         region,
         keywords: rawKeywords = [],
         limit = 10,
-        minScore = 30,
+        minScore = 55,
       } = req.body;
 
       if (!product || !industry) {
@@ -1286,7 +1286,7 @@ class ExcelController {
         region,
         keywords: rawKeywords = [],
         limit = 10,
-        minScore = 30,
+        minScore = 55,
       } = req.body;
 
       if (!product || !industry) {
@@ -5042,6 +5042,61 @@ Keep the response concise and actionable.`;
     };
 
     return partialMap[region.toLowerCase()] || [];
+  }
+
+  /**
+   * @description Get distinct filter options for frontend (categories, subcategories, locations)
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with filter options
+   */
+  async getFilterOptions(req, res) {
+    try {
+      console.log(
+        "ExcelController: Getting hierarchical filter options for frontend..."
+      );
+
+      const hierarchicalData = await this.excelModel.getDistinctFilterOptions();
+
+      // Calculate counts for summary
+      const categoryCount = Object.keys(hierarchicalData).length;
+      let subcategoryCount = 0;
+      let locationCount = 0;
+
+      Object.values(hierarchicalData).forEach((category) => {
+        subcategoryCount += Object.keys(category).length;
+        Object.values(category).forEach((locations) => {
+          locationCount += locations.length;
+        });
+      });
+
+      const responseData = {
+        filterStructure: hierarchicalData,
+        summary: {
+          totalCategories: categoryCount,
+          totalSubcategories: subcategoryCount,
+          totalLocations: locationCount,
+        },
+        lastUpdated: new Date().toISOString(),
+      };
+
+      console.log(
+        `ExcelController: Returning hierarchical filter options with ${categoryCount} categories, ${subcategoryCount} subcategories, ${locationCount} locations`
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Hierarchical filter options retrieved successfully",
+        data: responseData,
+      });
+    } catch (error) {
+      console.error("ExcelController: Error getting filter options:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve filter options",
+        details: error.message,
+      });
+    }
   }
 }
 

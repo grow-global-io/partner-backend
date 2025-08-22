@@ -1270,6 +1270,527 @@ class ExcelModel {
       throw error;
     }
   }
+
+  /**
+   * @description Get distinct categories from all Excel data
+   * @returns {Promise<Array>} Array of unique categories
+   */
+  async getDistinctCategories() {
+    try {
+      console.log("ExcelModel: Getting distinct categories from embeddings...");
+
+      // Use MongoDB aggregation to get distinct values from rowData
+      const categories = await this.prisma.excelRow.aggregateRaw({
+        pipeline: [
+          {
+            $match: {
+              rowData: { $exists: true, $ne: null },
+            },
+          },
+          {
+            $project: {
+              categories: {
+                $objectToArray: "$rowData",
+              },
+            },
+          },
+          {
+            $unwind: "$categories",
+          },
+          {
+            $match: {
+              $or: [
+                {
+                  "categories.k": {
+                    $regex: "category|categories|type|industry|sector|domain",
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              values: { $addToSet: "$categories.v" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              values: {
+                $filter: {
+                  input: "$values",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$this", ""] },
+                      { $ne: ["$$this", null] },
+                      { $eq: [{ $type: "$$this" }, "string"] },
+                      { $gt: [{ $strLenCP: "$$this" }, 2] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
+
+      const result = categories[0]?.values || [];
+      console.log(`ExcelModel: Found ${result.length} distinct categories`);
+      return result.slice(0, 20); // Limit to top 20 categories
+    } catch (error) {
+      console.error("ExcelModel: Error getting distinct categories:", error);
+      return [];
+    }
+  }
+
+  /**
+   * @description Get distinct subcategories from all Excel data
+   * @returns {Promise<Array>} Array of unique subcategories
+   */
+  async getDistinctSubcategories() {
+    try {
+      console.log(
+        "ExcelModel: Getting distinct subcategories from embeddings..."
+      );
+
+      // Since the current dataset doesn't have explicit subcategory fields,
+      // we'll extract potential subcategories from the category field by looking for patterns
+      const subcategories = await this.prisma.excelRow.aggregateRaw({
+        pipeline: [
+          {
+            $match: {
+              "rowData.Category": {
+                $exists: true,
+                $ne: null,
+                $ne: "NULL",
+                $ne: "",
+              },
+            },
+          },
+          {
+            $project: {
+              category: "$rowData.Category",
+              // Extract words after common delimiters that might indicate subcategories
+              subcategoryParts: {
+                $split: ["$rowData.Category", "-"],
+              },
+            },
+          },
+          {
+            $unwind: "$subcategoryParts",
+          },
+          {
+            $match: {
+              $and: [
+                { subcategoryParts: { $ne: "" } },
+                {
+                  subcategoryParts: {
+                    $not: { $regex: "^(Computer|Apparel)$", $options: "i" },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              values: { $addToSet: "$subcategoryParts" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              values: {
+                $filter: {
+                  input: "$values",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$this", ""] },
+                      { $ne: ["$$this", null] },
+                      { $eq: [{ $type: "$$this" }, "string"] },
+                      { $gt: [{ $strLenCP: "$$this" }, 3] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
+
+      const result = subcategories[0]?.values || [];
+      console.log(`ExcelModel: Found ${result.length} distinct subcategories`);
+      return result.slice(0, 20); // Limit to top 20 subcategories
+    } catch (error) {
+      console.error("ExcelModel: Error getting distinct subcategories:", error);
+      return [];
+    }
+  }
+
+  /**
+   * @description Get distinct locations from all Excel data
+   * @returns {Promise<Array>} Array of unique locations
+   */
+  async getDistinctLocations() {
+    try {
+      console.log("ExcelModel: Getting distinct locations from embeddings...");
+
+      const locations = await this.prisma.excelRow.aggregateRaw({
+        pipeline: [
+          {
+            $match: {
+              rowData: { $exists: true, $ne: null },
+            },
+          },
+          {
+            $project: {
+              locations: {
+                $objectToArray: "$rowData",
+              },
+            },
+          },
+          {
+            $unwind: "$locations",
+          },
+          {
+            $match: {
+              $or: [
+                {
+                  "locations.k": {
+                    $regex: "city|cities|location|locations|place",
+                    $options: "i",
+                  },
+                },
+                {
+                  "locations.k": {
+                    $regex: "state|states|region|regions|area",
+                    $options: "i",
+                  },
+                },
+                {
+                  "locations.k": {
+                    $regex: "country|countries|nation|address",
+                    $options: "i",
+                  },
+                },
+                {
+                  "locations.k": {
+                    $regex: "district|zone|territory",
+                    $options: "i",
+                  },
+                },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              values: { $addToSet: "$locations.v" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              values: {
+                $filter: {
+                  input: "$values",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$this", ""] },
+                      { $ne: ["$$this", null] },
+                      { $ne: ["$$this", "NULL"] },
+                      { $eq: [{ $type: "$$this" }, "string"] },
+                      { $gt: [{ $strLenCP: "$$this" }, 2] },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      });
+
+      const result = locations[0]?.values || [];
+      console.log(`ExcelModel: Found ${result.length} distinct locations`);
+      return result.slice(0, 30); // Limit to top 30 locations
+    } catch (error) {
+      console.error("ExcelModel: Error getting distinct locations:", error);
+      return [];
+    }
+  }
+
+  /**
+   * @description Get category-subcategory relationships as key-value pairs
+   * @returns {Promise<Object>} Object with categories as keys and subcategories as values
+   */
+  async getCategorySubcategoryMap() {
+    try {
+      console.log("ExcelModel: Getting category-subcategory relationships...");
+
+      const categoryMap = await this.prisma.excelRow.aggregateRaw({
+        pipeline: [
+          {
+            $match: {
+              "rowData.Category": {
+                $exists: true,
+                $ne: null,
+                $ne: "NULL",
+                $ne: "",
+              },
+            },
+          },
+          {
+            $project: {
+              originalCategory: "$rowData.Category",
+              categoryParts: {
+                $split: ["$rowData.Category", "-"],
+              },
+            },
+          },
+          {
+            $project: {
+              originalCategory: 1,
+              mainCategory: { $arrayElemAt: ["$categoryParts", 0] },
+              subcategory: {
+                $cond: {
+                  if: { $gt: [{ $size: "$categoryParts" }, 1] },
+                  then: { $arrayElemAt: ["$categoryParts", 1] },
+                  else: null,
+                },
+              },
+            },
+          },
+          {
+            $match: {
+              subcategory: { $ne: null, $ne: "" },
+            },
+          },
+          {
+            $group: {
+              _id: "$mainCategory",
+              subcategories: { $addToSet: "$subcategory" },
+              categories: { $addToSet: "$originalCategory" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              mainCategory: "$_id",
+              subcategories: {
+                $filter: {
+                  input: "$subcategories",
+                  cond: {
+                    $and: [
+                      { $ne: ["$$this", ""] },
+                      { $ne: ["$$this", null] },
+                      { $eq: [{ $type: "$$this" }, "string"] },
+                      { $gt: [{ $strLenCP: "$$this" }, 2] },
+                    ],
+                  },
+                },
+              },
+              categories: "$categories",
+            },
+          },
+        ],
+      });
+
+      // Convert array result to object
+      const result = {};
+      categoryMap.forEach((item) => {
+        const mainCat = item.mainCategory?.trim();
+        if (mainCat && item.subcategories.length > 0) {
+          result[mainCat] = item.subcategories.map((sub) => sub.trim()).sort();
+        }
+      });
+
+      console.log(
+        `ExcelModel: Found ${
+          Object.keys(result).length
+        } main categories with subcategories`
+      );
+      return result;
+    } catch (error) {
+      console.error(
+        "ExcelModel: Error getting category-subcategory map:",
+        error
+      );
+      return {};
+    }
+  }
+
+  /**
+   * @description Get hierarchically structured filter options with categories, subcategories, and locations
+   * @returns {Promise<Object>} Object with categories as keys, containing subcategories with locations
+   */
+  async getDistinctFilterOptions() {
+    try {
+      console.log("ExcelModel: Getting hierarchical filter options...");
+
+      // Get all data we need with better category grouping
+      const result = await this.prisma.excelRow.aggregateRaw({
+        pipeline: [
+          {
+            $match: {
+              "rowData.Category": {
+                $exists: true,
+                $ne: null,
+                $ne: "NULL",
+                $ne: "",
+              },
+              "rowData.City": {
+                $exists: true,
+                $ne: null,
+                $ne: "NULL",
+                $ne: "",
+              },
+            },
+          },
+          {
+            $project: {
+              originalCategory: "$rowData.Category",
+              city: "$rowData.City",
+              // Create main category by extracting key words
+              mainCategory: {
+                $cond: {
+                  if: {
+                    $regexMatch: {
+                      input: "$rowData.Category",
+                      regex: "Apparel|Clothing|Garment",
+                      options: "i",
+                    },
+                  },
+                  then: "Apparel & Clothing",
+                  else: {
+                    $cond: {
+                      if: {
+                        $regexMatch: {
+                          input: "$rowData.Category",
+                          regex: "Computer|Software|Hardware|IT",
+                          options: "i",
+                        },
+                      },
+                      then: "Computer & Technology",
+                      else: {
+                        $cond: {
+                          if: {
+                            $regexMatch: {
+                              input: "$rowData.Category",
+                              regex: "Export|Import|Trading",
+                              options: "i",
+                            },
+                          },
+                          then: "Trading & Export",
+                          else: {
+                            $cond: {
+                              if: {
+                                $regexMatch: {
+                                  input: "$rowData.Category",
+                                  regex: "Manufacturing|Industrial|Production",
+                                  options: "i",
+                                },
+                              },
+                              then: "Manufacturing & Industrial",
+                              else: "Other Business Services",
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                mainCategory: "$mainCategory",
+                subcategory: "$originalCategory",
+              },
+              locations: { $addToSet: "$city" },
+            },
+          },
+          {
+            $group: {
+              _id: "$_id.mainCategory",
+              subcategories: {
+                $push: {
+                  name: "$_id.subcategory",
+                  locations: "$locations",
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              category: "$_id",
+              subcategories: {
+                $slice: [
+                  {
+                    $map: {
+                      input: "$subcategories",
+                      as: "sub",
+                      in: {
+                        name: "$$sub.name",
+                        locations: { $slice: ["$$sub.locations", 4] },
+                      },
+                    },
+                  },
+                  4,
+                ],
+              },
+            },
+          },
+        ],
+      });
+
+      // Structure the data as requested - only include categories with at least 2 subcategories
+      const structuredData = {};
+
+      result.forEach((categoryGroup) => {
+        const categoryName = categoryGroup.category?.trim();
+        if (categoryName) {
+          const tempCategoryData = {};
+
+          categoryGroup.subcategories.forEach((subcat) => {
+            const subcategoryName = subcat.name?.trim();
+            if (subcategoryName && subcategoryName !== categoryName) {
+              const filteredLocations = subcat.locations
+                .filter((loc) => loc && loc.trim() !== "" && loc !== "NULL")
+                .slice(0, 4);
+
+              // Only include subcategories that have at least 1 location
+              if (filteredLocations.length > 0) {
+                tempCategoryData[subcategoryName] = filteredLocations;
+              }
+            }
+          });
+
+          // Only include categories that have at least 2 subcategories with locations
+          if (Object.keys(tempCategoryData).length >= 2) {
+            structuredData[categoryName] = tempCategoryData;
+          }
+        }
+      });
+
+      console.log(
+        `ExcelModel: Structured ${
+          Object.keys(structuredData).length
+        } categories with at least 2 subcategories and locations`
+      );
+      return structuredData;
+    } catch (error) {
+      console.error(
+        "ExcelModel: Error getting hierarchical filter options:",
+        error
+      );
+      throw error;
+    }
+  }
 }
 
 module.exports = ExcelModel;
