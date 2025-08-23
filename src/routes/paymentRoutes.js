@@ -1763,9 +1763,7 @@ router.get("/gateway/wallet-balance/cancel", async (req, res) => {
       ? "Payment gateway wallet balance payment was cancelled by user"
       : "Payment gateway wallet balance payment was cancelled";
 
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancelled&sessionId=${
-      session_id || ""
-    }&gateway=true&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancel`;
 
     console.log(
       "🚀 Redirecting to frontend with payment gateway cancellation status"
