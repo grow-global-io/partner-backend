@@ -1801,61 +1801,79 @@ class ExcelModel {
    */
   async findRowsByCategories(categories, subcategories = [], location = null) {
     try {
-      console.log(`🔍 ExcelModel: Searching for categories: [${categories.join(', ')}], subcategories: [${subcategories.join(', ')}], location: ${location}`);
+      console.log(
+        `🔍 ExcelModel: Searching for categories: [${categories.join(
+          ", "
+        )}], subcategories: [${subcategories.join(
+          ", "
+        )}], location: ${location}`
+      );
 
       // Build the filter query
       let filter = {};
 
       if (categories.length > 0) {
         // Create regex patterns for case-insensitive matching
-        const categoryRegexes = categories.map(cat => new RegExp(cat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-        filter['rowData.Category'] = { $in: categoryRegexes };
+        const categoryRegexes = categories.map(
+          (cat) => new RegExp(cat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+        );
+        filter["rowData.Category"] = { $in: categoryRegexes };
       }
 
       // If subcategories are provided, add them to the filter
       if (subcategories.length > 0) {
-        const subcategoryRegexes = subcategories.map(subcat => new RegExp(subcat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-        
+        const subcategoryRegexes = subcategories.map(
+          (subcat) =>
+            new RegExp(subcat.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")
+        );
+
         // Category should contain subcategory terms
-        filter['rowData.Category'] = { 
+        filter["rowData.Category"] = {
           $in: [
-            ...(filter['rowData.Category']?.$in || []),
-            ...subcategoryRegexes
-          ]
+            ...(filter["rowData.Category"]?.$in || []),
+            ...subcategoryRegexes,
+          ],
         };
       }
 
       // Add location filter if provided
       if (location) {
-        const locationRegex = new RegExp(location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        filter['rowData.City'] = locationRegex;
+        const locationRegex = new RegExp(
+          location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "i"
+        );
+        filter["rowData.City"] = locationRegex;
       }
 
-      console.log(`📊 ExcelModel: Filter query:`, JSON.stringify(filter, null, 2));
+      console.log(
+        `📊 ExcelModel: Filter query:`,
+        JSON.stringify(filter, null, 2)
+      );
 
       const rows = await this.prisma.excelRow.findMany({
         where: filter,
         orderBy: {
-          createdAt: 'desc'
-        }
+          createdAt: "desc",
+        },
       });
 
-      console.log(`✅ ExcelModel: Found ${rows.length} rows matching categories`);
-      
+      console.log(
+        `✅ ExcelModel: Found ${rows.length} rows matching categories`
+      );
+
       // Log sample results for debugging
       if (rows.length > 0) {
         const sample = rows.slice(0, 3);
         console.log(`📝 Sample results:`);
         sample.forEach((row, i) => {
-          const company = row.rowData?.Company || 'Unknown';
-          const category = row.rowData?.Category || 'Unknown';
-          const city = row.rowData?.City || 'Unknown';
+          const company = row.rowData?.Company || "Unknown";
+          const category = row.rowData?.Category || "Unknown";
+          const city = row.rowData?.City || "Unknown";
           console.log(`  [${i + 1}] ${company} | ${category} | ${city}`);
         });
       }
 
       return rows;
-
     } catch (error) {
       console.error("ExcelModel: Error finding rows by categories:", error);
       throw error;
@@ -1871,45 +1889,58 @@ class ExcelModel {
    */
   async findRowsByCategoryFuzzy(category, subcategory, location = null) {
     try {
-      console.log(`🔍 ExcelModel: Fuzzy search for category: ${category}, subcategory: ${subcategory}, location: ${location}`);
+      console.log(
+        `🔍 ExcelModel: Fuzzy search for category: ${category}, subcategory: ${subcategory}, location: ${location}`
+      );
 
       // Create flexible regex patterns
-      const categoryTerms = category.toLowerCase().split(/[\s&-]+/).filter(term => term.length > 2);
-      const subcategoryTerms = subcategory.toLowerCase().split(/[\s&-]+/).filter(term => term.length > 2);
-      
-      console.log(`📝 Category terms: [${categoryTerms.join(', ')}]`);
-      console.log(`📝 Subcategory terms: [${subcategoryTerms.join(', ')}]`);
+      const categoryTerms = category
+        .toLowerCase()
+        .split(/[\s&-]+/)
+        .filter((term) => term.length > 2);
+      const subcategoryTerms = subcategory
+        .toLowerCase()
+        .split(/[\s&-]+/)
+        .filter((term) => term.length > 2);
+
+      console.log(`📝 Category terms: [${categoryTerms.join(", ")}]`);
+      console.log(`📝 Subcategory terms: [${subcategoryTerms.join(", ")}]`);
 
       // Build fuzzy matching patterns
       const allTerms = [...categoryTerms, ...subcategoryTerms];
-      const fuzzyPatterns = allTerms.map(term => new RegExp(term, 'i'));
+      const fuzzyPatterns = allTerms.map((term) => new RegExp(term, "i"));
 
       let filter = {
         $or: [
-          { 'rowData.Category': { $in: fuzzyPatterns } },
-          { content: { $in: fuzzyPatterns } }
-        ]
+          { "rowData.Category": { $in: fuzzyPatterns } },
+          { content: { $in: fuzzyPatterns } },
+        ],
       };
 
       // Add location filter if provided
       if (location) {
-        const locationRegex = new RegExp(location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-        filter['rowData.City'] = locationRegex;
+        const locationRegex = new RegExp(
+          location.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "i"
+        );
+        filter["rowData.City"] = locationRegex;
       }
 
-      console.log(`📊 ExcelModel: Fuzzy filter query:`, JSON.stringify(filter, null, 2));
+      console.log(
+        `📊 ExcelModel: Fuzzy filter query:`,
+        JSON.stringify(filter, null, 2)
+      );
 
       const rows = await this.prisma.excelRow.findMany({
         where: filter,
         orderBy: {
-          createdAt: 'desc'
-        }
+          createdAt: "desc",
+        },
       });
 
       console.log(`✅ ExcelModel: Fuzzy search found ${rows.length} rows`);
 
       return rows;
-
     } catch (error) {
       console.error("ExcelModel: Error in fuzzy category search:", error);
       throw error;
@@ -1924,23 +1955,24 @@ class ExcelModel {
     try {
       const rows = await this.prisma.excelRow.findMany({
         select: {
-          rowData: true
-        }
+          rowData: true,
+        },
       });
 
       const categories = new Set();
-      rows.forEach(row => {
+      rows.forEach((row) => {
         const category = row.rowData?.Category;
-        if (category && category !== 'NULL' && category.trim()) {
+        if (category && category !== "NULL" && category.trim()) {
           categories.add(category.trim());
         }
       });
 
       const uniqueCategories = Array.from(categories).sort();
-      console.log(`📊 ExcelModel: Found ${uniqueCategories.length} unique categories`);
-      
-      return uniqueCategories;
+      console.log(
+        `📊 ExcelModel: Found ${uniqueCategories.length} unique categories`
+      );
 
+      return uniqueCategories;
     } catch (error) {
       console.error("ExcelModel: Error getting unique categories:", error);
       throw error;
@@ -1955,23 +1987,24 @@ class ExcelModel {
     try {
       const rows = await this.prisma.excelRow.findMany({
         select: {
-          rowData: true
-        }
+          rowData: true,
+        },
       });
 
       const categoryStats = {};
       const locationStats = {};
 
-      rows.forEach(row => {
+      rows.forEach((row) => {
         const category = row.rowData?.Category;
         const city = row.rowData?.City;
 
-        if (category && category !== 'NULL' && category.trim()) {
+        if (category && category !== "NULL" && category.trim()) {
           const cleanCategory = category.trim();
-          categoryStats[cleanCategory] = (categoryStats[cleanCategory] || 0) + 1;
+          categoryStats[cleanCategory] =
+            (categoryStats[cleanCategory] || 0) + 1;
         }
 
-        if (city && city !== 'NULL' && city.trim()) {
+        if (city && city !== "NULL" && city.trim()) {
           const cleanCity = city.trim();
           locationStats[cleanCity] = (locationStats[cleanCity] || 0) + 1;
         }
@@ -1979,14 +2012,14 @@ class ExcelModel {
 
       // Sort by count
       const sortedCategories = Object.entries(categoryStats)
-        .sort(([,a], [,b]) => b - a)
+        .sort(([, a], [, b]) => b - a)
         .reduce((acc, [key, value]) => {
           acc[key] = value;
           return acc;
         }, {});
 
       const sortedLocations = Object.entries(locationStats)
-        .sort(([,a], [,b]) => b - a)
+        .sort(([, a], [, b]) => b - a)
         .reduce((acc, [key, value]) => {
           acc[key] = value;
           return acc;
@@ -1996,16 +2029,21 @@ class ExcelModel {
         totalRows: rows.length,
         totalCategories: Object.keys(categoryStats).length,
         totalLocations: Object.keys(locationStats).length,
-        topCategories: Object.fromEntries(Object.entries(sortedCategories).slice(0, 20)),
-        topLocations: Object.fromEntries(Object.entries(sortedLocations).slice(0, 20)),
+        topCategories: Object.fromEntries(
+          Object.entries(sortedCategories).slice(0, 20)
+        ),
+        topLocations: Object.fromEntries(
+          Object.entries(sortedLocations).slice(0, 20)
+        ),
         categoryDistribution: sortedCategories,
-        locationDistribution: sortedLocations
+        locationDistribution: sortedLocations,
       };
 
-      console.log(`📊 ExcelModel: Category stats - ${stats.totalCategories} categories, ${stats.totalLocations} locations`);
-      
-      return stats;
+      console.log(
+        `📊 ExcelModel: Category stats - ${stats.totalCategories} categories, ${stats.totalLocations} locations`
+      );
 
+      return stats;
     } catch (error) {
       console.error("ExcelModel: Error getting category stats:", error);
       throw error;
