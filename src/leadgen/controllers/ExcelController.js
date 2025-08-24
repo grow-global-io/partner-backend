@@ -1126,9 +1126,104 @@ class ExcelController {
         `📊 [${requestId}] Parallel vector search completed: ${allRelevantRows.length} total results from ${successfulEmbeddings.length} searches`
       );
 
+      // NEW: Category filtering for improved results
+      const categoryFilterStart = Date.now();
+      let categoryFilteredRows = allRelevantRows;
+      
+      // Check if industry matches known categories and apply filtering
+      const knownCategories = [
+        'Apparel & Clothing', 'Pet Apparel', 'Religious Apparel', 'Cricket Apparel',
+        'Riding Apparel', 'Bowling Apparel', 'Software- Apparel & Textile',
+        'Air-conditioning & Equipment', 'BPO & Call Center', 'Computer',
+        'Exporters- Garments'
+      ];
+      
+      const industryLower = industry.toLowerCase();
+      const productLower = product.toLowerCase();
+      
+      // Try to match industry/product to categories for filtering
+      let targetCategories = [];
+      let shouldFilter = false;
+      
+      if (industryLower.includes('apparel') || productLower.includes('apparel') || 
+          industryLower.includes('clothing') || productLower.includes('clothing')) {
+        targetCategories = ['Apparel & Clothing', 'Pet Apparel', 'Religious Apparel', 
+                           'Cricket Apparel', 'Riding Apparel', 'Bowling Apparel', 
+                           'Software- Apparel & Textile', 'Exporters- Garments'];
+        shouldFilter = true;
+        
+        // More specific filtering for pet apparel
+        if (productLower.includes('pet') || industryLower.includes('pet')) {
+          targetCategories = ['Pet Apparel', 'Apparel & Clothing'];
+        }
+      } else if (industryLower.includes('air') || industryLower.includes('conditioning')) {
+        targetCategories = ['Air-conditioning & Equipment'];
+        shouldFilter = true;
+      } else if (industryLower.includes('bpo') || industryLower.includes('call center')) {
+        targetCategories = ['BPO & Call Center'];
+        shouldFilter = true;
+      } else if (industryLower.includes('computer') || productLower.includes('computer')) {
+        targetCategories = knownCategories.filter(cat => cat.includes('Computer'));
+        shouldFilter = true;
+      }
+      
+      if (shouldFilter && targetCategories.length > 0) {
+        console.log(`🔍 [${requestId}] Applying category filter for: [${targetCategories.join(', ')}]`);
+        
+        categoryFilteredRows = allRelevantRows.filter(row => {
+          const rowCategory = row.rowData?.Category || '';
+          return targetCategories.some(targetCat => {
+            const match = rowCategory.toLowerCase().includes(targetCat.toLowerCase()) ||
+                         targetCat.toLowerCase().includes(rowCategory.toLowerCase());
+            return match;
+          });
+        });
+        
+        console.log(`📊 [${requestId}] Category filtering: ${allRelevantRows.length} → ${categoryFilteredRows.length} results`);
+        
+        // If we got too few results with strict filtering, fall back to partial matching
+        if (categoryFilteredRows.length < 3 && allRelevantRows.length > 10) {
+          console.log(`🔄 [${requestId}] Too few results, applying fuzzy category matching...`);
+          
+          categoryFilteredRows = allRelevantRows.filter(row => {
+            const rowCategory = (row.rowData?.Category || '').toLowerCase();
+            const rowContent = (row.content || '').toLowerCase();
+            
+            return targetCategories.some(targetCat => {
+              const targetWords = targetCat.toLowerCase().split(/[\s&-]+/);
+              return targetWords.some(word => 
+                word.length > 3 && (rowCategory.includes(word) || rowContent.includes(word))
+              );
+            });
+          });
+          
+          console.log(`📊 [${requestId}] Fuzzy category filtering: ${categoryFilteredRows.length} results`);
+        }
+        
+        // If still no results, don't filter
+        if (categoryFilteredRows.length === 0) {
+          console.log(`⚠️ [${requestId}] No category matches found, using all results`);
+          categoryFilteredRows = allRelevantRows;
+        }
+      } else {
+        console.log(`📊 [${requestId}] No specific category filtering applied for industry: ${industry}`);
+      }
+      
+      this.performanceMonitor.trackStage(
+        requestId,
+        "categoryFiltering",
+        Date.now() - categoryFilterStart,
+        {
+          originalResults: allRelevantRows.length,
+          filteredResults: categoryFilteredRows.length,
+          targetCategories: targetCategories,
+          filteringApplied: shouldFilter
+        }
+      );
+
       // Continue with existing logic for deduplication, scoring, etc.
       const deduplicationStart = Date.now();
-      const uniqueRows = this.deduplicateRows(allRelevantRows);
+      const uniqueRows = this.deduplicateRows(categoryFilteredRows);
       this.performanceMonitor.trackStage(
         requestId,
         "deduplication",
@@ -1154,10 +1249,18 @@ class ExcelController {
             searchSummary,
             totalResults: 0,
             leads: [],
+            categoryFiltering: {
+              originalResults: allRelevantRows.length,
+              afterCategoryFilter: categoryFilteredRows.length,
+              afterDeduplication: 0,
+              targetCategories: targetCategories || [],
+              filteringApplied: shouldFilter || false
+            },
             debugInfo: {
-              message: "No rows found in any search",
-              suggestion:
-                "Try broader search terms or check if data is properly embedded",
+              message: "No rows found after category filtering and deduplication",
+              suggestion: targetCategories && targetCategories.length > 0 
+                ? `Try broader categories or different industry terms. Searched for: ${targetCategories.join(', ')}`
+                : "Try broader search terms or check if data is properly embedded",
             },
           },
         });
@@ -1225,18 +1328,26 @@ class ExcelController {
         success: true,
         data: {
           searchCriteria: { product, industry, region, keywords },
-          totalMatches: uniqueRows.length,
+          totalMatches: categoryFilteredRows.length, // Show category-filtered count
           qualifiedLeads: filteredLeads.length,
           leads: this.formatLeadResults(filteredLeads),
           searchSummary,
+          categoryFiltering: {
+            originalResults: allRelevantRows.length,
+            afterCategoryFilter: categoryFilteredRows.length,
+            afterDeduplication: uniqueRows.length,
+            targetCategories: targetCategories,
+            filteringApplied: shouldFilter
+          },
           responseTime: totalResponseTime,
           minScore,
           limit: parseInt(limit),
-          model: "optimized-batch-processing-v1",
+          model: "optimized-batch-processing-with-category-filter-v1",
           performanceId: requestId,
           optimizations: {
             batchEmbedding: true,
             parallelSearch: true,
+            categoryFiltering: true,
             embeddingTime: embeddingDuration,
             searchTime: vectorSearchDuration,
             totalOptimizationSavings: `Estimated ${Math.max(
@@ -5094,6 +5205,375 @@ Keep the response concise and actionable.`;
       return res.status(500).json({
         success: false,
         error: "Failed to retrieve filter options",
+        details: error.message,
+      });
+    }
+  }
+
+  /**
+   * @description Find leads with proper category and subcategory filtering
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with filtered leads
+   */
+  async findLeadsWithCategoryFilter(req, res) {
+    const startTime = Date.now();
+    const requestId = this.performanceMonitor.startRequest(
+      "findLeadsWithCategoryFilter",
+      {
+        criteria: req.body,
+        userAgent: req.get("User-Agent"),
+        ip: req.ip,
+      }
+    );
+
+    try {
+      const {
+        category,
+        subcategory,
+        location,
+        limit = 50,
+        minScore = 60,
+        strictFiltering = true
+      } = req.body;
+
+      console.log(`🔍 [${requestId}] Starting filtered lead search:`, {
+        category,
+        subcategory,
+        location,
+        limit,
+        minScore,
+        strictFiltering
+      });
+
+      // Step 1: Build search criteria
+      const searchCriteria = {
+        category: category.trim(),
+        subcategory: subcategory.trim(),
+        location: location ? location.trim() : null,
+        strictFiltering,
+        limit,
+        minScore
+      };
+
+      // Step 2: First filter by exact category matches using database query
+      console.log(`📊 [${requestId}] Filtering by category: "${category}"`);
+      
+      let categoryFilteredRows;
+      if (strictFiltering) {
+        // Strict filtering: exact category and subcategory match
+        categoryFilteredRows = await this.excelModel.findRowsByCategories([category], [subcategory], location);
+      } else {
+        // Fuzzy filtering: partial matches
+        categoryFilteredRows = await this.excelModel.findRowsByCategoryFuzzy(category, subcategory, location);
+      }
+
+      console.log(`📊 [${requestId}] Found ${categoryFilteredRows.length} category-matched rows`);
+
+      if (categoryFilteredRows.length === 0) {
+        console.log(`❌ [${requestId}] No rows found for category: ${category}, subcategory: ${subcategory}`);
+        
+        // Try broader search with just category
+        console.log(`🔄 [${requestId}] Trying broader search with just category...`);
+        categoryFilteredRows = await this.excelModel.findRowsByCategories([category], [], location);
+        
+        if (categoryFilteredRows.length === 0) {
+          this.performanceMonitor.completeRequest(requestId, {
+            success: false,
+            error: "No matching category found",
+            resultsCount: 0,
+          });
+
+          return res.status(404).json({
+            success: false,
+            error: "No leads found",
+            message: `No leads found for category "${category}" and subcategory "${subcategory}"`,
+            data: {
+              searchCriteria,
+              totalMatches: 0,
+              qualifiedLeads: 0,
+              leads: [],
+              suggestions: [
+                "Try a different category or subcategory",
+                "Check spelling of category/subcategory",
+                "Use broader search terms",
+                "Remove location filter if specified"
+              ]
+            }
+          });
+        }
+      }
+
+      // Step 3: If we have category matches, now apply semantic scoring for ranking
+      console.log(`🧠 [${requestId}] Applying semantic scoring to ${categoryFilteredRows.length} rows...`);
+      
+      const scoringStart = Date.now();
+      const scoredLeads = await this.scoreLeadsForCategoryFilter(
+        categoryFilteredRows,
+        category,
+        subcategory,
+        location
+      );
+      
+      const scoringTime = Date.now() - scoringStart;
+      console.log(`⚡ [${requestId}] Semantic scoring completed in ${scoringTime}ms`);
+
+      // Step 4: Filter by minimum score and apply limit
+      const filteredLeads = scoredLeads
+        .filter(lead => lead.finalScore >= minScore)
+        .slice(0, parseInt(limit));
+
+      // Step 5: Prepare response
+      const totalResponseTime = Date.now() - startTime;
+      
+      this.performanceMonitor.completeRequest(requestId, {
+        success: true,
+        resultsCount: filteredLeads.length,
+        responseTime: totalResponseTime,
+      });
+
+      console.log(`✅ [${requestId}] Filtered lead search completed in ${totalResponseTime}ms`);
+      console.log(`📊 [${requestId}] Results: ${filteredLeads.length}/${categoryFilteredRows.length} leads qualified (${Math.round(filteredLeads.length/categoryFilteredRows.length*100)}% pass rate)`);
+
+      return res.json({
+        success: true,
+        data: {
+          searchCriteria,
+          totalMatches: categoryFilteredRows.length,
+          qualifiedLeads: filteredLeads.length,
+          leads: this.formatLeadResults(filteredLeads),
+          filteringSummary: {
+            categoryMatches: categoryFilteredRows.length,
+            afterScoring: scoredLeads.length,
+            afterMinScore: filteredLeads.length,
+            averageScore: filteredLeads.length > 0 
+              ? Math.round(filteredLeads.reduce((sum, lead) => sum + lead.finalScore, 0) / filteredLeads.length)
+              : 0
+          },
+          responseTime: totalResponseTime,
+          model: "category-filtered-v1",
+          performanceId: requestId
+        }
+      });
+
+    } catch (error) {
+      console.error(`❌ [${requestId}] Error in findLeadsWithCategoryFilter:`, error);
+      this.performanceMonitor.completeRequest(requestId, {
+        success: false,
+        error: error.message,
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: "Failed to find leads",
+        details: error.message,
+        performanceId: requestId,
+      });
+    }
+  }
+
+  /**
+   * @description Score leads specifically for category-filtered results
+   * @param {Array} rows - Array of database rows
+   * @param {string} category - Target category
+   * @param {string} subcategory - Target subcategory  
+   * @param {string} location - Target location (optional)
+   * @returns {Array} Scored leads
+   */
+  async scoreLeadsForCategoryFilter(rows, category, subcategory, location) {
+    const scoredLeads = [];
+
+    for (const row of rows) {
+      try {
+        let score = 0;
+        let scoreBreakdown = {
+          categoryMatch: 0,
+          subcategoryMatch: 0,
+          locationMatch: 0,
+          qualityBonus: 0
+        };
+
+        const rowData = row.rowData || {};
+        const rowCategory = (rowData.Category || '').toLowerCase().trim();
+        const rowCity = (rowData.City || '').toLowerCase().trim();
+        const rowCompany = (rowData.Company || '').toLowerCase().trim();
+        const rowName = (rowData.Name || '').toLowerCase().trim();
+
+        // Category matching (40 points max)
+        const targetCategory = category.toLowerCase().trim();
+        if (rowCategory.includes(targetCategory) || targetCategory.includes(rowCategory)) {
+          scoreBreakdown.categoryMatch = 40;
+          score += 40;
+        } else if (this.isRelatedCategory(rowCategory, targetCategory)) {
+          scoreBreakdown.categoryMatch = 25;
+          score += 25;
+        }
+
+        // Subcategory matching (35 points max)
+        const targetSubcategory = subcategory.toLowerCase().trim();
+        if (rowCategory.includes(targetSubcategory) || targetSubcategory.includes(rowCategory)) {
+          scoreBreakdown.subcategoryMatch = 35;
+          score += 35;
+        } else if (this.isRelatedSubcategory(rowCategory, targetSubcategory)) {
+          scoreBreakdown.subcategoryMatch = 20;
+          score += 20;
+        }
+
+        // Location matching (15 points max)
+        if (location) {
+          const targetLocation = location.toLowerCase().trim();
+          if (rowCity.includes(targetLocation) || targetLocation.includes(rowCity)) {
+            scoreBreakdown.locationMatch = 15;
+            score += 15;
+          }
+        } else {
+          // No location filter, give neutral score
+          scoreBreakdown.locationMatch = 10;
+          score += 10;
+        }
+
+        // Quality bonus (10 points max)
+        if (rowData.Email && rowData.Email !== 'NULL' && rowData.Email.includes('@')) {
+          scoreBreakdown.qualityBonus += 3;
+          score += 3;
+        }
+        if (rowData.Website && rowData.Website !== 'NULL') {
+          scoreBreakdown.qualityBonus += 3;
+          score += 3;
+        }
+        if (rowData.Mobile && rowData.Mobile !== 'NULL' && rowData.Mobile.length >= 10) {
+          scoreBreakdown.qualityBonus += 2;
+          score += 2;
+        }
+        if (rowCompany && rowCompany.length > 5) {
+          scoreBreakdown.qualityBonus += 2;
+          score += 2;
+        }
+
+        const finalScore = Math.min(100, Math.round(score));
+
+        scoredLeads.push({
+          ...rowData,
+          finalScore,
+          scoreBreakdown,
+          matchReason: this.generateMatchReason(scoreBreakdown, category, subcategory, location),
+          id: row.id,
+          documentId: row.documentId
+        });
+
+      } catch (error) {
+        console.error('Error scoring lead:', error);
+        // Include the lead with a low score if scoring fails
+        scoredLeads.push({
+          ...row.rowData,
+          finalScore: 30,
+          scoreBreakdown: { error: 'Scoring failed' },
+          matchReason: 'Partial match (scoring error)',
+          id: row.id,
+          documentId: row.documentId
+        });
+      }
+    }
+
+    return scoredLeads.sort((a, b) => b.finalScore - a.finalScore);
+  }
+
+  /**
+   * @description Check if two categories are related
+   */
+  isRelatedCategory(rowCategory, targetCategory) {
+    const categoryMappings = {
+      'apparel': ['clothing', 'garment', 'textile', 'fashion', 'dress'],
+      'clothing': ['apparel', 'garment', 'textile', 'fashion', 'dress'],
+      'religious': ['spiritual', 'devotional', 'temple', 'worship'],
+      'pet': ['animal', 'dog', 'cat', 'puppy'],
+      'food': ['restaurant', 'catering', 'kitchen', 'dining', 'meal'],
+      'electronics': ['electronic', 'gadget', 'device', 'tech'],
+      'automotive': ['car', 'vehicle', 'auto', 'motor']
+    };
+
+    for (const [key, synonyms] of Object.entries(categoryMappings)) {
+      if (targetCategory.includes(key) || rowCategory.includes(key)) {
+        return synonyms.some(synonym => 
+          rowCategory.includes(synonym) || targetCategory.includes(synonym)
+        );
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @description Check if subcategory is related
+   */
+  isRelatedSubcategory(rowCategory, targetSubcategory) {
+    const subcategoryMappings = {
+      'pet': ['animal', 'dog', 'cat', 'puppy', 'kitten'],
+      'religious': ['spiritual', 'devotional', 'temple', 'worship', 'prayer'],
+      'women': ['ladies', 'female', 'girl'],
+      'men': ['male', 'boy', 'gentleman'],
+      'kids': ['children', 'child', 'baby', 'infant']
+    };
+
+    for (const [key, synonyms] of Object.entries(subcategoryMappings)) {
+      if (targetSubcategory.includes(key)) {
+        return synonyms.some(synonym => rowCategory.includes(synonym));
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @description Generate match reason based on score breakdown
+   */
+  generateMatchReason(scoreBreakdown, category, subcategory, location) {
+    const reasons = [];
+    
+    if (scoreBreakdown.categoryMatch >= 35) {
+      reasons.push(`Exact ${category} category match`);
+    } else if (scoreBreakdown.categoryMatch >= 20) {
+      reasons.push(`Related to ${category} category`);
+    }
+    
+    if (scoreBreakdown.subcategoryMatch >= 30) {
+      reasons.push(`Strong ${subcategory} subcategory match`);
+    } else if (scoreBreakdown.subcategoryMatch >= 15) {
+      reasons.push(`Related ${subcategory} subcategory`);
+    }
+    
+    if (scoreBreakdown.locationMatch >= 12 && location) {
+      reasons.push(`Located in ${location}`);
+    }
+    
+    if (scoreBreakdown.qualityBonus >= 6) {
+      reasons.push('Complete contact information');
+    }
+    
+    return reasons.length > 0 ? reasons.join(', ') : 'Basic category match';
+  }
+
+  /**
+   * @description Get category statistics for better filtering
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with category statistics
+   */
+  async getCategoryStats(req, res) {
+    try {
+      console.log('📊 Getting category statistics...');
+      
+      const stats = await this.excelModel.getCategoryStats();
+      
+      return res.json({
+        success: true,
+        data: stats,
+        message: `Found ${stats.totalCategories} categories and ${stats.totalLocations} locations`
+      });
+      
+    } catch (error) {
+      console.error("ExcelController: Error getting category stats:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to retrieve category statistics",
         details: error.message,
       });
     }
