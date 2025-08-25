@@ -1,4 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
+const _ = require("lodash");
 const prisma = new PrismaClient();
 
 /**
@@ -1908,7 +1909,9 @@ class ExcelModel {
 
       // Build fuzzy matching patterns
       const allTerms = [...categoryTerms, ...subcategoryTerms];
-      const fuzzyPatterns = allTerms.map((term) => new RegExp(term, "i"));
+      const fuzzyPatterns = allTerms.map(
+        (term) => new RegExp(_.escapeRegExp(term), "i")
+      );
 
       let filter = {
         $or: [
