@@ -83,7 +83,6 @@ const chatController = new ChatController();
  *             questionAnswerCount:
  *               type: integer
  *
- *   schemas:
  *     ExcelDocument:
  *       type: object
  *       properties:
@@ -774,6 +773,40 @@ router.post("/reprocess", (req, res) =>
 
 /**
  * @swagger
+ * /api/leadgen/categories:
+ *   get:
+ *     summary: Get available categories and statistics
+ *     tags: [Lead Matching]
+ *     responses:
+ *       200:
+ *         description: Categories retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalCategories:
+ *                       type: integer
+ *                     totalLocations:
+ *                       type: integer
+ *                     topCategories:
+ *                       type: object
+ *                     topLocations:
+ *                       type: object
+ *       500:
+ *         description: Server error
+ */
+router.get("/categories", async (req, res) => {
+  await excelController.getCategoryStats(req, res);
+});
+
+/**
+ * @swagger
  * /api/leadgen/delete:
  *   post:
  *     summary: Delete Excel file and its embeddings
@@ -833,6 +866,131 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
 
 /**
  * @swagger
+ * /api/leadgen/find-leads-filtered:
+ *   post:
+ *     summary: Find leads with proper category and subcategory filtering
+ *     tags: [Lead Matching]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - category
+ *               - subcategory
+ *             properties:
+ *               category:
+ *                 type: string
+ *                 description: Main category (e.g., "Apparel & Clothing")
+ *                 example: "Apparel & Clothing"
+ *               subcategory:
+ *                 type: string
+ *                 description: Subcategory (e.g., "Pet Apparel")
+ *                 example: "Pet Apparel"
+ *               location:
+ *                 type: string
+ *                 description: Location filter (optional)
+ *                 example: "Pune"
+ *               limit:
+ *                 type: integer
+ *                 default: 50
+ *                 description: Maximum number of results
+ *               minScore:
+ *                 type: integer
+ *                 default: 60
+ *                 description: Minimum score threshold (0-100)
+ *               strictFiltering:
+ *                 type: boolean
+ *                 default: true
+ *                 description: Whether to apply strict category/subcategory filtering
+ *     responses:
+ *       200:
+ *         description: Leads found and scored successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     searchCriteria:
+ *                       type: object
+ *                     totalMatches:
+ *                       type: integer
+ *                     qualifiedLeads:
+ *                       type: integer
+ *                     leads:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     filteringSummary:
+ *                       type: object
+ *       400:
+ *         description: Missing required parameters (category, subcategory)
+ *       404:
+ *         description: No relevant leads found
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/find-leads-filtered",
+  [
+    body("category")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Category is required")
+      .isLength({ max: 100 })
+      .withMessage("Category must be less than 100 characters"),
+    body("subcategory")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Subcategory is required")
+      .isLength({ max: 100 })
+      .withMessage("Subcategory must be less than 100 characters"),
+    body("location")
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ max: 100 })
+      .withMessage("Location must be less than 100 characters"),
+    body("limit")
+      .optional()
+      .isInt({ min: 1, max: 200 })
+      .withMessage("Limit must be between 1 and 200"),
+    body("minScore")
+      .optional()
+      .isInt({ min: 0, max: 100 })
+      .withMessage("MinScore must be between 0 and 100"),
+    body("strictFiltering")
+      .optional()
+      .isBoolean()
+      .withMessage("StrictFiltering must be a boolean"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation error",
+        message: "Invalid input parameters",
+        details: errors.array(),
+        code: "VALIDATION_ERROR",
+      });
+    }
+    await excelController.findLeadsWithCategoryFilter(req, res);
+  }
+);
+
+module.exports = router;
+
+/**
+ * @swagger
  * /api/leadgen/find-leads:
  *   post:
  *     summary: Find and score leads based on matchmaking criteria
@@ -871,8 +1029,8 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *                 description: Maximum number of results
  *               minScore:
  *                 type: integer
- *                 default: 50
- *                 description: Minimum score threshold (0-100)
+ *                 default: 55
+ *                 description: Minimum score threshold (0-100). Leads with score < 55% will be filtered out
  *     responses:
  *       200:
  *         description: Leads found and scored successfully
@@ -994,6 +1152,86 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  */
 router.post("/find-leads", (req, res) =>
   excelController.findLeadsOptimized(req, res)
+);
+
+/**
+ * @swagger
+ * /api/leadgen/filter-options:
+ *   get:
+ *     summary: Get hierarchical categories with subcategories and locations for frontend filters
+ *     tags: [Lead Generation]
+ *     description: Returns hierarchically structured filter options with categories as keys, containing 3-4 subcategories each with 3-4 locations
+ *     responses:
+ *       200:
+ *         description: Hierarchical filter options retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Hierarchical filter options retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     filterStructure:
+ *                       type: object
+ *                       description: Hierarchical structure with categories as keys
+ *                       additionalProperties:
+ *                         type: object
+ *                         description: Subcategories for each category
+ *                         additionalProperties:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                           description: Locations for each subcategory (max 4)
+ *                       example:
+ *                         "Computer":
+ *                           "Hardware": ["Mumbai", "Delhi", "Bangalore", "Pune"]
+ *                           "Software": ["Hyderabad", "Chennai", "Noida", "Gurgaon"]
+ *                           "Peripherals": ["Kolkata", "Ahmedabad", "Jaipur", "Lucknow"]
+ *                         "Apparel":
+ *                           "Garments": ["Ludhiana", "Tirupur", "Coimbatore", "Erode"]
+ *                           "Textile": ["Surat", "Ichalkaranji", "Bhiwandi", "Panipat"]
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalCategories:
+ *                           type: integer
+ *                           description: Total number of main categories
+ *                         totalSubcategories:
+ *                           type: integer
+ *                           description: Total number of subcategories across all categories
+ *                         totalLocations:
+ *                           type: integer
+ *                           description: Total number of locations across all subcategories
+ *                     lastUpdated:
+ *                       type: string
+ *                       format: date-time
+ *                       description: Timestamp when data was last retrieved
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Failed to retrieve filter options"
+ *                 details:
+ *                   type: string
+ *                   description: Detailed error message
+ */
+router.get("/filter-options", (req, res) =>
+  excelController.getFilterOptions(req, res)
 );
 
 /**
