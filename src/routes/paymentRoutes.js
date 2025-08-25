@@ -916,7 +916,7 @@ router.post("/wallet-balance", async (req, res) => {
               6
             )}...${walletAddress.substring(38)}`,
           },
-          unit_amount: amount * 100, // Amount in smallest currency unit (cents for USD)
+          unit_amount: currency.toUpperCase() === "USD" ? amount * 100 : amount, // Only multiply by 100 for USD (cents)
         },
         quantity: 1,
       },
@@ -930,7 +930,7 @@ router.post("/wallet-balance", async (req, res) => {
       line_items: stripeLineItems,
       mode: "payment",
       success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancel_url,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
@@ -1142,7 +1142,7 @@ router.post("/gateway/wallet-balance", async (req, res) => {
               6
             )}...${walletAddress.substring(38)}`,
           },
-          unit_amount: amount * 100, // Amount in smallest currency unit (cents for USD)
+          unit_amount: currency.toUpperCase() === "USD" ? amount * 100 : amount, // Only multiply by 100 for USD (cents)
         },
         quantity: 1,
       },
