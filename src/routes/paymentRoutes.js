@@ -16,7 +16,7 @@ const router = express.Router();
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const BASE_URL = "https://backend.gll.one";
+const BASE_URL = "http://localhost:8000";
 const FRONTEND_URL = "https://gll.one";
 
 // Currency Cache Configuration
@@ -535,7 +535,9 @@ router.post("/purchase-plan", async (req, res) => {
         ? success_url
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
-        ? cancel_url
+        ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -705,7 +707,9 @@ router.post("/stripe/purchase-plan", async (req, res) => {
         ? success_url
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
-        ? cancel_url
+        ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -930,7 +934,11 @@ router.post("/wallet-balance", async (req, res) => {
       line_items: stripeLineItems,
       mode: "payment",
       success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: cancel_url,
+      cancel_url: cancel_url
+        ? `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
+            cancel_url
+          )}`
+        : `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
@@ -1106,7 +1114,7 @@ router.post("/wallet-balance", async (req, res) => {
 router.post("/gateway/wallet-balance", async (req, res) => {
   try {
     console.log("🎯 Creating payment gateway session for wallet balance");
-    const { walletAddress, noOfIons, amount, currency } = req.body;
+    const { walletAddress, noOfIons, amount, currency, cancel_url } = req.body;
 
     console.log("📋 Received wallet balance payment request:", {
       walletAddress,
@@ -1155,7 +1163,11 @@ router.post("/gateway/wallet-balance", async (req, res) => {
       line_items,
       mode: "payment",
       success_url: `${BASE_URL}/api/payments/gateway/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
-      cancel_url: `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancel_url
+        ? `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
+            cancel_url
+          )}`
+        : `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
         noOfIons: noOfIons.toString(),
@@ -1341,7 +1353,7 @@ router.get("/success", async (req, res) => {
  * /api/payments/cancel:
  *   get:
  *     summary: Handle payment cancellation
- *     description: Processes payment cancellation by user and redirects to frontend
+ *     description: Processes payment cancellation by user and redirects to frontend or original cancel URL
  *     tags:
  *       - Payment Processing
  *     parameters:
@@ -1352,6 +1364,13 @@ router.get("/success", async (req, res) => {
  *         schema:
  *           type: string
  *           example: "session_123"
+ *       - name: original_cancel_url
+ *         in: query
+ *         required: false
+ *         description: Original cancel URL to redirect to (URL encoded)
+ *         schema:
+ *           type: string
+ *           example: "https%3A//example.com/cancel"
  *     responses:
  *       302:
  *         description: Redirects to frontend with cancellation status
@@ -1360,9 +1379,18 @@ router.get("/success", async (req, res) => {
  */
 router.get("/cancel", async (req, res) => {
   try {
-    const { session_id } = req.query;
+    const { session_id, original_cancel_url } = req.query;
 
     console.log(`Payment cancelled for session: ${session_id || "unknown"}`);
+    console.log(
+      `Original cancel URL: ${original_cancel_url || "not provided"}`
+    );
+
+    // If original_cancel_url is provided, redirect to it
+    if (original_cancel_url) {
+      console.log(`Redirecting to original cancel URL: ${original_cancel_url}`);
+      return res.redirect(decodeURIComponent(original_cancel_url));
+    }
 
     // Redirect to frontend with cancellation status
     const message = session_id
@@ -1529,7 +1557,7 @@ router.get("/wallet-balance/success", async (req, res) => {
  * /api/payments/wallet-balance/cancel:
  *   get:
  *     summary: Handle wallet balance payment cancellation
- *     description: Processes wallet balance payment cancellation by user and redirects to frontend
+ *     description: Processes wallet balance payment cancellation by user and redirects to frontend or original cancel URL
  *     tags:
  *       - Wallet Management
  *     parameters:
@@ -1540,19 +1568,35 @@ router.get("/wallet-balance/success", async (req, res) => {
  *         schema:
  *           type: string
  *           example: "cs_test_..."
+ *       - name: original_cancel_url
+ *         in: query
+ *         required: false
+ *         description: Original cancel URL to redirect to (URL encoded)
+ *         schema:
+ *           type: string
+ *           example: "https%3A//example.com/cancel"
  *     responses:
  *       302:
- *         description: Redirects to frontend with cancellation status
+ *         description: Redirects to frontend with cancellation status or to original cancel URL
  *       500:
  *         description: Error processing cancellation - redirects to frontend with error
  */
 router.get("/wallet-balance/cancel", async (req, res) => {
   try {
-    const { session_id } = req.query;
+    const { session_id, original_cancel_url } = req.query;
 
     console.log(
       `Wallet balance payment cancelled for session: ${session_id || "unknown"}`
     );
+    console.log(
+      `Original cancel URL: ${original_cancel_url || "not provided"}`
+    );
+
+    // If original_cancel_url is provided, redirect to it
+    if (original_cancel_url) {
+      console.log(`Redirecting to original cancel URL: ${original_cancel_url}`);
+      return res.redirect(decodeURIComponent(original_cancel_url));
+    }
 
     // Redirect to frontend with cancellation status
     const message = session_id
@@ -1731,7 +1775,7 @@ router.get("/gateway/wallet-balance/success", async (req, res) => {
  * /api/payments/gateway/wallet-balance/cancel:
  *   get:
  *     summary: Handle payment gateway wallet balance payment cancellation
- *     description: Processes payment gateway wallet balance payment cancellation by user and redirects to frontend
+ *     description: Processes payment gateway wallet balance payment cancellation by user and redirects to frontend or original cancel URL
  *     tags:
  *       - Wallet Management
  *     parameters:
@@ -1742,21 +1786,37 @@ router.get("/gateway/wallet-balance/success", async (req, res) => {
  *         schema:
  *           type: string
  *           example: "session_123"
+ *       - name: original_cancel_url
+ *         in: query
+ *         required: false
+ *         description: Original cancel URL to redirect to (URL encoded)
+ *         schema:
+ *           type: string
+ *           example: "https%3A//example.com/cancel"
  *     responses:
  *       302:
- *         description: Redirects to frontend with cancellation status
+ *         description: Redirects to frontend with cancellation status or to original cancel URL
  *       500:
  *         description: Error processing cancellation - redirects to frontend with error
  */
 router.get("/gateway/wallet-balance/cancel", async (req, res) => {
   try {
-    const { session_id } = req.query;
+    const { session_id, original_cancel_url } = req.query;
 
     console.log(
       `Payment gateway wallet balance payment cancelled for session: ${
         session_id || "unknown"
       }`
     );
+    console.log(
+      `Original cancel URL: ${original_cancel_url || "not provided"}`
+    );
+
+    // If original_cancel_url is provided, redirect to it
+    if (original_cancel_url) {
+      console.log(`Redirecting to original cancel URL: ${original_cancel_url}`);
+      return res.redirect(decodeURIComponent(original_cancel_url));
+    }
 
     // Redirect to frontend with cancellation status
     const message = session_id
