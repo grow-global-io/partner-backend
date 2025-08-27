@@ -16,8 +16,8 @@ const router = express.Router();
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
+const FRONTEND_URL = "https://www.gll.one";
 const BASE_URL = "https://backend.gll.one";
-const FRONTEND_URL = "https://gll.one";
 
 // Currency Cache Configuration
 const CACHE_FILE_PATH = path.join(__dirname, "../cache/currency_cache.json");
