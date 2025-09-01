@@ -27,7 +27,63 @@ class URLContentExtractor {
     // Allowed protocols for security
     this.allowedProtocols = ["http:", "https:"];
 
-    // Blocked domains/IPs for SSRF prevention
+    // Allowlist of trusted domains for SSRF prevention
+    this.allowedDomains = [
+      // Major news and content sites
+      "bbc.com",
+      "bbc.co.uk",
+      "cnn.com",
+      "reuters.com",
+      "ap.org",
+      "nytimes.com",
+      "washingtonpost.com",
+      "theguardian.com",
+      "npr.org",
+
+      // Educational and reference sites
+      "wikipedia.org",
+      "britannica.com",
+      "edu",
+      "ac.uk",
+      "stanford.edu",
+      "mit.edu",
+      "harvard.edu",
+      "ox.ac.uk",
+      "cambridge.org",
+
+      // Tech and business sites
+      "techcrunch.com",
+      "wired.com",
+      "arstechnica.com",
+      "engadget.com",
+      "forbes.com",
+      "bloomberg.com",
+      "wsj.com",
+      "ft.com",
+
+      // Government and official sites
+      "gov",
+      "gov.uk",
+      "europa.eu",
+      "un.org",
+      "who.int",
+
+      // Popular content platforms
+      "medium.com",
+      "substack.com",
+      "wordpress.com",
+      "blogger.com",
+      "github.io",
+      "netlify.app",
+      "vercel.app",
+
+      // Test domains for development
+      "example.com",
+      "example.org",
+      "httpbin.org",
+    ];
+
+    // Blocked domains/IPs for additional SSRF prevention
     this.blockedDomains = [
       "localhost",
       "127.0.0.1",
@@ -196,13 +252,44 @@ class URLContentExtractor {
    * @returns {number} Hash value
    */
   simpleHash(str) {
+    // Input validation to prevent loop bound injection
+    if (typeof str !== "string") {
+      return 0; // Return fixed hash for non-string inputs
+    }
+
+    // Limit string length to prevent DoS attacks
+    const MAX_HASH_LENGTH = 4096;
+    const safeStr =
+      str.length > MAX_HASH_LENGTH ? str.substring(0, MAX_HASH_LENGTH) : str;
+
     let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
+    for (let i = 0; i < safeStr.length; i++) {
+      const char = safeStr.charCodeAt(i);
       hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
     return Math.abs(hash);
+  }
+
+  /**
+   * Add a trusted domain to the allowlist
+   * @param {string} domain - Domain to add to allowlist
+   */
+  addTrustedDomain(domain) {
+    if (typeof domain === "string" && domain.length > 0) {
+      const cleanDomain = domain.toLowerCase().replace(/^https?:\/\//, "");
+      if (!this.allowedDomains.includes(cleanDomain)) {
+        this.allowedDomains.push(cleanDomain);
+      }
+    }
+  }
+
+  /**
+   * Get list of trusted domains
+   * @returns {Array} Array of trusted domains
+   */
+  getTrustedDomains() {
+    return [...this.allowedDomains]; // Return copy to prevent modification
   }
 
   /**
@@ -238,9 +325,25 @@ class URLContentExtractor {
       );
     }
 
-    // Check for blocked domains/IPs (SSRF prevention)
     const hostname = parsedUrl.hostname.toLowerCase();
 
+    // SSRF Prevention: Use allowlist approach for better security
+    const isAllowed = this.allowedDomains.some((allowedDomain) => {
+      // Check for exact match or subdomain match
+      return (
+        hostname === allowedDomain ||
+        hostname.endsWith("." + allowedDomain) ||
+        (allowedDomain.startsWith(".") && hostname.endsWith(allowedDomain))
+      );
+    });
+
+    if (!isAllowed) {
+      throw new Error(
+        `Domain ${hostname} is not in the allowlist of trusted domains for security reasons`
+      );
+    }
+
+    // Additional security checks for blocked domains/IPs
     if (
       this.blockedDomains.some((blocked) => {
         if (blocked.includes("/")) {
@@ -255,7 +358,7 @@ class URLContentExtractor {
       );
     }
 
-    // Additional security checks
+    // Additional security checks for IP addresses
     if (parsedUrl.hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
       // IP address - additional validation
       if (this.isPrivateIP(parsedUrl.hostname)) {

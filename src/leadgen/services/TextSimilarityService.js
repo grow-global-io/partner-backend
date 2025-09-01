@@ -539,8 +539,12 @@ class TextSimilarityService {
    * @returns {number} Similarity score (0-1)
    */
   calculateStringSimilarity(str1, str2) {
-    const distance = this.levenshteinDistance(str1, str2);
-    const maxLength = Math.max(str1.length, str2.length);
+    // Input validation and coercion to prevent loop bound injection
+    const safeStr1 = String(str1 || "").substring(0, 10000); // Limit to 10k chars
+    const safeStr2 = String(str2 || "").substring(0, 10000); // Limit to 10k chars
+
+    const distance = this.levenshteinDistance(safeStr1, safeStr2);
+    const maxLength = Math.max(safeStr1.length, safeStr2.length);
     return maxLength > 0 ? 1 - distance / maxLength : 1;
   }
 
@@ -551,19 +555,23 @@ class TextSimilarityService {
    * @returns {number} Levenshtein distance
    */
   levenshteinDistance(str1, str2) {
+    // Input validation and coercion to prevent loop bound injection
+    const safeStr1 = String(str1 || "").substring(0, 10000); // Limit to 10k chars
+    const safeStr2 = String(str2 || "").substring(0, 10000); // Limit to 10k chars
+
     const matrix = [];
 
-    for (let i = 0; i <= str2.length; i++) {
+    for (let i = 0; i <= safeStr2.length; i++) {
       matrix[i] = [i];
     }
 
-    for (let j = 0; j <= str1.length; j++) {
+    for (let j = 0; j <= safeStr1.length; j++) {
       matrix[0][j] = j;
     }
 
-    for (let i = 1; i <= str2.length; i++) {
-      for (let j = 1; j <= str1.length; j++) {
-        if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+    for (let i = 1; i <= safeStr2.length; i++) {
+      for (let j = 1; j <= safeStr1.length; j++) {
+        if (safeStr2.charAt(i - 1) === safeStr1.charAt(j - 1)) {
           matrix[i][j] = matrix[i - 1][j - 1];
         } else {
           matrix[i][j] = Math.min(
@@ -575,7 +583,7 @@ class TextSimilarityService {
       }
     }
 
-    return matrix[str2.length][str1.length];
+    return matrix[safeStr2.length][safeStr1.length];
   }
 
   /**
