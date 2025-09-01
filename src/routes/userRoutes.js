@@ -2375,7 +2375,7 @@ router.get('/airdrop-claims', async (req, res) => {
 // POST endpoint for creator posts with media upload support
 router.post('/creator-posts', createPostLimiter, upload.array('media', 10), async (req, res) => {
     try {
-        const { id, content, username, profilePicture, timestamp } = req.body;
+        const { id, content, username, user_username, profilePicture, timestamp } = req.body;
 
         // Validation: Check all fields are present
         if (!id || !content || !username || !timestamp) {
@@ -2390,6 +2390,14 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
             return res.status(400).json({
                 success: false,
                 message: "Content exceeds maximum length of 1000 characters"
+            });
+        }
+
+        // User username validation: Max 50 characters if provided
+        if (user_username && user_username.length > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "User username exceeds maximum length of 50 characters"
             });
         }
 
@@ -2466,6 +2474,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                 postId: id,
                 content: content,
                 username: username,
+                user_username: user_username || null,
                 profilePicture: profilePicture || null,
                 timestamp: parsedTimestamp,
                 images: imageUrls,
@@ -2481,6 +2490,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                 id: newPost.postId,
                 content: newPost.content,
                 username: newPost.username,
+                user_username: newPost.user_username,
                 profilePicture: newPost.profilePicture,
                 timestamp: newPost.timestamp,
                 images: newPost.images,
@@ -2578,6 +2588,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
                 postId: true,
                 content: true,
                 username: true,
+                user_username: true,
                 profilePicture: true,
                 timestamp: true,
                 createdAt: true,
@@ -2608,6 +2619,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
             id: post.postId,
             content: post.content,
             username: post.username,
+            user_username: post.user_username,
             profilePicture: post.profilePicture,
             timestamp: post.timestamp,
             createdAt: post.createdAt,
@@ -2668,6 +2680,7 @@ router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
                 postId: true,
                 content: true,
                 username: true,
+                user_username: true,
                 profilePicture: true,
                 timestamp: true,
                 createdAt: true,
@@ -2695,6 +2708,7 @@ router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
             id: post.postId,
             content: post.content,
             username: post.username,
+            user_username: post.user_username,
             profilePicture: post.profilePicture,
             timestamp: post.timestamp,
             createdAt: post.createdAt,
@@ -2808,6 +2822,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
                 postId: true,
                 content: true,
                 username: true,
+                user_username: true,
                 profilePicture: true,
                 timestamp: true,
                 createdAt: true,
@@ -2843,6 +2858,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
             id: post.postId,
             content: post.content,
             username: post.username,
+            user_username: post.user_username,
             profilePicture: post.profilePicture || creator.profilePicture, // Use creator's profile picture as fallback
             timestamp: post.timestamp,
             createdAt: post.createdAt,
@@ -3053,6 +3069,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
                 postId: true,
                 content: true,
                 username: true,
+                user_username: true,
                 profilePicture: true,
                 timestamp: true,
                 createdAt: true,
@@ -3088,6 +3105,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
             id: post.postId,
             content: post.content,
             username: post.username,
+            user_username: post.user_username,
             profilePicture: post.profilePicture || creator.profilePicture, // Use creator's profile picture as fallback
             timestamp: post.timestamp,
             createdAt: post.createdAt,
