@@ -312,9 +312,12 @@ class ContentAnalysisService {
 
     const phrases = new Map();
 
-    // Extract n-gram phrases
+    // Extract n-gram phrases with bounds checking
+    const maxWords = 1000; // Limit to prevent DoS
+    const len = Math.min(words.length, maxWords);
+
     for (let n = minLength; n <= maxLength; n++) {
-      for (let i = 0; i <= words.length - n; i++) {
+      for (let i = 0; i <= len - n; i++) {
         const phrase = words.slice(i, i + n);
 
         // Skip phrases with too many stop words

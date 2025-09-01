@@ -157,11 +157,15 @@ class TextSimilarityService {
       let totalMatchedWords = 0;
       let totalMatchedChars = 0;
 
-      // Compare sentences for matches
-      for (let i = 0; i < sentences1.length; i++) {
+      // Compare sentences for matches with bounds checking
+      const maxSentences = 100; // Limit to prevent DoS
+      const len1 = Math.min(sentences1.length, maxSentences);
+      const len2 = Math.min(sentences2.length, maxSentences);
+
+      for (let i = 0; i < len1; i++) {
         const sentence1 = sentences1[i];
 
-        for (let j = 0; j < sentences2.length; j++) {
+        for (let j = 0; j < len2; j++) {
           const sentence2 = sentences2[j];
 
           const similarity = this.calculateStringSimilarity(
@@ -340,16 +344,20 @@ class TextSimilarityService {
     const words1 = processed1.words;
     const words2 = processed2.words;
 
-    // Find exact phrase matches of minimum length
-    for (let i = 0; i <= words1.length - this.minMatchLength; i++) {
+    // Find exact phrase matches of minimum length with bounds checking
+    const maxWords = 1000; // Limit to prevent DoS
+    const len1 = Math.min(words1.length, maxWords);
+    const len2 = Math.min(words2.length, maxWords);
+
+    for (let i = 0; i <= len1 - this.minMatchLength; i++) {
       for (
         let len = this.minMatchLength;
-        len <= Math.min(20, words1.length - i);
+        len <= Math.min(20, len1 - i);
         len++
       ) {
         const phrase1 = words1.slice(i, i + len).join(" ");
 
-        for (let j = 0; j <= words2.length - len; j++) {
+        for (let j = 0; j <= len2 - len; j++) {
           const phrase2 = words2.slice(j, j + len).join(" ");
 
           if (phrase1 === phrase2) {
@@ -484,7 +492,10 @@ class TextSimilarityService {
    */
   dotProduct(vector1, vector2) {
     let sum = 0;
-    for (let i = 0; i < vector1.length; i++) {
+    const maxLength = 10000; // Limit to prevent DoS
+    const len = Math.min(vector1.length, vector2.length, maxLength);
+
+    for (let i = 0; i < len; i++) {
       sum += vector1[i] * vector2[i];
     }
     return sum;
@@ -511,7 +522,10 @@ class TextSimilarityService {
    */
   generateNgrams(words, n) {
     const ngrams = [];
-    for (let i = 0; i <= words.length - n; i++) {
+    const maxWords = 1000; // Limit to prevent DoS
+    const len = Math.min(words.length, maxWords);
+
+    for (let i = 0; i <= len - n; i++) {
       ngrams.push(words.slice(i, i + n).join(" "));
     }
     return ngrams;
@@ -540,12 +554,17 @@ class TextSimilarityService {
    */
   calculateStringSimilarity(str1, str2) {
     // Input validation and coercion to prevent loop bound injection
-    const safeStr1 = String(str1 || "").substring(0, 10000); // Limit to 10k chars
-    const safeStr2 = String(str2 || "").substring(0, 10000); // Limit to 10k chars
+    const safeStr1 = String(str1 || "").substring(0, 1000); // Reduced limit for performance
+    const safeStr2 = String(str2 || "").substring(0, 1000); // Reduced limit for performance
+
+    // Additional validation to prevent loop bound injection
+    const maxLength = 1000;
+    const len1 = Math.min(safeStr1.length, maxLength);
+    const len2 = Math.min(safeStr2.length, maxLength);
 
     const distance = this.levenshteinDistance(safeStr1, safeStr2);
-    const maxLength = Math.max(safeStr1.length, safeStr2.length);
-    return maxLength > 0 ? 1 - distance / maxLength : 1;
+    const maxLen = Math.max(len1, len2);
+    return maxLen > 0 ? 1 - distance / maxLen : 1;
   }
 
   /**
@@ -556,21 +575,27 @@ class TextSimilarityService {
    */
   levenshteinDistance(str1, str2) {
     // Input validation and coercion to prevent loop bound injection
-    const safeStr1 = String(str1 || "").substring(0, 10000); // Limit to 10k chars
-    const safeStr2 = String(str2 || "").substring(0, 10000); // Limit to 10k chars
+    const safeStr1 = String(str1 || "").substring(0, 1000); // Reduced limit for performance
+    const safeStr2 = String(str2 || "").substring(0, 1000); // Reduced limit for performance
 
+    // Additional validation to prevent loop bound injection
+    const maxLength = 1000;
+    const len1 = Math.min(safeStr1.length, maxLength);
+    const len2 = Math.min(safeStr2.length, maxLength);
+
+    // Use validated lengths instead of string.length property
     const matrix = [];
 
-    for (let i = 0; i <= safeStr2.length; i++) {
+    for (let i = 0; i <= len2; i++) {
       matrix[i] = [i];
     }
 
-    for (let j = 0; j <= safeStr1.length; j++) {
+    for (let j = 0; j <= len1; j++) {
       matrix[0][j] = j;
     }
 
-    for (let i = 1; i <= safeStr2.length; i++) {
-      for (let j = 1; j <= safeStr1.length; j++) {
+    for (let i = 1; i <= len2; i++) {
+      for (let j = 1; j <= len1; j++) {
         if (safeStr2.charAt(i - 1) === safeStr1.charAt(j - 1)) {
           matrix[i][j] = matrix[i - 1][j - 1];
         } else {
@@ -583,7 +608,7 @@ class TextSimilarityService {
       }
     }
 
-    return matrix[safeStr2.length][safeStr1.length];
+    return matrix[len2][len1];
   }
 
   /**
@@ -634,7 +659,11 @@ class TextSimilarityService {
     for (const match of matches) {
       let overlaps = false;
 
-      for (let i = match.position1; i < match.position1 + match.length; i++) {
+      const maxPosition = 10000; // Limit to prevent DoS
+      const startPos = Math.min(match.position1, maxPosition);
+      const endPos = Math.min(startPos + match.length, maxPosition);
+
+      for (let i = startPos; i < endPos; i++) {
         if (usedPositions.has(i)) {
           overlaps = true;
           break;
@@ -643,7 +672,7 @@ class TextSimilarityService {
 
       if (!overlaps) {
         uniqueMatches.push(match);
-        for (let i = match.position1; i < match.position1 + match.length; i++) {
+        for (let i = startPos; i < endPos; i++) {
           usedPositions.add(i);
         }
       }

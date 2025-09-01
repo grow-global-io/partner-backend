@@ -72,7 +72,7 @@ class PlagiarismDetectionService {
         searchResults,
         options
       );
-      console.log(`Content matches found: ${contentMatches.length}`);
+      console.log("Content matches found:", { count: contentMatches.length });
 
       // Calculate final plagiarism score
       const plagiarismResult = this.calculatePlagiarismScore(
@@ -167,10 +167,12 @@ class PlagiarismDetectionService {
           // Add small delay between searches to be respectful
           await this.delay(500);
         } catch (searchError) {
-          console.warn(
-            `Search failed for query "${query}":`,
-            searchError.message
-          );
+          // Fix format string vulnerability by using structured logging
+          console.warn("Search failed for query:", {
+            query: String(query).substring(0, 100), // Limit query length for logging
+            error: searchError.message,
+            timestamp: new Date().toISOString(),
+          });
         }
       }
 
@@ -209,13 +211,16 @@ class PlagiarismDetectionService {
               extractedContent.text
             );
 
-          console.log(
-            `Similarity for ${url}: ${similarity.overallScore} (threshold: ${this.minSimilarityThreshold})`
-          );
-          console.log(`Original text: "${originalText.substring(0, 100)}..."`);
-          console.log(
-            `Extracted text: "${extractedContent.text.substring(0, 100)}..."`
-          );
+          console.log("Similarity analysis:", {
+            url: String(url).substring(0, 100),
+            similarity: similarity.overallScore,
+            threshold: this.minSimilarityThreshold,
+            originalTextPreview: String(originalText).substring(0, 100),
+            extractedTextPreview: String(extractedContent.text).substring(
+              0,
+              100
+            ),
+          });
 
           // Only include if similarity is above threshold
           if (similarity.overallScore >= this.minSimilarityThreshold) {
@@ -242,7 +247,10 @@ class PlagiarismDetectionService {
 
           return null;
         } catch (error) {
-          console.warn(`Failed to process URL ${url}:`, error.message);
+          console.warn("Failed to process URL:", {
+            url: String(url).substring(0, 100),
+            error: error.message,
+          });
           return null;
         }
       });

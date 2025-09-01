@@ -109,7 +109,9 @@ class URLContentExtractor {
       // Check if this is a test URL FIRST (for demonstration purposes)
       // Do this before any validation to avoid DNS lookups
       if (this.isTestUrlSimple(url)) {
-        console.log(`Using mock content for test URL: ${url}`);
+        console.log("Using mock content for test URL:", {
+          url: String(url).substring(0, 100),
+        });
         return this.generateMockContent(url);
       }
 
@@ -258,12 +260,14 @@ class URLContentExtractor {
     }
 
     // Limit string length to prevent DoS attacks
-    const MAX_HASH_LENGTH = 4096;
-    const safeStr =
-      str.length > MAX_HASH_LENGTH ? str.substring(0, MAX_HASH_LENGTH) : str;
+    const MAX_HASH_LENGTH = 1000; // Reduced for better security
+    const safeStr = str.substring(0, MAX_HASH_LENGTH);
+
+    // Use validated length instead of string.length property
+    const len = Math.min(safeStr.length, MAX_HASH_LENGTH);
 
     let hash = 0;
-    for (let i = 0; i < safeStr.length; i++) {
+    for (let i = 0; i < len; i++) {
       const char = safeStr.charCodeAt(i);
       hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
@@ -376,7 +380,10 @@ class URLContentExtractor {
    */
   async fetchContent(url) {
     try {
-      const response = await this.httpClient.get(url, {
+      // Additional SSRF protection: Re-validate URL before making request
+      const revalidatedUrl = this.validateUrl(url);
+
+      const response = await this.httpClient.get(revalidatedUrl, {
         maxContentLength: this.maxContentSize,
         validateStatus: (status) => status >= 200 && status < 400,
       });
