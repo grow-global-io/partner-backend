@@ -3940,4 +3940,468 @@ router.post('/creator-reward-card2', async (req, res) => {
     }
 });
 
+// ==================== CREATOR PRODUCT ROUTES ====================
+
+// Create Creator Product
+router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), async (req, res) => {
+    try {
+        const { email, title, description, price, status, category, tags } = req.body;
+        
+        // Validation
+        if (!email || !title || !description || !price) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields'
+            });
+        }
+        
+        // Validate description length (200 characters max)
+        if (description.length > 200) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 200 characters or less'
+            });
+        }
+
+        // Validate title length (100 characters max)
+        if (title.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title must be 100 characters or less'
+            });
+        }
+
+        let imageUrls = [];
+        
+        // Upload images to S3 if provided
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                const fileContent = fs.readFileSync(file.path);
+                
+                const params = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `creator-products/${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`,
+                    Body: fileContent,
+                    ContentType: file.mimetype,
+                };
+
+                const uploadResult = await s3.upload(params).promise();
+                imageUrls.push(uploadResult.Location);
+
+                // Delete the temporary file
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+        
+        const product = await prisma.creatorProduct.create({
+            data: {
+                email,
+                title: title.trim(),
+                description: description.trim(),
+                price: price.trim(),
+                status: status || 'available',
+                category: category || 'general',
+                tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
+                images: imageUrls,
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Product created successfully",
+            data: product
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // Clean up temporary files if they exist and there was an error
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+        
+        console.error("Error creating creator product:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create product',
+            error: error.message
+        });
+    }
+});
+
+// Get Single Creator Product (must come before the query route)
+router.get('/creatorProduct/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid product ID format'
+            });
+        }
+        
+        const product = await prisma.creatorProduct.findUnique({
+            where: { id: id }
+        });
+        
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                message: 'Product not found'
+            });
+        }
+        
+        const responseData = {
+            success: true,
+            data: product
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching creator product:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch product',
+            error: error.message
+        });
+    }
+});
+
+// Get All Creator Products (must come after the :id route)
+router.get('/creatorProduct', async (req, res) => {
+    try {
+        const { email, category, status, page = 1, limit = 10 } = req.query;
+        
+        const whereClause = {};
+        if (email) whereClause.email = email;
+        if (category) whereClause.category = category;
+        if (status) whereClause.status = status;
+        
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        const products = await prisma.creatorProduct.findMany({
+            where: whereClause,
+            skip: skip,
+            take: parseInt(limit),
+            orderBy: { createdAt: 'desc' }
+        });
+        
+        const total = await prisma.creatorProduct.count({ where: whereClause });
+        
+        const responseData = {
+            success: true,
+            data: products,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching creator products:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch products',
+            error: error.message
+        });
+    }
+});
+
+// Update Creator Product
+router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, title, description, price, status, category, tags, removeImages } = req.body;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid product ID format'
+            });
+        }
+        
+        // Check if product exists
+        const existingProduct = await prisma.creatorProduct.findUnique({
+            where: { id: id }
+        });
+        
+        if (!existingProduct) {
+            return res.status(404).json({
+                success: false,
+                message: 'Product not found'
+            });
+        }
+        
+        // Check if user owns this product
+        if (existingProduct.email !== email) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only update your own products'
+            });
+        }
+        
+        // Validation
+        if (description && description.length > 200) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 200 characters or less'
+            });
+        }
+        
+        if (title && title.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title must be 100 characters or less'
+            });
+        }
+        
+        let imageUrls = [...existingProduct.images];
+        
+        // Handle image removal
+        if (removeImages) {
+            const imagesToRemove = Array.isArray(removeImages) ? removeImages : [removeImages];
+            imageUrls = imageUrls.filter(img => !imagesToRemove.includes(img));
+        }
+        
+        // Upload new images to S3 if provided
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                const fileContent = fs.readFileSync(file.path);
+                
+                const params = {
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `creator-products/${Date.now()}-${Math.round(Math.random() * 1E9)}-${file.originalname}`,
+                    Body: fileContent,
+                    ContentType: file.mimetype,
+                };
+
+                const uploadResult = await s3.upload(params).promise();
+                imageUrls.push(uploadResult.Location);
+
+                // Delete the temporary file
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+        
+        const updateData = {
+            updatedAt: new Date()
+        };
+        
+        if (title) updateData.title = title.trim();
+        if (description) updateData.description = description.trim();
+        if (price) updateData.price = price.trim();
+        if (status) updateData.status = status;
+        if (category) updateData.category = category;
+        if (tags) updateData.tags = tags.split(',').map(tag => tag.trim());
+        if (imageUrls.length > 0) updateData.images = imageUrls;
+        
+        const updatedProduct = await prisma.creatorProduct.update({
+            where: { id: id },
+            data: updateData
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Product updated successfully",
+            data: updatedProduct
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // Clean up temporary files if they exist and there was an error
+        if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+                try {
+                    if (fs.existsSync(file.path)) {
+                        fs.unlinkSync(file.path);
+                    }
+                } catch (unlinkError) {
+                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                }
+            }
+        }
+        
+        console.error("Error updating creator product:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update product',
+            error: error.message
+        });
+    }
+});
+
+// Delete Creator Product
+router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email } = req.body;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid product ID format'
+            });
+        }
+        
+        // Check if product exists
+        const existingProduct = await prisma.creatorProduct.findUnique({
+            where: { id: id }
+        });
+        
+        if (!existingProduct) {
+            return res.status(404).json({
+                success: false,
+                message: 'Invalid product ID format'
+            });
+        }
+        
+        // Check if user owns this product
+        if (existingProduct.email !== email) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only delete your own products'
+            });
+        }
+        
+        // Delete images from S3 if they exist
+        if (existingProduct.images && existingProduct.images.length > 0) {
+            for (const imageUrl of existingProduct.images) {
+                try {
+                    const key = imageUrl.split('/').pop(); // Extract filename from URL
+                    await s3.deleteObject({
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Key: `creator-products/${key}`
+                    }).promise();
+                } catch (s3Error) {
+                    console.log("Warning: Could not delete image from S3:", s3Error);
+                }
+            }
+        }
+        
+        // Delete the product from database
+        await prisma.creatorProduct.delete({
+            where: { id: id }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Product deleted successfully"
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error deleting creator product:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete product',
+            error: error.message
+        });
+    }
+});
+
+// Delete specific images from Creator Product
+router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, imageUrls } = req.body;
+        
+        if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Please provide image URLs to delete'
+            });
+        }
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid product ID format'
+            });
+        }
+        
+        // Check if product exists
+        const existingProduct = await prisma.creatorProduct.findUnique({
+            where: { id: id }
+        });
+        
+        if (!existingProduct) {
+            return res.status(404).json({
+                success: false,
+                message: 'Product not found'
+            });
+        }
+        
+        // Check if user owns this product
+        if (existingProduct.email !== email) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only modify your own products'
+            });
+        }
+        
+        // Remove images from S3
+        for (const imageUrl of imageUrls) {
+            try {
+                const key = imageUrl.split('/').pop(); // Extract filename from URL
+                await s3.deleteObject({
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `creator-products/${key}`
+                }).promise();
+            } catch (s3Error) {
+                console.log("Warning: Could not delete image from S3:", s3Error);
+                // Continue with other images even if one fails
+            }
+        }
+        
+        // Update product images array
+        const updatedImages = existingProduct.images.filter(img => !imageUrls.includes(img));
+        
+        const updatedProduct = await prisma.creatorProduct.update({
+            where: { id: id },
+            data: {
+                images: updatedImages,
+                updatedAt: new Date()
+            }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Images deleted successfully",
+            data: updatedProduct
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error deleting product images:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete images',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
