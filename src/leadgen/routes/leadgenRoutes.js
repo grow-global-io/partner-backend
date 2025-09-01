@@ -1,6 +1,7 @@
 const express = require("express");
 const ExcelController = require("../controllers/ExcelController");
 const ChatController = require("../controllers/ChatController");
+const PlagiarismController = require("../controllers/PlagiarismController");
 const { body, validationResult } = require("express-validator");
 
 const router = express.Router();
@@ -8,6 +9,7 @@ const router = express.Router();
 // Initialize controllers
 const excelController = new ExcelController();
 const chatController = new ChatController();
+const plagiarismController = new PlagiarismController();
 
 /**
  * @swagger
@@ -986,6 +988,360 @@ router.post(
     await excelController.findLeadsWithCategoryFilter(req, res);
   }
 );
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     PlagiarismReport:
+ *       type: object
+ *       properties:
+ *         reportId:
+ *           type: string
+ *           description: Unique report identifier
+ *         inputType:
+ *           type: string
+ *           enum: [text, url]
+ *           description: Type of input checked
+ *         plagiarismScore:
+ *           type: number
+ *           minimum: 0
+ *           maximum: 100
+ *           description: Overall plagiarism score percentage
+ *         status:
+ *           type: string
+ *           enum: [pending, processing, completed, failed]
+ *           description: Processing status
+ *         summary:
+ *           type: object
+ *           properties:
+ *             totalMatches:
+ *               type: integer
+ *             highSimilarityMatches:
+ *               type: integer
+ *             mediumSimilarityMatches:
+ *               type: integer
+ *             lowSimilarityMatches:
+ *               type: integer
+ *             overallRisk:
+ *               type: string
+ *               enum: [minimal, low, medium, high]
+ *         matches:
+ *           type: array
+ *           items:
+ *             type: object
+ *             properties:
+ *               url:
+ *                 type: string
+ *               title:
+ *                 type: string
+ *               similarityScore:
+ *                 type: number
+ *               matchType:
+ *                 type: string
+ *                 enum: [exact, near-exact, partial, paraphrase]
+ *               matchedText:
+ *                 type: string
+ *               contextBefore:
+ *                 type: string
+ *               contextAfter:
+ *                 type: string
+ *         metadata:
+ *           type: object
+ *           properties:
+ *             processingTime:
+ *               type: integer
+ *             wordsChecked:
+ *               type: integer
+ *             createdAt:
+ *               type: string
+ *               format: date-time
+ */
+
+/**
+ * @swagger
+ * /api/leadgen/plagiarism/check-text:
+ *   post:
+ *     summary: Check text content for plagiarism
+ *     tags: [Plagiarism Detection]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - text
+ *             properties:
+ *               text:
+ *                 type: string
+ *                 description: Text content to check for plagiarism
+ *                 maxLength: 10000
+ *                 example: "This is the text content I want to check for plagiarism."
+ *               options:
+ *                 type: object
+ *                 properties:
+ *                   maxQueries:
+ *                     type: integer
+ *                     default: 5
+ *                     description: Maximum search queries to generate
+ *                   minPhraseLength:
+ *                     type: integer
+ *                     default: 4
+ *                     description: Minimum phrase length for searching
+ *                   excludeUrls:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     description: URLs to exclude from plagiarism check
+ *     responses:
+ *       200:
+ *         description: Plagiarism check completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   $ref: '#/components/schemas/PlagiarismReport'
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     cached:
+ *                       type: boolean
+ *                     processingTime:
+ *                       type: integer
+ *       400:
+ *         description: Validation error
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/plagiarism/check-text",
+  [
+    body("text")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Text is required")
+      .isLength({ max: 10000 })
+      .withMessage("Text must be less than 10,000 characters"),
+    body("options.maxQueries")
+      .optional()
+      .isInt({ min: 1, max: 10 })
+      .withMessage("maxQueries must be between 1 and 10"),
+    body("options.minPhraseLength")
+      .optional()
+      .isInt({ min: 2, max: 10 })
+      .withMessage("minPhraseLength must be between 2 and 10"),
+    body("options.excludeUrls")
+      .optional()
+      .isArray()
+      .withMessage("excludeUrls must be an array"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation error",
+        message: "Invalid input parameters",
+        details: errors.array(),
+        code: "VALIDATION_ERROR",
+      });
+    }
+    await plagiarismController.checkText(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/plagiarism/check-url:
+ *   post:
+ *     summary: Check URL content for plagiarism
+ *     tags: [Plagiarism Detection]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - url
+ *             properties:
+ *               url:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL to check for plagiarism
+ *                 example: "https://example.com/article"
+ *               options:
+ *                 type: object
+ *                 properties:
+ *                   maxQueries:
+ *                     type: integer
+ *                     default: 5
+ *                   minPhraseLength:
+ *                     type: integer
+ *                     default: 4
+ *                   excludeUrls:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: URL plagiarism check completed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/PlagiarismReport'
+ *                     - type: object
+ *                       properties:
+ *                         sourceUrl:
+ *                           type: string
+ *                         extractedMetadata:
+ *                           type: object
+ *       400:
+ *         description: Invalid URL or validation error
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/plagiarism/check-url",
+  [
+    body("url").isURL().withMessage("Valid URL is required"),
+    body("options.maxQueries")
+      .optional()
+      .isInt({ min: 1, max: 10 })
+      .withMessage("maxQueries must be between 1 and 10"),
+    body("options.excludeUrls")
+      .optional()
+      .isArray()
+      .withMessage("excludeUrls must be an array"),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation error",
+        message: "Invalid input parameters",
+        details: errors.array(),
+        code: "VALIDATION_ERROR",
+      });
+    }
+    await plagiarismController.checkUrl(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/plagiarism/report/{reportId}:
+ *   get:
+ *     summary: Get plagiarism report by ID
+ *     tags: [Plagiarism Detection]
+ *     parameters:
+ *       - in: path
+ *         name: reportId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Plagiarism report ID
+ *     responses:
+ *       200:
+ *         description: Report retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   $ref: '#/components/schemas/PlagiarismReport'
+ *       404:
+ *         description: Report not found
+ *       500:
+ *         description: Server error
+ */
+router.get("/plagiarism/report/:reportId", async (req, res) => {
+  await plagiarismController.getReport(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/plagiarism/health:
+ *   get:
+ *     summary: Check plagiarism detection service health
+ *     tags: [Plagiarism Detection]
+ *     responses:
+ *       200:
+ *         description: Health check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       enum: [healthy, unhealthy]
+ *                     plagiarismDetection:
+ *                       type: object
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *       503:
+ *         description: Service unhealthy
+ */
+router.get("/plagiarism/health", async (req, res) => {
+  await plagiarismController.getHealthStatus(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/plagiarism/stats:
+ *   get:
+ *     summary: Get plagiarism detection usage statistics
+ *     tags: [Plagiarism Detection]
+ *     responses:
+ *       200:
+ *         description: Statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     usage:
+ *                       type: object
+ *                     performance:
+ *                       type: object
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *       500:
+ *         description: Server error
+ */
+router.get("/plagiarism/stats", async (req, res) => {
+  await plagiarismController.getUsageStats(req, res);
+});
 
 module.exports = router;
 
