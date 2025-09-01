@@ -385,6 +385,7 @@ model CreatorPost {
   postId         String   @unique // External post ID from frontend
   content        String
   username       String
+  user_username  String? // User's actual username (different from display name)
   profilePicture String?
   timestamp      DateTime
   images         String[] @default([]) // Array of image URLs
