@@ -60,7 +60,6 @@ model User {
   rewards  Rewards[]      @relation("UserRewards")
   stores   Store[]        @relation("UserStores")
   checkins HotelCheckin[] // Relation to hotel check-ins
-  // sessions Session[]
 
   // storeConnections  storeConnection[]
   // files             File[]
