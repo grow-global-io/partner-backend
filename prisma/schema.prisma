@@ -463,3 +463,24 @@ model CreatorService {
   @@index([email])
   @@map("creatorServices")
 }
+
+// Creator Products model
+model CreatorProduct {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  email       String // Creator's email
+  title       String // Product title (max 100 chars)
+  description String // Product description (max 200 chars)
+  price       String // Product price
+  status      String   @default("available") // available, sold, unavailable
+  category    String   @default("general") // Product category
+  tags        String[] @default([]) // Array of tags
+  images      String[] @default([]) // Array of S3 image URLs
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Index for faster queries
+  @@index([email])
+  @@index([category])
+  @@index([status])
+  @@map("creatorProducts")
+}
