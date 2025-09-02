@@ -60,7 +60,7 @@ model User {
   rewards  Rewards[]      @relation("UserRewards")
   stores   Store[]        @relation("UserStores")
   checkins HotelCheckin[] // Relation to hotel check-ins
-  sessions Session[]
+  // sessions Session[]
 
   // storeConnections  storeConnection[]
   // files             File[]
@@ -471,89 +471,4 @@ enum PaymentStatus {
   PENDING
   SUCCESS
   FAILED
-}
-
-model Session {
-  id             String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId         String        @db.ObjectId
-  successUrl     String
-  cancelUrl      String
-  metadata       Json
-  paymentStatus  PaymentStatus @default(PENDING)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  txHash         String?
-  paymentDate    DateTime?
-  paymentThrough String? // e.g., "Stripe", "PayPal", etc. 
-  amountPaid     Float? // Total amount paid in the session 
-
-  user      User             @relation(fields: [userId], references: [id])
-  lineItems LineItem[]
-  checkout  CheckoutSession? @relation("CheckoutSession")
-}
-
-model LineItem {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId String   @db.ObjectId
-  quantity  Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  session   Session    @relation(fields: [sessionId], references: [id])
-  priceData PriceData? @relation("LineItemPriceData")
-}
-
-model PriceData {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  unitAmount Float
-  currency   String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  lineItemId String   @unique @db.ObjectId // unique for one-to-one
-  lineItem   LineItem @relation("LineItemPriceData", fields: [lineItemId], references: [id])
-
-  productData ProductData? @relation("ProductDataPriceData")
-}
-
-model ProductData {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  description String
-  images      String[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  priceDataId String    @unique @db.ObjectId
-  priceData   PriceData @relation("ProductDataPriceData", fields: [priceDataId], references: [id])
-}
-
-model CheckoutSession {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionId   String   @unique @db.ObjectId
-  amountTotal Float
-  currency    String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  session Session @relation("CheckoutSession", fields: [sessionId], references: [id])
-}
-
-model CreatorProduct {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  email       String // Creator's email
-  title       String // Product title (max 100 chars)
-  description String // Product description (max 200 chars)
-  price       String // Product price
-  status      String   @default("available") // available, sold, unavailable
-  category    String   @default("general") // Product category
-  tags        String[] @default([]) // Array of tags
-  images      String[] @default([]) // Array of S3 image URLs
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Index for faster queries
-
-  @@index([email])
-  @@index([category])
-  @@index([status])
-  @@map("creatorProducts")
 }
