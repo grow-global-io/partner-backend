@@ -4452,7 +4452,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         // Upload course image to S3 if provided
         if (req.file) {
             // Validate the file path to ensure it's inside the allowed upload directory
-            const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads'); // Adjust this if your multer config uses another directory
+            const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads'); // Match multer config directory
             const resolvedFilePath = path.resolve(req.file.path);
             if (!resolvedFilePath.startsWith(UPLOAD_DIR)) {
                 return res.status(400).json({
@@ -4511,7 +4511,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         // Clean up temporary file if it exists and there was an error
         if (req.file) {
             try {
-                const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+                const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
                 const resolvedFilePath = path.resolve(req.file.path);
                 if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
                     fs.unlinkSync(resolvedFilePath);
@@ -4691,7 +4691,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         // Upload new course image to S3 if provided
         if (req.file) {
             // Validate the file path to ensure it's inside the allowed upload directory
-            const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+            const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
             const resolvedFilePath = path.resolve(req.file.path);
             if (!resolvedFilePath.startsWith(UPLOAD_DIR)) {
                 return res.status(400).json({
@@ -4764,24 +4764,24 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
     } catch (error) {
         // Clean up temporary file if it exists and there was an error
         if (req.file) {
-            try {
-                const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
-                const resolvedFilePath = path.resolve(req.file.path);
-                if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
-                    fs.unlinkSync(resolvedFilePath);
-                }
-            } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+        try {
+            const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
+            const resolvedFilePath = path.resolve(req.file.path);
+            if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
+                fs.unlinkSync(resolvedFilePath);
             }
+        } catch (unlinkError) {
+            console.log("Warning: Could not delete temporary file:", unlinkError);
         }
-        
-        console.error("Error updating creator course:", error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update course',
-            error: error.message
-        });
     }
+    
+    console.error("Error updating creator course:", error);
+    res.status(500).json({
+        success: false,
+        message: 'Failed to update course',
+        error: error.message
+    });
+}
 });
 
 // Delete Creator Course
@@ -4846,6 +4846,174 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete course',
+            error: error.message
+        });
+    }
+});
+
+// ==================== CREATOR PROFILE EDIT ROUTE ====================
+
+// Edit Creator Profile (name, username, profilePicture)
+router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'), async (req, res) => {
+    try {
+        const { email, name, username } = req.body;
+        
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+        
+        if (!name && !username && !req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one field (name, username, or profilePicture) must be provided'
+            });
+        }
+        
+        // Validate name length if provided
+        if (name && name.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name must be 100 characters or less'
+            });
+        }
+        
+        // Validate username length if provided
+        if (username && username.length > 50) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username must be 50 characters or less'
+            });
+        }
+        
+        // Check if creator exists
+        const existingCreator = await prisma.creator.findUnique({
+            where: { email: email }
+        });
+        
+        if (!existingCreator) {
+            return res.status(404).json({
+                success: false,
+                message: 'Creator not found'
+            });
+        }
+        
+        // Check if username is already taken by another creator
+        if (username && username !== existingCreator.username) {
+            const usernameExists = await prisma.creator.findUnique({
+                where: { username: username }
+            });
+            
+            if (usernameExists) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Username is already taken'
+                });
+            }
+        }
+        
+        let profilePictureUrl = existingCreator.profilePicture;
+        
+        // Handle profile picture upload
+        if (req.file) {
+            // Validate the file path to ensure it's inside the allowed upload directory
+            const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
+            const resolvedFilePath = path.resolve(req.file.path);
+            if (!resolvedFilePath.startsWith(UPLOAD_DIR)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid file path'
+                });
+            }
+            
+            // Delete old profile picture from S3 if it exists
+            if (existingCreator.profilePicture) {
+                try {
+                    const key = existingCreator.profilePicture.split('/').pop();
+                    await s3.deleteObject({
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Key: `creator-profiles/${key}`
+                    }).promise();
+                } catch (s3Error) {
+                    console.log("Warning: Could not delete old profile picture from S3:", s3Error);
+                }
+            }
+            
+            // Upload new profile picture to S3
+            const fileContent = fs.readFileSync(resolvedFilePath);
+            
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `creator-profiles/${Date.now()}-${Math.round(Math.random() * 1E9)}-${req.file.originalname}`,
+                Body: fileContent,
+                ContentType: req.file.mimetype,
+            };
+
+            const uploadResult = await s3.upload(params).promise();
+            profilePictureUrl = uploadResult.Location;
+
+            // Delete the temporary file
+            try {
+                if (fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        // Prepare update data
+        const updateData = {
+            updatedAt: new Date()
+        };
+        
+        if (name) updateData.name = name.trim();
+        if (username) updateData.username = username.trim();
+        if (profilePictureUrl !== existingCreator.profilePicture) {
+            updateData.profilePicture = profilePictureUrl;
+        }
+        
+        // Update the creator profile
+        const updatedCreator = await prisma.creator.update({
+            where: { email: email },
+            data: updateData
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Creator profile updated successfully",
+            data: {
+                id: updatedCreator.id,
+                name: updatedCreator.name,
+                username: updatedCreator.username,
+                email: updatedCreator.email,
+                profilePicture: updatedCreator.profilePicture,
+                updatedAt: updatedCreator.updatedAt
+            }
+        };
+        
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // Clean up temporary file if it exists and there was an error
+        if (req.file) {
+            try {
+                const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
+                const resolvedFilePath = path.resolve(req.file.path);
+                if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        console.error("Error updating creator profile:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update creator profile',
             error: error.message
         });
     }
