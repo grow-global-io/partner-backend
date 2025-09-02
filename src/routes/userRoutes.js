@@ -3560,7 +3560,7 @@ router.get('/creatorService/:email', generalPostLimiter, async (req, res) => {
 // 2. POST /creatorService - Create new service
 router.post('/creatorService', createPostLimiter, async (req, res) => {
     try {
-        const { email, title, description, price, status, icon } = req.body;
+        const { email, title, description, price, status, icon, proofOfCreationScore } = req.body;
         
         // Validation
         if (!email || !title || !description || !price) {
@@ -3585,7 +3585,8 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                 description: description.trim(),
                 price: price.trim(),
                 status: status || 'available',
-                icon: icon || 'bi-briefcase'
+                icon: icon || 'bi-briefcase',
+                proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null
             }
         });
         
@@ -3609,7 +3610,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
 router.put('/creatorService/:id', createPostLimiter, async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, title, description, price, status, icon } = req.body;
+        const { email, title, description, price, status, icon, proofOfCreationScore } = req.body;
         
         // Validation
         if (!email) {
@@ -3635,6 +3636,7 @@ router.put('/creatorService/:id', createPostLimiter, async (req, res) => {
                 ...(price && { price: price.trim() }),
                 ...(status && { status }),
                 ...(icon && { icon }),
+                ...(proofOfCreationScore !== undefined && { proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null }),
                 updatedAt: new Date()
             }
         });
@@ -3945,7 +3947,7 @@ router.post('/creator-reward-card2', async (req, res) => {
 // Create Creator Product
 router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), async (req, res) => {
     try {
-        const { email, title, description, price, status, category, tags } = req.body;
+        const { email, title, description, price, status, category, tags, proofOfCreationScore } = req.body;
         
         // Validation
         if (!email || !title || !description || !price) {
@@ -4009,6 +4011,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                 category: category || 'general',
                 tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
                 images: imageUrls,
+                proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null,
                 createdAt: new Date(),
                 updatedAt: new Date()
             }
@@ -4128,7 +4131,7 @@ router.get('/creatorProduct', async (req, res) => {
 router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10), async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, title, description, price, status, category, tags, removeImages } = req.body;
+        const { email, title, description, price, status, category, tags, removeImages, proofOfCreationScore } = req.body;
         
         // Validate that id is a valid MongoDB ObjectId format
         if (!/^[0-9a-fA-F]{24}$/.test(id)) {
@@ -4218,6 +4221,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
         if (category) updateData.category = category;
         if (tags) updateData.tags = tags.split(',').map(tag => tag.trim());
         if (imageUrls.length > 0) updateData.images = imageUrls;
+        if (proofOfCreationScore !== undefined) updateData.proofOfCreationScore = proofOfCreationScore ? parseFloat(proofOfCreationScore) : null;
         
         const updatedProduct = await prisma.creatorProduct.update({
             where: { id: id },
@@ -4399,6 +4403,425 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
         res.status(500).json({
             success: false,
             message: 'Failed to delete images',
+            error: error.message
+        });
+    }
+});
+
+// ==================== CREATOR COURSE ROUTES ====================
+
+// Create Creator Course
+router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), async (req, res) => {
+    try {
+        const { email, title, description, price, priceType, minPrice, maxPrice, status, category, tags } = req.body;
+        
+        // Validation
+        if (!email || !title || !description || !price) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields'
+            });
+        }
+        
+        // Validate description length (500 characters max)
+        if (description.length > 500) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 500 characters or less'
+            });
+        }
+
+        // Validate title length (100 characters max)
+        if (title.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title must be 100 characters or less'
+            });
+        }
+
+        // Validate price type and range
+        if (priceType === 'range' && (!minPrice || !maxPrice || minPrice >= maxPrice)) {
+            return res.status(400).json({
+                success: false,
+                message: 'For range pricing, minPrice must be less than maxPrice'
+            });
+        }
+
+        let courseImageUrl = '';
+        
+        // Upload course image to S3 if provided
+        if (req.file) {
+            const fileContent = fs.readFileSync(req.file.path);
+            
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `creator-courses/${Date.now()}-${Math.round(Math.random() * 1E9)}-${req.file.originalname}`,
+                Body: fileContent,
+                ContentType: req.file.mimetype,
+            };
+
+            const uploadResult = await s3.upload(params).promise();
+            courseImageUrl = uploadResult.Location;
+
+            // Delete the temporary file
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        const course = await prisma.creatorCourse.create({
+            data: {
+                email,
+                title: title.trim(),
+                description: description.trim(),
+                courseImage: courseImageUrl,
+                price: price.trim(),
+                priceType: priceType || 'static',
+                minPrice: priceType === 'range' ? parseFloat(minPrice) : null,
+                maxPrice: priceType === 'range' ? parseFloat(maxPrice) : null,
+                status: status || 'available',
+                category: category || 'general',
+                tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
+                createdAt: new Date(),
+                updatedAt: new Date()
+            }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Course created successfully",
+            data: course
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // Clean up temporary file if it exists and there was an error
+        if (req.file) {
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        console.error("Error creating creator course:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create course',
+            error: error.message
+        });
+    }
+});
+
+// Get All Creator Courses
+router.get('/creatorCourse', async (req, res) => {
+    try {
+        const { email, category, status, priceType, page = 1, limit = 10 } = req.query;
+        
+        const whereClause = {};
+        if (email) whereClause.email = email;
+        if (category) whereClause.category = category;
+        if (status) whereClause.status = status;
+        if (priceType) whereClause.priceType = priceType;
+        
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        
+        const courses = await prisma.creatorCourse.findMany({
+            where: whereClause,
+            skip: skip,
+            take: parseInt(limit),
+            orderBy: { createdAt: 'desc' }
+        });
+        
+        const total = await prisma.creatorCourse.count({ where: whereClause });
+        
+        const responseData = {
+            success: true,
+            data: courses,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / parseInt(limit))
+            }
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching creator courses:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch courses',
+            error: error.message
+        });
+    }
+});
+
+// Get Single Creator Course
+router.get('/creatorCourse/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid course ID format'
+            });
+        }
+        
+        const course = await prisma.creatorCourse.findUnique({
+            where: { id: id }
+        });
+        
+        if (!course) {
+            return res.status(404).json({
+                success: false,
+                message: 'Course not found'
+            });
+        }
+        
+        const responseData = {
+            success: true,
+            data: course
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error fetching creator course:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch course',
+            error: error.message
+        });
+    }
+});
+
+// Update Creator Course
+router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email, title, description, price, priceType, minPrice, maxPrice, status, category, tags, removeImage } = req.body;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid course ID format'
+            });
+        }
+        
+        // Check if course exists
+        const existingCourse = await prisma.creatorCourse.findUnique({
+            where: { id: id }
+        });
+        
+        if (!existingCourse) {
+            return res.status(404).json({
+                success: false,
+                message: 'Course not found'
+            });
+        }
+        
+        // Check if user owns this course
+        if (existingCourse.email !== email) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only update your own courses'
+            });
+        }
+        
+        // Validation
+        if (description && description.length > 500) {
+            return res.status(400).json({
+                success: false,
+                message: 'Description must be 500 characters or less'
+            });
+        }
+        
+        if (title && title.length > 100) {
+            return res.status(400).json({
+                success: false,
+                message: 'Title must be 100 characters or less'
+            });
+        }
+
+        // Validate price type and range
+        if (priceType === 'range' && (!minPrice || !maxPrice || minPrice >= maxPrice)) {
+            return res.status(400).json({
+                success: false,
+                message: 'For range pricing, minPrice must be less than maxPrice'
+            });
+        }
+        
+        let courseImageUrl = existingCourse.courseImage;
+        
+        // Handle image removal
+        if (removeImage === 'true') {
+            // Delete old image from S3 if it exists
+            if (existingCourse.courseImage) {
+                try {
+                    const key = existingCourse.courseImage.split('/').pop();
+                    await s3.deleteObject({
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Key: `creator-courses/${key}`
+                    }).promise();
+                } catch (s3Error) {
+                    console.log("Warning: Could not delete image from S3:", s3Error);
+                }
+            }
+            courseImageUrl = '';
+        }
+        
+        // Upload new course image to S3 if provided
+        if (req.file) {
+            // Delete old image from S3 if it exists
+            if (existingCourse.courseImage) {
+                try {
+                    const key = existingCourse.courseImage.split('/').pop();
+                    await s3.deleteObject({
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Key: `creator-courses/${key}`
+                    }).promise();
+                } catch (s3Error) {
+                    console.log("Warning: Could not delete image from S3:", s3Error);
+                }
+            }
+
+            const fileContent = fs.readFileSync(req.file.path);
+            
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `creator-courses/${Date.now()}-${Math.round(Math.random() * 1E9)}-${req.file.originalname}`,
+                Body: fileContent,
+                ContentType: req.file.mimetype,
+            };
+
+            const uploadResult = await s3.upload(params).promise();
+            courseImageUrl = uploadResult.Location;
+
+            // Delete the temporary file
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        const updateData = {
+            updatedAt: new Date()
+        };
+        
+        if (title) updateData.title = title.trim();
+        if (description) updateData.description = description.trim();
+        if (price) updateData.price = price.trim();
+        if (priceType) updateData.priceType = priceType;
+        if (minPrice !== undefined) updateData.minPrice = priceType === 'range' ? parseFloat(minPrice) : null;
+        if (maxPrice !== undefined) updateData.maxPrice = priceType === 'range' ? parseFloat(maxPrice) : null;
+        if (status) updateData.status = status;
+        if (category) updateData.category = category;
+        if (tags) updateData.tags = tags.split(',').map(tag => tag.trim());
+        if (courseImageUrl !== undefined) updateData.courseImage = courseImageUrl;
+        
+        const updatedCourse = await prisma.creatorCourse.update({
+            where: { id: id },
+            data: updateData
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Course updated successfully",
+            data: updatedCourse
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        // Clean up temporary file if it exists and there was an error
+        if (req.file) {
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        console.error("Error updating creator course:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update course',
+            error: error.message
+        });
+    }
+});
+
+// Delete Creator Course
+router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email } = req.body;
+        
+        // Validate that id is a valid MongoDB ObjectId format
+        if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid course ID format'
+            });
+        }
+        
+        // Check if course exists
+        const existingCourse = await prisma.creatorCourse.findUnique({
+            where: { id: id }
+        });
+        
+        if (!existingCourse) {
+            return res.status(404).json({
+                success: false,
+                message: 'Course not found'
+            });
+        }
+        
+        // Check if user owns this course
+        if (existingCourse.email !== email) {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only delete your own courses'
+            });
+        }
+        
+        // Delete course image from S3 if it exists
+        if (existingCourse.courseImage) {
+            try {
+                const key = existingCourse.courseImage.split('/').pop();
+                await s3.deleteObject({
+                    Bucket: process.env.AWS_BUCKET_NAME,
+                    Key: `creator-courses/${key}`
+                }).promise();
+            } catch (s3Error) {
+                console.log("Warning: Could not delete image from S3:", s3Error);
+            }
+        }
+        
+        // Delete the course from database
+        await prisma.creatorCourse.delete({
+            where: { id: id }
+        });
+        
+        const responseData = {
+            success: true,
+            message: "Course deleted successfully"
+        };
+        res.send(encryptJSON(responseData));
+    } catch (error) {
+        console.error("Error deleting creator course:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete course',
             error: error.message
         });
     }

@@ -450,15 +450,16 @@ model CommentLike {
 
 // Creator Services model
 model CreatorService {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  email       String // Creator's email
-  title       String // Service title
-  description String // Service description (max 40 chars)
-  price       String // Service price
-  status      String   @default("available") // available, busy, unavailable
-  icon        String   @default("bi-briefcase") // Bootstrap icon class
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  email                String // Creator's email
+  title                String // Service title
+  description          String // Service description (max 40 chars)
+  price                String // Service price
+  status               String   @default("available") // available, busy, unavailable
+  icon                 String   @default("bi-briefcase") // Bootstrap icon class
+  proofOfCreationScore Float? // Proof of creation score
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   // Index for faster queries
   @@index([email])
@@ -535,4 +536,51 @@ model CheckoutSession {
   updatedAt   DateTime @updatedAt
 
   session Session @relation("CheckoutSession", fields: [sessionId], references: [id])
+}
+
+model CreatorProduct {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  email                String // Creator's email
+  title                String // Product title (max 100 chars)
+  description          String // Product description (max 200 chars)
+  price                String // Product price
+  status               String   @default("available") // available, sold, unavailable
+  category             String   @default("general") // Product category
+  tags                 String[] @default([]) // Array of tags
+  images               String[] @default([]) // Array of S3 image URLs
+  proofOfCreationScore Float? // Proof of creation score
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Index for faster queries
+  @@index([email])
+  @@index([category])
+  @@index([status])
+  @@map("creatorProducts")
+}
+
+// Creator Courses model
+model CreatorCourse {
+  id                   String   @id @default(auto()) @map("_id") @db.ObjectId
+  email                String // Creator's email
+  title                String // Course title (max 100 chars)
+  description          String // Course description (max 500 chars)
+  courseImage          String? // Course image URL from S3
+  price                String? // Course price (can be static or range like "$50-$100")
+  priceType            String   @default("static") // static, range, flexible
+  minPrice             Float? // Minimum price for range pricing
+  maxPrice             Float? // Maximum price for range pricing
+  status               String   @default("available") // available, sold, unavailable
+  category             String   @default("general") // Course category
+  tags                 String[] @default([]) // Array of tags
+  proofOfCreationScore Float? // Proof of creation score
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // Index for faster queries
+  @@index([email])
+  @@index([category])
+  @@index([status])
+  @@index([priceType])
+  @@map("creatorCourses")
 }
