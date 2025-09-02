@@ -4451,7 +4451,17 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         
         // Upload course image to S3 if provided
         if (req.file) {
-            const fileContent = fs.readFileSync(req.file.path);
+            // Validate the file path to ensure it's inside the allowed upload directory
+            const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads'); // Adjust this if your multer config uses another directory
+            const resolvedFilePath = path.resolve(req.file.path);
+            if (!resolvedFilePath.startsWith(UPLOAD_DIR)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid file path'
+                });
+            }
+            
+            const fileContent = fs.readFileSync(resolvedFilePath);
             
             const params = {
                 Bucket: process.env.AWS_BUCKET_NAME,
@@ -4465,8 +4475,8 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
 
             // Delete the temporary file
             try {
-                if (fs.existsSync(req.file.path)) {
-                    fs.unlinkSync(req.file.path);
+                if (fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
@@ -4501,8 +4511,10 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         // Clean up temporary file if it exists and there was an error
         if (req.file) {
             try {
-                if (fs.existsSync(req.file.path)) {
-                    fs.unlinkSync(req.file.path);
+                const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+                const resolvedFilePath = path.resolve(req.file.path);
+                if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
@@ -4678,6 +4690,16 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         
         // Upload new course image to S3 if provided
         if (req.file) {
+            // Validate the file path to ensure it's inside the allowed upload directory
+            const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+            const resolvedFilePath = path.resolve(req.file.path);
+            if (!resolvedFilePath.startsWith(UPLOAD_DIR)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid file path'
+                });
+            }
+            
             // Delete old image from S3 if it exists
             if (existingCourse.courseImage) {
                 try {
@@ -4691,7 +4713,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
                 }
             }
 
-            const fileContent = fs.readFileSync(req.file.path);
+            const fileContent = fs.readFileSync(resolvedFilePath);
             
             const params = {
                 Bucket: process.env.AWS_BUCKET_NAME,
@@ -4705,8 +4727,8 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
 
             // Delete the temporary file
             try {
-                if (fs.existsSync(req.file.path)) {
-                    fs.unlinkSync(req.file.path);
+                if (fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
@@ -4743,8 +4765,10 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         // Clean up temporary file if it exists and there was an error
         if (req.file) {
             try {
-                if (fs.existsSync(req.file.path)) {
-                    fs.unlinkSync(req.file.path);
+                const UPLOAD_DIR = path.resolve(__dirname, '..', '..', 'uploads');
+                const resolvedFilePath = path.resolve(req.file.path);
+                if (resolvedFilePath.startsWith(UPLOAD_DIR) && fs.existsSync(resolvedFilePath)) {
+                    fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
