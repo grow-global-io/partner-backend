@@ -34,11 +34,11 @@ class WebSearchService {
     // Search engine configurations
     this.searchEngines = {
       google: {
-        enabled:
-          !!process.env.GOOGLE_SEARCH_API_KEY &&
-          !!process.env.GOOGLE_SEARCH_ENGINE_ID,
-        apiKey: process.env.GOOGLE_SEARCH_API_KEY,
-        engineId: process.env.GOOGLE_SEARCH_ENGINE_ID,
+        enabled: true,
+        apiKey:
+          process.env.GOOGLE_SEARCH_API_KEY ||
+          "AIzaSyAwbhN_1VuXFpnM2ROXHKaNX9YQEejwwDI",
+        engineId: process.env.GOOGLE_SEARCH_ENGINE_ID || "10af8afd0297449ec",
         baseUrl: "https://www.googleapis.com/customsearch/v1",
         dailyLimit: 100,
       },

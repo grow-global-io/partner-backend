@@ -6,11 +6,10 @@ const plagiarismConfig = {
   // Search Engine API Configuration
   searchEngines: {
     google: {
-      apiKey: process.env.GOOGLE_SEARCH_API_KEY,
-      engineId: process.env.GOOGLE_SEARCH_ENGINE_ID,
-      enabled:
-        !!process.env.GOOGLE_SEARCH_API_KEY &&
-        !!process.env.GOOGLE_SEARCH_ENGINE_ID,
+      apiKey:
+        process.env.GOOGLE_SEARCH_API_KEY ||
+        "AIzaSyAwbhN_1VuXFpnM2ROXHKaNX9YQEejwwDI",
+      engineId: process.env.GOOGLE_SEARCH_ENGINE_ID || "10af8afd0297449ec",
     },
     bing: {
       apiKey: process.env.BING_SEARCH_API_KEY,
