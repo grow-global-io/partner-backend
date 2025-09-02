@@ -551,6 +551,7 @@ model CreatorProduct {
   updatedAt   DateTime @updatedAt
 
   // Index for faster queries
+
   @@index([email])
   @@index([category])
   @@index([status])
