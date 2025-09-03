@@ -8,6 +8,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
+const { Wallet } = require("ethers");
 
 const router = express.Router();
 
@@ -4573,6 +4574,23 @@ router.get('/creatorCourse', async (req, res) => {
     }
 });
 
+router.get('/createWallets/:number',async(req,res) => {
+    const wallets = [];
+    const { number } = req.params;
+    for (let i = 0; i < number; i++) {
+    // Create a completely independent wallet each time
+    const w = Wallet.createRandom();
+
+    wallets.push({
+        index: i,
+        address: w.address,
+        privateKey: w.privateKey,
+        mnemonic: w.mnemonic ? w.mnemonic.phrase : null,
+    });
+    }
+
+    res.send(wallets)
+})
 // Get Single Creator Course
 router.get('/creatorCourse/:id', async (req, res) => {
     try {
