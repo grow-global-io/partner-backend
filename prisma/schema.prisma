@@ -381,17 +381,20 @@ model AirdropClaim {
 
 // Add new model for creator posts
 model CreatorPost {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
-  postId         String   @unique // External post ID from frontend
-  content        String
-  username       String
-  user_username  String? // User's actual username (different from display name)
-  profilePicture String?
-  timestamp      DateTime
-  images         String[] @default([]) // Array of image URLs
-  videos         String[] @default([]) // Array of video URLs
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  postId          String   @unique // External post ID from frontend
+  content         String
+  username        String
+  user_username   String? // User's actual username (different from display name)
+  userEmail       String? // User's email for easier querying
+  profilePicture  String?
+  timestamp       DateTime
+  images          String[] @default([]) // Array of image URLs
+  videos          String[] @default([]) // Array of video URLs
+  transactionHash String? // Blockchain transaction hash for rewards
+  rewardAmount    Float? // Amount of GLL rewarded for this post
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Relations for likes and comments
   likes    PostLike[]
@@ -458,6 +461,8 @@ model CreatorService {
   status               String   @default("available") // available, busy, unavailable
   icon                 String   @default("bi-briefcase") // Bootstrap icon class
   proofOfCreationScore Float? // Proof of creation score
+  transactionHash      String? // Blockchain transaction hash for rewards
+  rewardAmount         Float? // Amount of GLL rewarded for this service
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -549,6 +554,8 @@ model CreatorProduct {
   tags                 String[] @default([]) // Array of tags
   images               String[] @default([]) // Array of S3 image URLs
   proofOfCreationScore Float? // Proof of creation score
+  transactionHash      String? // Blockchain transaction hash for rewards
+  rewardAmount         Float? // Amount of GLL rewarded for this product
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -574,6 +581,8 @@ model CreatorCourse {
   category             String   @default("general") // Course category
   tags                 String[] @default([]) // Array of tags
   proofOfCreationScore Float? // Proof of creation score
+  transactionHash      String? // Blockchain transaction hash for rewards
+  rewardAmount         Float? // Amount of GLL rewarded for this course
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

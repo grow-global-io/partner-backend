@@ -2108,10 +2108,11 @@ router.post('/claim', async (req, res) => {
                     convertToEtherAmount(rewardAmount.toString()), 
                     targetWalletAddress
                 );
+                console.log('📝 Transaction Hash:', sendTx.hash);
                 // console.log('Transaction sent, waiting for confirmation...');
                 await sendTx.wait();
                 blockchainSuccess = true;
-                // console.log("✅ Claim GLL transaction completed successfully");
+                console.log("✅ Claim GLL transaction completed successfully");
             } catch (blockchainError) {
                 blockchainError = blockchainError.message;
                 console.error("❌ Claim blockchain transaction failed:", blockchainError);
@@ -2376,7 +2377,7 @@ router.get('/airdrop-claims', async (req, res) => {
 // POST endpoint for creator posts with media upload support
 router.post('/creator-posts', createPostLimiter, upload.array('media', 10), async (req, res) => {
     try {
-        const { id, content, username, user_username, profilePicture, timestamp } = req.body;
+        const { id, content, username, user_username, profilePicture, timestamp, userId, email } = req.body;
 
         // Validation: Check all fields are present
         if (!id || !content || !username || !timestamp) {
@@ -2412,7 +2413,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
         }
 
         // Check for duplicate post ID
-        const existingPost = await prisma.creatorPost.findUnique({
+        const existingPost = await prisma.CreatorPost.findUnique({
             where: { postId: id }
         });
 
@@ -2469,19 +2470,150 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
             }
         }
 
-        // Create the post with media URLs
-        const newPost = await prisma.creatorPost.create({
+        // Create the post with media URLs (initially without transaction data)
+        const newPost = await prisma.CreatorPost.create({
             data: {
                 postId: id,
                 content: content,
                 username: username,
                 user_username: user_username || null,
+                userEmail: email || null, // Store user email for easier querying
                 profilePicture: profilePicture || null,
                 timestamp: parsedTimestamp,
                 images: imageUrls,
-                videos: videoUrls
+                videos: videoUrls,
+                transactionHash: null, // Will be updated after blockchain transaction
+                rewardAmount: null     // Will be updated after blockchain transaction
             }
         });
+
+        // Find user/creator and process blockchain reward
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by multiple methods
+        if (user_username) {
+            // Try to find user by email first (most reliable)
+            user = await prisma.user.findFirst({
+                where: { 
+                    OR: [
+                        { email: username },
+                        { name: username }
+                    ]
+                }
+            });
+            
+            if (!user) {
+                creator = await prisma.Creator.findFirst({
+                    where: { 
+                        OR: [
+                            { email: username },
+                            { username: username },
+                            { name: username }
+                        ]
+                    }
+                });
+            }
+        }
+
+        // Also try to find by username field if user_username didn't work
+        if (!user && !creator && username) {
+            user = await prisma.user.findFirst({
+                where: { 
+                    OR: [
+                        { email: username },
+                        { name: username }
+                    ]
+                }
+            });
+            
+            if (!user) {
+                creator = await prisma.Creator.findFirst({
+                    where: { 
+                        OR: [
+                            { email: username },
+                            { username: username },
+                            { name: username }
+                        ]
+                    }
+                });
+            }
+        }
+
+        // Get wallet address if user/creator found
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+            console.log("✅ Found user with wallet address:", walletAddress);
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+            console.log("✅ Found creator with wallet address:", walletAddress);
+        } else {
+            console.log("❌ No user/creator found or no wallet address");
+            console.log("User found:", !!user);
+            console.log("Creator found:", !!creator);
+            if (user) console.log("User wallet address:", user.walletAddress);
+            if (creator) console.log("Creator wallet address:", creator.walletAddress);
+        }
+
+        // Debug logging
+        console.log("🔍 Blockchain Debug Info:");
+        console.log("- walletAddress:", walletAddress);
+        console.log("- SWITCH env var:", process.env.SWITCH);
+        console.log("- CREATOR_POST_REWARD:", process.env.CREATOR_POST_REWARD);
+
+        // Process blockchain reward if wallet address found and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true') {
+            console.log("🚀 Starting blockchain transaction...");
+            try {
+                const rewardAmount = process.env.CREATOR_POST_REWARD || '0'; // Default 0 GLL if not set
+                
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance");
+                } else if (creator) {
+                    await prisma.Creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update");
+                }
+
+                // Send blockchain transaction using the walletAddress variable (not user.walletAddress)
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                console.log("✅ Creator Post GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", sendTx.hash);
+
+                // Update the post with transaction hash and reward amount
+                await prisma.CreatorPost.update({
+                    where: { id: newPost.id },
+                    data: {
+                        transactionHash: sendTx.hash,
+                        rewardAmount: parseFloat(rewardAmount)
+                    }
+                });
+                console.log("✅ Updated post with transaction hash and reward amount");
+                
+            } catch (blockchainError) {
+                console.error("❌ Creator Post blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        }
 
         // Return success response
         res.status(201).json({
@@ -2577,7 +2709,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
         }
 
         // Fetch posts with pagination and sorting
-        const posts = await prisma.creatorPost.findMany({
+        const posts = await prisma.CreatorPost.findMany({
             where: whereClause,
             orderBy: {
                 [sort]: order
@@ -2590,6 +2722,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
                 content: true,
                 username: true,
                 user_username: true,
+                userEmail: true,
                 profilePicture: true,
                 timestamp: true,
                 createdAt: true,
@@ -2606,7 +2739,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.creatorPost.count({
+        const totalPosts = await prisma.CreatorPost.count({
             where: whereClause
         });
 
@@ -2621,6 +2754,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
             content: post.content,
             username: post.username,
             user_username: post.user_username,
+            userEmail: post.userEmail,
             profilePicture: post.profilePicture,
             timestamp: post.timestamp,
             createdAt: post.createdAt,
@@ -2674,7 +2808,7 @@ router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
             });
         }
 
-        const post = await prisma.creatorPost.findUnique({
+        const post = await prisma.CreatorPost.findUnique({
             where: { postId: postId },
             select: {
                 id: true,
@@ -2806,7 +2940,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
         }
 
         // Fetch posts by username OR name (since posts might be stored with either)
-        const posts = await prisma.creatorPost.findMany({
+        const posts = await prisma.CreatorPost.findMany({
             where: {
                 OR: [
                     { username: creator.username },
@@ -2840,7 +2974,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.creatorPost.count({
+        const totalPosts = await prisma.CreatorPost.count({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3053,7 +3187,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
         }
 
         // Fetch posts by username OR name (since posts might be stored with either)
-        const posts = await prisma.creatorPost.findMany({
+        const posts = await prisma.CreatorPost.findMany({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3087,7 +3221,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.creatorPost.count({
+        const totalPosts = await prisma.CreatorPost.count({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3167,7 +3301,7 @@ router.post('/creator-posts/:postId/like', likeCommentLimiter, async (req, res) 
         }
 
         // Find the post by postId
-        const post = await prisma.creatorPost.findUnique({
+        const post = await prisma.CreatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3243,7 +3377,7 @@ router.get('/creator-posts/:postId/likes', generalPostLimiter, async (req, res) 
         const { postId } = req.params;
 
         // Find the post by postId
-        const post = await prisma.creatorPost.findUnique({
+        const post = await prisma.CreatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3304,7 +3438,7 @@ router.post('/creator-posts/:postId/comment', likeCommentLimiter, async (req, re
         }
 
         // Find the post by postId
-        const post = await prisma.creatorPost.findUnique({
+        const post = await prisma.CreatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3370,7 +3504,7 @@ router.get('/creator-posts/:postId/comments', generalPostLimiter, async (req, re
         }
 
         // Find the post by postId
-        const post = await prisma.creatorPost.findUnique({
+        const post = await prisma.CreatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3537,7 +3671,7 @@ router.get('/creatorService/:email', generalPostLimiter, async (req, res) => {
         const { email } = req.params;
         const decodedEmail = decodeURIComponent(email);
         
-        const services = await prisma.creatorService.findMany({
+        const services = await prisma.CreatorService.findMany({
             where: { email: decodedEmail },
             orderBy: { createdAt: 'desc' }
         });
@@ -3579,7 +3713,8 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
             });
         }
         
-        const service = await prisma.creatorService.create({
+        // Create the service initially without transaction data
+        const service = await prisma.CreatorService.create({
             data: {
                 email,
                 title: title.trim(),
@@ -3587,9 +3722,109 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                 price: price.trim(),
                 status: status || 'available',
                 icon: icon || 'bi-briefcase',
-                proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null
+                proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null,
+                transactionHash: null, // Will be updated after blockchain transaction
+                rewardAmount: null     // Will be updated after blockchain transaction
             }
         });
+
+        // Find user/creator and process blockchain reward
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first (most reliable)
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.Creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Creator Service - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+        console.log("- SWITCH status:", process.env.SWITCH);
+        console.log("- CREATOR_SERVICE_REWARD:", process.env.CREATOR_SERVICE_REWARD || '0');
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true') {
+            console.log("🚀 Starting Creator Service blockchain transaction...");
+            try {
+                const rewardAmount = process.env.CREATOR_SERVICE_REWARD || '0'; // Default 0 GLL if not set
+                
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for service");
+                } else if (creator) {
+                    await prisma.Creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for service");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for service");
+                }
+
+                // Send blockchain transaction using the walletAddress variable
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                console.log("✅ Creator Service GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", sendTx.hash);
+
+                // Update the service with transaction hash and reward amount
+                await prisma.CreatorService.update({
+                    where: { id: service.id },
+                    data: {
+                        transactionHash: sendTx.hash,
+                        rewardAmount: parseFloat(rewardAmount)
+                    }
+                });
+                console.log("✅ Updated service with transaction hash and reward amount");
+                
+            } catch (blockchainError) {
+                console.error("❌ Creator Service blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Creator Service blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
+        }
         
         const responseData = {
             success: true,
@@ -3629,7 +3864,7 @@ router.put('/creatorService/:id', createPostLimiter, async (req, res) => {
             });
         }
         
-        const service = await prisma.creatorService.update({
+        const service = await prisma.CreatorService.update({
             where: { id },
             data: {
                 ...(title && { title: title.trim() }),
@@ -3673,7 +3908,7 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
         }
         
         // Optional: Verify the service belongs to the user
-        const existingService = await prisma.creatorService.findFirst({
+        const existingService = await prisma.CreatorService.findFirst({
             where: { id, email }
         });
         
@@ -3684,7 +3919,7 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
             });
         }
         
-        await prisma.creatorService.delete({
+        await prisma.CreatorService.delete({
             where: { id }
         });
         
@@ -4002,7 +4237,8 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
             }
         }
         
-        const product = await prisma.creatorProduct.create({
+        // Create the product initially without transaction data
+        const product = await prisma.CreatorProduct.create({
             data: {
                 email,
                 title: title.trim(),
@@ -4013,10 +4249,110 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                 tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
                 images: imageUrls,
                 proofOfCreationScore: proofOfCreationScore ? parseFloat(proofOfCreationScore) : null,
+                transactionHash: null, // Will be updated after blockchain transaction
+                rewardAmount: null,    // Will be updated after blockchain transaction
                 createdAt: new Date(),
                 updatedAt: new Date()
             }
         });
+
+        // Find user/creator and process blockchain reward
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first (most reliable)
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.Creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Creator Product - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+        console.log("- SWITCH status:", process.env.SWITCH);
+        console.log("- CREATOR_PRODUCT_REWARD:", process.env.CREATOR_PRODUCT_REWARD || '0');
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true') {
+            console.log("🚀 Starting Creator Product blockchain transaction...");
+            try {
+                const rewardAmount = process.env.CREATOR_PRODUCT_REWARD || '0'; // Default 0 GLL if not set
+                
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for product");
+                } else if (creator) {
+                    await prisma.Creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for product");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for product");
+                }
+
+                // Send blockchain transaction using the walletAddress variable
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                console.log("✅ Creator Product GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", sendTx.hash);
+
+                // Update the product with transaction hash and reward amount
+                await prisma.CreatorProduct.update({
+                    where: { id: product.id },
+                    data: {
+                        transactionHash: sendTx.hash,
+                        rewardAmount: parseFloat(rewardAmount)
+                    }
+                });
+                console.log("✅ Updated product with transaction hash and reward amount");
+                
+            } catch (blockchainError) {
+                console.error("❌ Creator Product blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Creator Product blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
+        }
         
         const responseData = {
             success: true,
@@ -4060,7 +4396,7 @@ router.get('/creatorProduct/:id', async (req, res) => {
             });
         }
         
-        const product = await prisma.creatorProduct.findUnique({
+        const product = await prisma.CreatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4098,14 +4434,14 @@ router.get('/creatorProduct', async (req, res) => {
         
         const skip = (parseInt(page) - 1) * parseInt(limit);
         
-        const products = await prisma.creatorProduct.findMany({
+        const products = await prisma.CreatorProduct.findMany({
             where: whereClause,
             skip: skip,
             take: parseInt(limit),
             orderBy: { createdAt: 'desc' }
         });
         
-        const total = await prisma.creatorProduct.count({ where: whereClause });
+        const total = await prisma.CreatorProduct.count({ where: whereClause });
         
         const responseData = {
             success: true,
@@ -4143,7 +4479,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
         }
         
         // Check if product exists
-        const existingProduct = await prisma.creatorProduct.findUnique({
+        const existingProduct = await prisma.CreatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4224,7 +4560,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
         if (imageUrls.length > 0) updateData.images = imageUrls;
         if (proofOfCreationScore !== undefined) updateData.proofOfCreationScore = proofOfCreationScore ? parseFloat(proofOfCreationScore) : null;
         
-        const updatedProduct = await prisma.creatorProduct.update({
+        const updatedProduct = await prisma.CreatorProduct.update({
             where: { id: id },
             data: updateData
         });
@@ -4273,7 +4609,7 @@ router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
         }
         
         // Check if product exists
-        const existingProduct = await prisma.creatorProduct.findUnique({
+        const existingProduct = await prisma.CreatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4308,7 +4644,7 @@ router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
         }
         
         // Delete the product from database
-        await prisma.creatorProduct.delete({
+        await prisma.CreatorProduct.delete({
             where: { id: id }
         });
         
@@ -4349,7 +4685,7 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
         }
         
         // Check if product exists
-        const existingProduct = await prisma.creatorProduct.findUnique({
+        const existingProduct = await prisma.CreatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4385,7 +4721,7 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
         // Update product images array
         const updatedImages = existingProduct.images.filter(img => !imageUrls.includes(img));
         
-        const updatedProduct = await prisma.creatorProduct.update({
+        const updatedProduct = await prisma.CreatorProduct.update({
             where: { id: id },
             data: {
                 images: updatedImages,
@@ -4484,7 +4820,8 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
             }
         }
         
-        const course = await prisma.creatorCourse.create({
+        // Create the course initially without transaction data
+        const course = await prisma.CreatorCourse.create({
             data: {
                 email,
                 title: title.trim(),
@@ -4497,10 +4834,110 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                 status: status || 'available',
                 category: category || 'general',
                 tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
+                transactionHash: null, // Will be updated after blockchain transaction
+                rewardAmount: null,    // Will be updated after blockchain transaction
                 createdAt: new Date(),
                 updatedAt: new Date()
             }
         });
+
+        // Find user/creator and process blockchain reward
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first (most reliable)
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.Creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Creator Course - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+        console.log("- SWITCH status:", process.env.SWITCH);
+        console.log("- CREATOR_COURSE_REWARD:", process.env.CREATOR_COURSE_REWARD || '0');
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true') {
+            console.log("🚀 Starting Creator Course blockchain transaction...");
+            try {
+                const rewardAmount = process.env.CREATOR_COURSE_REWARD || '0'; // Default 0 GLL if not set
+                
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for course");
+                } else if (creator) {
+                    await prisma.Creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for course");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for course");
+                }
+
+                // Send blockchain transaction using the walletAddress variable
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                console.log("✅ Creator Course GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", sendTx.hash);
+
+                // Update the course with transaction hash and reward amount
+                await prisma.CreatorCourse.update({
+                    where: { id: course.id },
+                    data: {
+                        transactionHash: sendTx.hash,
+                        rewardAmount: parseFloat(rewardAmount)
+                    }
+                });
+                console.log("✅ Updated course with transaction hash and reward amount");
+                
+            } catch (blockchainError) {
+                console.error("❌ Creator Course blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Creator Course blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
+        }
         
         const responseData = {
             success: true,
@@ -4544,14 +4981,14 @@ router.get('/creatorCourse', async (req, res) => {
         
         const skip = (parseInt(page) - 1) * parseInt(limit);
         
-        const courses = await prisma.creatorCourse.findMany({
+        const courses = await prisma.CreatorCourse.findMany({
             where: whereClause,
             skip: skip,
             take: parseInt(limit),
             orderBy: { createdAt: 'desc' }
         });
         
-        const total = await prisma.creatorCourse.count({ where: whereClause });
+        const total = await prisma.CreatorCourse.count({ where: whereClause });
         
         const responseData = {
             success: true,
@@ -4604,7 +5041,7 @@ router.get('/creatorCourse/:id', async (req, res) => {
             });
         }
         
-        const course = await prisma.creatorCourse.findUnique({
+        const course = await prisma.CreatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -4645,7 +5082,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         }
         
         // Check if course exists
-        const existingCourse = await prisma.creatorCourse.findUnique({
+        const existingCourse = await prisma.CreatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -4768,7 +5205,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         if (tags) updateData.tags = tags.split(',').map(tag => tag.trim());
         if (courseImageUrl !== undefined) updateData.courseImage = courseImageUrl;
         
-        const updatedCourse = await prisma.creatorCourse.update({
+        const updatedCourse = await prisma.CreatorCourse.update({
             where: { id: id },
             data: updateData
         });
@@ -4817,7 +5254,7 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
         }
         
         // Check if course exists
-        const existingCourse = await prisma.creatorCourse.findUnique({
+        const existingCourse = await prisma.CreatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -4850,7 +5287,7 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
         }
         
         // Delete the course from database
-        await prisma.creatorCourse.delete({
+        await prisma.CreatorCourse.delete({
             where: { id: id }
         });
         
@@ -4908,7 +5345,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         }
         
         // Check if creator exists
-        const existingCreator = await prisma.creator.findUnique({
+        const existingCreator = await prisma.Creator.findUnique({
             where: { email: email }
         });
         
@@ -4921,7 +5358,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         
         // Check if username is already taken by another creator
         if (username && username !== existingCreator.username) {
-            const usernameExists = await prisma.creator.findUnique({
+            const usernameExists = await prisma.Creator.findUnique({
                 where: { username: username }
             });
             
@@ -4995,7 +5432,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         }
         
         // Update the creator profile
-        const updatedCreator = await prisma.creator.update({
+        const updatedCreator = await prisma.Creator.update({
             where: { email: email },
             data: updateData
         });
@@ -5033,6 +5470,385 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
             success: false,
             message: 'Failed to update creator profile',
             error: error.message
+        });
+    }
+});
+
+// ==================== COMPREHENSIVE CREATOR DATA ROUTE ====================
+
+// GET /creator-complete-data/:email - Fetch all creator data by email
+router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res) => {
+    try {
+        const { email } = req.params;
+        const decodedEmail = decodeURIComponent(email);
+        
+        const { 
+            page = 1, 
+            limit = 10, 
+            sort = 'createdAt', 
+            order = 'desc' 
+        } = req.query;
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        
+        if (pageNum < 1 || limitNum < 1 || limitNum > 50) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters. Page must be >= 1, limit must be between 1-50"
+            });
+        }
+
+        // Validate sort parameters
+        const allowedSortFields = ['createdAt', 'updatedAt', 'title'];
+        const allowedOrderValues = ['asc', 'desc'];
+        
+        if (!allowedSortFields.includes(sort)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid sort field. Allowed values: createdAt, updatedAt, title"
+            });
+        }
+
+        if (!allowedOrderValues.includes(order)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid order. Allowed values: asc, desc"
+            });
+        }
+
+        // Calculate skip value for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // Find user/creator by email
+        let user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: decodedEmail },
+                    { name: decodedEmail }
+                ]
+            }
+        });
+
+        let creator = null;
+        if (!user) {
+            creator = await prisma.Creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: decodedEmail },
+                        { name: decodedEmail },
+                        { username: decodedEmail }
+                    ]
+                }
+            });
+        }
+
+        if (!user && !creator) {
+            return res.status(404).json({
+                success: false,
+                message: "User/Creator not found"
+            });
+        }
+
+        const targetUser = user || creator;
+
+        // Fetch all creator data in parallel
+        const [services, products, courses, posts] = await Promise.all([
+            // Creator Services
+            prisma.CreatorService.findMany({
+                where: { email: decodedEmail },
+                orderBy: { [sort]: order },
+                skip: skip,
+                take: limitNum,
+                select: {
+                    id: true,
+                    email: true,
+                    title: true,
+                    description: true,
+                    price: true,
+                    status: true,
+                    icon: true,
+                    proofOfCreationScore: true,
+                    transactionHash: true,
+                    rewardAmount: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            }),
+
+            // Creator Products
+            prisma.CreatorProduct.findMany({
+                where: { email: decodedEmail },
+                orderBy: { [sort]: order },
+                skip: skip,
+                take: limitNum,
+                select: {
+                    id: true,
+                    email: true,
+                    title: true,
+                    description: true,
+                    price: true,
+                    status: true,
+                    category: true,
+                    tags: true,
+                    images: true,
+                    proofOfCreationScore: true,
+                    transactionHash: true,
+                    rewardAmount: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            }),
+
+            // Creator Courses
+            prisma.CreatorCourse.findMany({
+                where: { email: decodedEmail },
+                orderBy: { [sort]: order },
+                skip: skip,
+                take: limitNum,
+                select: {
+                    id: true,
+                    email: true,
+                    title: true,
+                    description: true,
+                    courseImage: true,
+                    price: true,
+                    priceType: true,
+                    minPrice: true,
+                    maxPrice: true,
+                    status: true,
+                    category: true,
+                    tags: true,
+                    proofOfCreationScore: true,
+                    transactionHash: true,
+                    rewardAmount: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            }),
+
+            // Creator Posts
+            prisma.CreatorPost.findMany({
+                where: {
+                    OR: [
+                        { userEmail: decodedEmail },
+                        { user_username: decodedEmail },
+                        { username: decodedEmail }
+                    ]
+                },
+                orderBy: { [sort]: order },
+                skip: skip,
+                take: limitNum,
+                select: {
+                    id: true,
+                    postId: true,
+                    content: true,
+                    username: true,
+                    user_username: true,
+                    userEmail: true,
+                    profilePicture: true,
+                    timestamp: true,
+                    images: true,
+                    videos: true,
+                    transactionHash: true,
+                    rewardAmount: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    _count: {
+                        select: {
+                            likes: true,
+                            comments: true
+                        }
+                    }
+                }
+            })
+        ]);
+
+        // Get total counts for pagination
+        const [totalServices, totalProducts, totalCourses, totalPosts] = await Promise.all([
+            prisma.CreatorService.count({ where: { email: decodedEmail } }),
+            prisma.CreatorProduct.count({ where: { email: decodedEmail } }),
+            prisma.CreatorCourse.count({ where: { email: decodedEmail } }),
+            prisma.CreatorPost.count({
+                where: {
+                    OR: [
+                        { userEmail: decodedEmail },
+                        { user_username: decodedEmail },
+                        { username: decodedEmail }
+                    ]
+                }
+            })
+        ]);
+
+        // Calculate transaction statistics for each type
+        const [serviceStats, productStats, courseStats, postStats] = await Promise.all([
+            // Service transaction stats
+            prisma.CreatorService.aggregate({
+                where: {
+                    email: decodedEmail,
+                    transactionHash: { not: null }
+                },
+                _sum: { rewardAmount: true },
+                _count: { transactionHash: true }
+            }),
+
+            // Product transaction stats
+            prisma.CreatorProduct.aggregate({
+                where: {
+                    email: decodedEmail,
+                    transactionHash: { not: null }
+                },
+                _sum: { rewardAmount: true },
+                _count: { transactionHash: true }
+            }),
+
+            // Course transaction stats
+            prisma.CreatorCourse.aggregate({
+                where: {
+                    email: decodedEmail,
+                    transactionHash: { not: null }
+                },
+                _sum: { rewardAmount: true },
+                _count: { transactionHash: true }
+            }),
+
+            // Post transaction stats
+            prisma.CreatorPost.aggregate({
+                where: {
+                    OR: [
+                        { userEmail: decodedEmail },
+                        { user_username: decodedEmail },
+                        { username: decodedEmail }
+                    ],
+                    transactionHash: { not: null }
+                },
+                _sum: { rewardAmount: true },
+                _count: { transactionHash: true }
+            })
+        ]);
+
+        // Format posts with likes and comments
+        const formattedPosts = posts.map(post => ({
+            id: post.postId,
+            content: post.content,
+            username: post.username,
+            user_username: post.user_username,
+            userEmail: post.userEmail,
+            profilePicture: post.profilePicture || targetUser.profilePicture,
+            timestamp: post.timestamp,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            images: post.images,
+            videos: post.videos,
+            transactionHash: post.transactionHash,
+            rewardAmount: post.rewardAmount,
+            likes: post._count.likes,
+            comments: post._count.comments
+        }));
+
+        // Calculate pagination metadata
+        const totalItems = totalServices + totalProducts + totalCourses + totalPosts;
+        const totalPages = Math.ceil(totalItems / limitNum);
+        const hasNextPage = pageNum < totalPages;
+        const hasPrevPage = pageNum > 1;
+
+        // Calculate overall transaction statistics
+        const totalRewards = (serviceStats._sum.rewardAmount || 0) + 
+                           (productStats._sum.rewardAmount || 0) + 
+                           (courseStats._sum.rewardAmount || 0) + 
+                           (postStats._sum.rewardAmount || 0);
+        
+        const totalTransactions = (serviceStats._count.transactionHash || 0) + 
+                                (productStats._count.transactionHash || 0) + 
+                                (courseStats._count.transactionHash || 0) + 
+                                (postStats._count.transactionHash || 0);
+
+        const averageReward = totalTransactions > 0 ? totalRewards / totalTransactions : 0;
+
+        // Return comprehensive creator data
+        res.status(200).json({
+            success: true,
+            message: "Complete creator data retrieved successfully",
+            data: {
+                user: {
+                    id: targetUser.id,
+                    name: targetUser.name,
+                    email: targetUser.email,
+                    username: targetUser.username,
+                    walletAddress: targetUser.walletAddress,
+                    gllBalance: targetUser.gllBalance,
+                    profilePicture: targetUser.profilePicture,
+                    userType: user ? 'user' : 'creator',
+                    createdAt: targetUser.createdAt,
+                    updatedAt: targetUser.updatedAt
+                },
+                services: {
+                    data: services,
+                    total: totalServices,
+                    transactionStats: {
+                        totalRewards: serviceStats._sum.rewardAmount || 0,
+                        totalTransactions: serviceStats._count.transactionHash || 0,
+                        averageReward: serviceStats._count.transactionHash > 0 ? 
+                            (serviceStats._sum.rewardAmount || 0) / serviceStats._count.transactionHash : 0
+                    }
+                },
+                products: {
+                    data: products,
+                    total: totalProducts,
+                    transactionStats: {
+                        totalRewards: productStats._sum.rewardAmount || 0,
+                        totalTransactions: productStats._count.transactionHash || 0,
+                        averageReward: productStats._count.transactionHash > 0 ? 
+                            (productStats._sum.rewardAmount || 0) / productStats._count.transactionHash : 0
+                    }
+                },
+                courses: {
+                    data: courses,
+                    total: totalCourses,
+                    transactionStats: {
+                        totalRewards: courseStats._sum.rewardAmount || 0,
+                        totalTransactions: courseStats._count.transactionHash || 0,
+                        averageReward: courseStats._count.transactionHash > 0 ? 
+                            (courseStats._sum.rewardAmount || 0) / courseStats._count.transactionHash : 0
+                    }
+                },
+                posts: {
+                    data: formattedPosts,
+                    total: totalPosts,
+                    transactionStats: {
+                        totalRewards: postStats._sum.rewardAmount || 0,
+                        totalTransactions: postStats._count.transactionHash || 0,
+                        averageReward: postStats._count.transactionHash > 0 ? 
+                            (postStats._sum.rewardAmount || 0) / postStats._count.transactionHash : 0
+                    }
+                },
+                overallStats: {
+                    totalRewards: totalRewards,
+                    totalTransactions: totalTransactions,
+                    averageReward: averageReward,
+                    totalItems: totalItems
+                },
+                pagination: {
+                    currentPage: pageNum,
+                    totalPages: totalPages,
+                    totalItems: totalItems,
+                    itemsPerPage: limitNum,
+                    hasNextPage: hasNextPage,
+                    hasPrevPage: hasPrevPage
+                },
+                filters: {
+                    sort: sort,
+                    order: order
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error("Error fetching complete creator data:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error while fetching creator data"
         });
     }
 });
