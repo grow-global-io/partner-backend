@@ -157,13 +157,13 @@ async function syncGLLBalance(email) {
         });
         
         // Find creator by email
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { email }
         });
         
         if (user && creator) {
             // If both exist, update creator's balance to match user's balance
-            await prisma.Creator.update({
+            await prisma.creator.update({
                 where: { email },
                 data: {
                     gllBalance: user.gllBalance
@@ -179,12 +179,12 @@ async function syncGLLBalance(email) {
 router.post('/save-connect-wallet-creator', async (req, res) => {
     const { name, email, walletAddress, glltag } = req.body;
 
-    const tempCreator = await prisma.Creator.findUnique({
+    const tempCreator = await prisma.creator.findUnique({
         where: { email }
     });
     try {
         if (!tempCreator) {
-            const creator = await prisma.Creator.create({
+            const creator = await prisma.creator.create({
                 data: {
                     name: name,
                     email: email,
@@ -197,7 +197,7 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
             };
             res.send(encryptJSON(responseData));
         } else {
-            const updatedCreator = await prisma.Creator.update({
+            const updatedCreator = await prisma.creator.update({
                 where: { id: tempCreator.id },
                 data: {
                     name: name,
@@ -346,12 +346,12 @@ router.post('/personal-details', async (req, res) => {
 router.post('/personal-details-creator', async (req, res) => {
     const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo } = req.body;
 
-    const tempCreator = await prisma.Creator.findUnique({
+    const tempCreator = await prisma.creator.findUnique({
         where: { email }
     });
     try {
         if (!tempCreator) {
-            const creator = await prisma.Creator.create({
+            const creator = await prisma.creator.create({
                 data: {
                     name: name,
                     username: username,
@@ -377,7 +377,7 @@ router.post('/personal-details-creator', async (req, res) => {
             res.send(encryptJSON(responseData));
         } else {
             // Don't update GLL balance if the creator already exists
-            const updatedCreator = await prisma.Creator.update({
+            const updatedCreator = await prisma.creator.update({
                 where: { id: tempCreator.id },
                 data: {
                     name: name,
@@ -599,7 +599,7 @@ router.post('/register-creator', async (req, res) => {
         }
         
         // Find the temporary creator record
-        const tempCreator = await prisma.Creator.findUnique({
+        const tempCreator = await prisma.creator.findUnique({
             where: { email }
         });
 
@@ -617,7 +617,7 @@ router.post('/register-creator', async (req, res) => {
         
         // Update the creator with complete registration information
         // Set GLL balance to 100.0 only when all steps are completed
-        const updatedCreator = await prisma.Creator.update({
+        const updatedCreator = await prisma.creator.update({
             where: { id: tempCreator.id },
             data: {
                 name: name || tempCreator.name,
@@ -1683,7 +1683,7 @@ router.put('/creator-profile/:email', async (req, res) => {
         }
 
         // Check if creator exists
-        const existingCreator = await prisma.Creator.findUnique({
+        const existingCreator = await prisma.creator.findUnique({
             where: { email: decodedEmail }
         });
 
@@ -1726,7 +1726,7 @@ router.put('/creator-profile/:email', async (req, res) => {
         }
 
         // Update the creator profile
-        const updatedCreator = await prisma.Creator.update({
+        const updatedCreator = await prisma.creator.update({
             where: { email: decodedEmail },
             data: updateData
         });
@@ -1791,7 +1791,7 @@ router.get('/creator-profile/:email', async (req, res) => {
             });
         }
 
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { email: decodedEmail }
         });
 
@@ -1990,7 +1990,7 @@ router.post('/claim', async (req, res) => {
             if (!user) {
                 // console.log('User not found, searching creator table');
                 // If not found in user table, try creator table
-                creator = await prisma.Creator.findUnique({
+                creator = await prisma.creator.findUnique({
                     where: { email }
                 });
             }
@@ -2005,7 +2005,7 @@ router.post('/claim', async (req, res) => {
             
             if (!user) {
                 // console.log('User not found, searching creator table by wallet address');
-                creator = await prisma.Creator.findFirst({
+                creator = await prisma.creator.findFirst({
                     where: { walletAddress }
                 });
             }
@@ -2078,7 +2078,7 @@ router.post('/claim', async (req, res) => {
             // console.log('User GLL balance updated successfully');
         } else if (creator) {
             // console.log('Updating creator GLL balance...');
-            await prisma.Creator.update({
+            await prisma.creator.update({
                 where: { id: creator.id },
                 data: {
                     gllBalance: {
@@ -2127,12 +2127,12 @@ router.post('/claim', async (req, res) => {
                 // console.log('Syncing GLL balance...');
                 // Only sync if we updated a user record and there's also a creator record
                 if (user) {
-                    const creator = await prisma.Creator.findUnique({
+                    const creator = await prisma.creator.findUnique({
                         where: { email: targetEmail }
                     });
                     if (creator) {
                         // Update creator's balance to match the updated user's balance
-                        await prisma.Creator.update({
+                        await prisma.creator.update({
                             where: { email: targetEmail },
                             data: {
                                 gllBalance: targetRecord.gllBalance + rewardAmount
@@ -2413,7 +2413,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
         }
 
         // Check for duplicate post ID
-        const existingPost = await prisma.CreatorPost.findUnique({
+        const existingPost = await prisma.creatorPost.findUnique({
             where: { postId: id }
         });
 
@@ -2471,7 +2471,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
         }
 
         // Create the post with media URLs (initially without transaction data)
-        const newPost = await prisma.CreatorPost.create({
+        const newPost = await prisma.creatorPost.create({
             data: {
                 postId: id,
                 content: content,
@@ -2492,25 +2492,49 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
         let creator = null;
         let walletAddress = null;
 
-        // Try to find user by multiple methods
-        if (user_username) {
+        // Try to find user by multiple methods - prioritize email field
+        if (email) {
             // Try to find user by email first (most reliable)
             user = await prisma.user.findFirst({
                 where: { 
                     OR: [
-                        { email: username },
-                        { name: username }
+                        { email: email },
+                        { name: email }
                     ]
                 }
             });
             
             if (!user) {
-                creator = await prisma.Creator.findFirst({
+                creator = await prisma.creator.findFirst({
                     where: { 
                         OR: [
-                            { email: username },
-                            { username: username },
-                            { name: username }
+                            { email: email },
+                            { username: email },
+                            { name: email }
+                        ]
+                    }
+                });
+            }
+        }
+        
+        // If email lookup didn't work, try by user_username
+        if (!user && !creator && user_username) {
+            user = await prisma.user.findFirst({
+                where: { 
+                    OR: [
+                        { email: user_username },
+                        { name: user_username }
+                    ]
+                }
+            });
+            
+            if (!user) {
+                creator = await prisma.creator.findFirst({
+                    where: { 
+                        OR: [
+                            { email: user_username },
+                            { username: user_username },
+                            { name: user_username }
                         ]
                     }
                 });
@@ -2529,7 +2553,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
             });
             
             if (!user) {
-                creator = await prisma.Creator.findFirst({
+                creator = await prisma.creator.findFirst({
                     where: { 
                         OR: [
                             { email: username },
@@ -2580,7 +2604,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                     });
                     console.log("✅ Updated user database balance");
                 } else if (creator) {
-                    await prisma.Creator.update({
+                    await prisma.creator.update({
                         where: { id: creator.id },
                         data: {
                             gllBalance: {
@@ -2600,7 +2624,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                 console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the post with transaction hash and reward amount
-                await prisma.CreatorPost.update({
+                await prisma.creatorPost.update({
                     where: { id: newPost.id },
                     data: {
                         transactionHash: sendTx.hash,
@@ -2709,7 +2733,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
         }
 
         // Fetch posts with pagination and sorting
-        const posts = await prisma.CreatorPost.findMany({
+        const posts = await prisma.creatorPost.findMany({
             where: whereClause,
             orderBy: {
                 [sort]: order
@@ -2739,7 +2763,7 @@ router.get('/creator-posts', generalPostLimiter, async (req, res) => {
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.CreatorPost.count({
+        const totalPosts = await prisma.creatorPost.count({
             where: whereClause
         });
 
@@ -2808,7 +2832,7 @@ router.get('/creator-posts/:postId', generalPostLimiter, async (req, res) => {
             });
         }
 
-        const post = await prisma.CreatorPost.findUnique({
+        const post = await prisma.creatorPost.findUnique({
             where: { postId: postId },
             select: {
                 id: true,
@@ -2923,7 +2947,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
         const skip = (pageNum - 1) * limitNum;
 
         // First, find the creator by email to get their username
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { email: decodedEmail },
             select: {
                 username: true,
@@ -2940,7 +2964,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
         }
 
         // Fetch posts by username OR name (since posts might be stored with either)
-        const posts = await prisma.CreatorPost.findMany({
+        const posts = await prisma.creatorPost.findMany({
             where: {
                 OR: [
                     { username: creator.username },
@@ -2974,7 +2998,7 @@ router.get('/creator-posts/by-email/:email', generalPostLimiter, async (req, res
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.CreatorPost.count({
+        const totalPosts = await prisma.creatorPost.count({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3054,7 +3078,7 @@ router.get('/creator-profile/by-username/:username', generalPostLimiter, async (
         }
 
         // Find creator by username
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { username: decodedUsername },
             select: {
                 email: true,
@@ -3169,7 +3193,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
         const skip = (pageNum - 1) * limitNum;
 
         // First, find the creator by username to get their details
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { username: decodedUsername },
             select: {
                 email: true,
@@ -3187,7 +3211,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
         }
 
         // Fetch posts by username OR name (since posts might be stored with either)
-        const posts = await prisma.CreatorPost.findMany({
+        const posts = await prisma.creatorPost.findMany({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3221,7 +3245,7 @@ router.get('/creator-posts/by-username/:username', generalPostLimiter, async (re
         });
 
         // Get total count for pagination
-        const totalPosts = await prisma.CreatorPost.count({
+        const totalPosts = await prisma.creatorPost.count({
             where: {
                 OR: [
                     { username: creator.username },
@@ -3301,7 +3325,7 @@ router.post('/creator-posts/:postId/like', likeCommentLimiter, async (req, res) 
         }
 
         // Find the post by postId
-        const post = await prisma.CreatorPost.findUnique({
+        const post = await prisma.creatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3377,7 +3401,7 @@ router.get('/creator-posts/:postId/likes', generalPostLimiter, async (req, res) 
         const { postId } = req.params;
 
         // Find the post by postId
-        const post = await prisma.CreatorPost.findUnique({
+        const post = await prisma.creatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3438,7 +3462,7 @@ router.post('/creator-posts/:postId/comment', likeCommentLimiter, async (req, re
         }
 
         // Find the post by postId
-        const post = await prisma.CreatorPost.findUnique({
+        const post = await prisma.creatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3504,7 +3528,7 @@ router.get('/creator-posts/:postId/comments', generalPostLimiter, async (req, re
         }
 
         // Find the post by postId
-        const post = await prisma.CreatorPost.findUnique({
+        const post = await prisma.creatorPost.findUnique({
             where: { postId: postId }
         });
 
@@ -3671,7 +3695,7 @@ router.get('/creatorService/:email', generalPostLimiter, async (req, res) => {
         const { email } = req.params;
         const decodedEmail = decodeURIComponent(email);
         
-        const services = await prisma.CreatorService.findMany({
+        const services = await prisma.creatorService.findMany({
             where: { email: decodedEmail },
             orderBy: { createdAt: 'desc' }
         });
@@ -3714,7 +3738,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
         }
         
         // Create the service initially without transaction data
-        const service = await prisma.CreatorService.create({
+        const service = await prisma.creatorService.create({
             data: {
                 email,
                 title: title.trim(),
@@ -3745,7 +3769,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
 
         // If user not found, try to find creator
         if (!user) {
-            creator = await prisma.Creator.findFirst({
+            creator = await prisma.creator.findFirst({
                 where: { 
                     OR: [
                         { email: email },
@@ -3789,7 +3813,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                     });
                     console.log("✅ Updated user database balance for service");
                 } else if (creator) {
-                    await prisma.Creator.update({
+                    await prisma.creator.update({
                         where: { id: creator.id },
                         data: {
                             gllBalance: {
@@ -3809,7 +3833,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                 console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the service with transaction hash and reward amount
-                await prisma.CreatorService.update({
+                await prisma.creatorService.update({
                     where: { id: service.id },
                     data: {
                         transactionHash: sendTx.hash,
@@ -3864,7 +3888,7 @@ router.put('/creatorService/:id', createPostLimiter, async (req, res) => {
             });
         }
         
-        const service = await prisma.CreatorService.update({
+        const service = await prisma.creatorService.update({
             where: { id },
             data: {
                 ...(title && { title: title.trim() }),
@@ -3908,7 +3932,7 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
         }
         
         // Optional: Verify the service belongs to the user
-        const existingService = await prisma.CreatorService.findFirst({
+        const existingService = await prisma.creatorService.findFirst({
             where: { id, email }
         });
         
@@ -3919,7 +3943,7 @@ router.delete('/creatorService/:id', createPostLimiter, async (req, res) => {
             });
         }
         
-        await prisma.CreatorService.delete({
+        await prisma.creatorService.delete({
             where: { id }
         });
         
@@ -3959,7 +3983,7 @@ router.get('/test-route', (req, res) => {
 async function getCreatorWalletAddress(email) {
     try {
         // First check if creator has wallet address
-        const creator = await prisma.Creator.findUnique({
+        const creator = await prisma.creator.findUnique({
             where: { email },
             select: { walletAddress: true }
         });
@@ -4238,7 +4262,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
         }
         
         // Create the product initially without transaction data
-        const product = await prisma.CreatorProduct.create({
+        const product = await prisma.creatorProduct.create({
             data: {
                 email,
                 title: title.trim(),
@@ -4273,7 +4297,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
 
         // If user not found, try to find creator
         if (!user) {
-            creator = await prisma.Creator.findFirst({
+            creator = await prisma.creator.findFirst({
                 where: { 
                     OR: [
                         { email: email },
@@ -4317,7 +4341,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                     });
                     console.log("✅ Updated user database balance for product");
                 } else if (creator) {
-                    await prisma.Creator.update({
+                    await prisma.creator.update({
                         where: { id: creator.id },
                         data: {
                             gllBalance: {
@@ -4337,7 +4361,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                 console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the product with transaction hash and reward amount
-                await prisma.CreatorProduct.update({
+                await prisma.creatorProduct.update({
                     where: { id: product.id },
                     data: {
                         transactionHash: sendTx.hash,
@@ -4396,7 +4420,7 @@ router.get('/creatorProduct/:id', async (req, res) => {
             });
         }
         
-        const product = await prisma.CreatorProduct.findUnique({
+        const product = await prisma.creatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4434,14 +4458,14 @@ router.get('/creatorProduct', async (req, res) => {
         
         const skip = (parseInt(page) - 1) * parseInt(limit);
         
-        const products = await prisma.CreatorProduct.findMany({
+        const products = await prisma.creatorProduct.findMany({
             where: whereClause,
             skip: skip,
             take: parseInt(limit),
             orderBy: { createdAt: 'desc' }
         });
         
-        const total = await prisma.CreatorProduct.count({ where: whereClause });
+        const total = await prisma.creatorProduct.count({ where: whereClause });
         
         const responseData = {
             success: true,
@@ -4479,7 +4503,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
         }
         
         // Check if product exists
-        const existingProduct = await prisma.CreatorProduct.findUnique({
+        const existingProduct = await prisma.creatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4560,7 +4584,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
         if (imageUrls.length > 0) updateData.images = imageUrls;
         if (proofOfCreationScore !== undefined) updateData.proofOfCreationScore = proofOfCreationScore ? parseFloat(proofOfCreationScore) : null;
         
-        const updatedProduct = await prisma.CreatorProduct.update({
+        const updatedProduct = await prisma.creatorProduct.update({
             where: { id: id },
             data: updateData
         });
@@ -4609,7 +4633,7 @@ router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
         }
         
         // Check if product exists
-        const existingProduct = await prisma.CreatorProduct.findUnique({
+        const existingProduct = await prisma.creatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4644,7 +4668,7 @@ router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
         }
         
         // Delete the product from database
-        await prisma.CreatorProduct.delete({
+        await prisma.creatorProduct.delete({
             where: { id: id }
         });
         
@@ -4685,7 +4709,7 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
         }
         
         // Check if product exists
-        const existingProduct = await prisma.CreatorProduct.findUnique({
+        const existingProduct = await prisma.creatorProduct.findUnique({
             where: { id: id }
         });
         
@@ -4721,7 +4745,7 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
         // Update product images array
         const updatedImages = existingProduct.images.filter(img => !imageUrls.includes(img));
         
-        const updatedProduct = await prisma.CreatorProduct.update({
+        const updatedProduct = await prisma.creatorProduct.update({
             where: { id: id },
             data: {
                 images: updatedImages,
@@ -4821,7 +4845,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         }
         
         // Create the course initially without transaction data
-        const course = await prisma.CreatorCourse.create({
+        const course = await prisma.creatorCourse.create({
             data: {
                 email,
                 title: title.trim(),
@@ -4858,7 +4882,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
 
         // If user not found, try to find creator
         if (!user) {
-            creator = await prisma.Creator.findFirst({
+            creator = await prisma.creator.findFirst({
                 where: { 
                     OR: [
                         { email: email },
@@ -4902,7 +4926,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                     });
                     console.log("✅ Updated user database balance for course");
                 } else if (creator) {
-                    await prisma.Creator.update({
+                    await prisma.creator.update({
                         where: { id: creator.id },
                         data: {
                             gllBalance: {
@@ -4922,7 +4946,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                 console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the course with transaction hash and reward amount
-                await prisma.CreatorCourse.update({
+                await prisma.creatorCourse.update({
                     where: { id: course.id },
                     data: {
                         transactionHash: sendTx.hash,
@@ -4981,14 +5005,14 @@ router.get('/creatorCourse', async (req, res) => {
         
         const skip = (parseInt(page) - 1) * parseInt(limit);
         
-        const courses = await prisma.CreatorCourse.findMany({
+        const courses = await prisma.creatorCourse.findMany({
             where: whereClause,
             skip: skip,
             take: parseInt(limit),
             orderBy: { createdAt: 'desc' }
         });
         
-        const total = await prisma.CreatorCourse.count({ where: whereClause });
+        const total = await prisma.creatorCourse.count({ where: whereClause });
         
         const responseData = {
             success: true,
@@ -5041,7 +5065,7 @@ router.get('/creatorCourse/:id', async (req, res) => {
             });
         }
         
-        const course = await prisma.CreatorCourse.findUnique({
+        const course = await prisma.creatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -5082,7 +5106,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         }
         
         // Check if course exists
-        const existingCourse = await prisma.CreatorCourse.findUnique({
+        const existingCourse = await prisma.creatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -5205,7 +5229,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
         if (tags) updateData.tags = tags.split(',').map(tag => tag.trim());
         if (courseImageUrl !== undefined) updateData.courseImage = courseImageUrl;
         
-        const updatedCourse = await prisma.CreatorCourse.update({
+        const updatedCourse = await prisma.creatorCourse.update({
             where: { id: id },
             data: updateData
         });
@@ -5254,7 +5278,7 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
         }
         
         // Check if course exists
-        const existingCourse = await prisma.CreatorCourse.findUnique({
+        const existingCourse = await prisma.creatorCourse.findUnique({
             where: { id: id }
         });
         
@@ -5287,7 +5311,7 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
         }
         
         // Delete the course from database
-        await prisma.CreatorCourse.delete({
+        await prisma.creatorCourse.delete({
             where: { id: id }
         });
         
@@ -5345,7 +5369,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         }
         
         // Check if creator exists
-        const existingCreator = await prisma.Creator.findUnique({
+        const existingCreator = await prisma.creator.findUnique({
             where: { email: email }
         });
         
@@ -5358,7 +5382,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         
         // Check if username is already taken by another creator
         if (username && username !== existingCreator.username) {
-            const usernameExists = await prisma.Creator.findUnique({
+            const usernameExists = await prisma.creator.findUnique({
                 where: { username: username }
             });
             
@@ -5432,7 +5456,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
         }
         
         // Update the creator profile
-        const updatedCreator = await prisma.Creator.update({
+        const updatedCreator = await prisma.creator.update({
             where: { email: email },
             data: updateData
         });
@@ -5533,7 +5557,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
 
         let creator = null;
         if (!user) {
-            creator = await prisma.Creator.findFirst({
+            creator = await prisma.creator.findFirst({
                 where: { 
                     OR: [
                         { email: decodedEmail },
@@ -5556,7 +5580,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
         // Fetch all creator data in parallel
         const [services, products, courses, posts] = await Promise.all([
             // Creator Services
-            prisma.CreatorService.findMany({
+            prisma.creatorService.findMany({
                 where: { email: decodedEmail },
                 orderBy: { [sort]: order },
                 skip: skip,
@@ -5578,7 +5602,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Creator Products
-            prisma.CreatorProduct.findMany({
+            prisma.creatorProduct.findMany({
                 where: { email: decodedEmail },
                 orderBy: { [sort]: order },
                 skip: skip,
@@ -5602,7 +5626,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Creator Courses
-            prisma.CreatorCourse.findMany({
+            prisma.creatorCourse.findMany({
                 where: { email: decodedEmail },
                 orderBy: { [sort]: order },
                 skip: skip,
@@ -5629,7 +5653,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Creator Posts
-            prisma.CreatorPost.findMany({
+            prisma.creatorPost.findMany({
                 where: {
                     OR: [
                         { userEmail: decodedEmail },
@@ -5667,10 +5691,10 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
 
         // Get total counts for pagination
         const [totalServices, totalProducts, totalCourses, totalPosts] = await Promise.all([
-            prisma.CreatorService.count({ where: { email: decodedEmail } }),
-            prisma.CreatorProduct.count({ where: { email: decodedEmail } }),
-            prisma.CreatorCourse.count({ where: { email: decodedEmail } }),
-            prisma.CreatorPost.count({
+            prisma.creatorService.count({ where: { email: decodedEmail } }),
+            prisma.creatorProduct.count({ where: { email: decodedEmail } }),
+            prisma.creatorCourse.count({ where: { email: decodedEmail } }),
+            prisma.creatorPost.count({
                 where: {
                     OR: [
                         { userEmail: decodedEmail },
@@ -5684,7 +5708,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
         // Calculate transaction statistics for each type
         const [serviceStats, productStats, courseStats, postStats] = await Promise.all([
             // Service transaction stats
-            prisma.CreatorService.aggregate({
+            prisma.creatorService.aggregate({
                 where: {
                     email: decodedEmail,
                     transactionHash: { not: null }
@@ -5694,7 +5718,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Product transaction stats
-            prisma.CreatorProduct.aggregate({
+            prisma.creatorProduct.aggregate({
                 where: {
                     email: decodedEmail,
                     transactionHash: { not: null }
@@ -5704,7 +5728,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Course transaction stats
-            prisma.CreatorCourse.aggregate({
+            prisma.creatorCourse.aggregate({
                 where: {
                     email: decodedEmail,
                     transactionHash: { not: null }
@@ -5714,7 +5738,7 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
             }),
 
             // Post transaction stats
-            prisma.CreatorPost.aggregate({
+            prisma.creatorPost.aggregate({
                 where: {
                     OR: [
                         { userEmail: decodedEmail },
