@@ -2,6 +2,7 @@ const express = require("express");
 const ExcelController = require("../controllers/ExcelController");
 const ChatController = require("../controllers/ChatController");
 const PlagiarismController = require("../controllers/PlagiarismController");
+const UserWalletController = require("../controllers/UserWalletController");
 const { body, validationResult } = require("express-validator");
 
 const router = express.Router();
@@ -10,6 +11,7 @@ const router = express.Router();
 const excelController = new ExcelController();
 const chatController = new ChatController();
 const plagiarismController = new PlagiarismController();
+const userWalletController = new UserWalletController();
 
 /**
  * @swagger
@@ -136,13 +138,110 @@ const plagiarismController = new PlagiarismController();
  *           description: Row index in the file
  *         score:
  *           type: number
- *           description: Similarity score (for search results)
+ *           description: "Similarity score (for search results)"
  *         textContent:
  *           type: string
  *           description: Concatenated text content
  *         metadata:
  *           type: object
  *           description: Row metadata
+ *
+ *     UserWallet:
+ *       type: object
+ *       properties:
+ *         walletAddress:
+ *           type: string
+ *           description: "Unique wallet address (any string format)"
+ *           example: "wallet123"
+ *         generationsCount:
+ *           type: integer
+ *           description: Number of AI text generations for this wallet
+ *           minimum: 0
+ *           example: 25
+ *         createdAt:
+ *           type: string
+ *           format: date-time
+ *           description: Wallet creation timestamp
+ *         updatedAt:
+ *           type: string
+ *           format: date-time
+ *           description: Last update timestamp
+ *
+ *     UserWalletResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: "Wallet retrieved successfully"
+ *         data:
+ *           $ref: '#/components/schemas/UserWallet'
+ *
+ *     UserWalletListResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: "Wallets retrieved successfully"
+ *         data:
+ *           type: object
+ *           properties:
+ *             wallets:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/UserWallet'
+ *             pagination:
+ *               type: object
+ *               properties:
+ *                 currentPage:
+ *                   type: integer
+ *                 totalPages:
+ *                   type: integer
+ *                 totalCount:
+ *                   type: integer
+ *                 hasNext:
+ *                   type: boolean
+ *                 hasPrev:
+ *                   type: boolean
+ *
+ *     UserWalletStatistics:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         message:
+ *           type: string
+ *           example: "Statistics retrieved successfully"
+ *         data:
+ *           type: object
+ *           properties:
+ *             statistics:
+ *               type: object
+ *               properties:
+ *                 totalWallets:
+ *                   type: integer
+ *                   description: Total number of wallets
+ *                 totalGenerations:
+ *                   type: integer
+ *                   description: Sum of all generations across wallets
+ *                 averageGenerations:
+ *                   type: number
+ *                   description: Average generations per wallet
+ *                 maxGenerations:
+ *                   type: integer
+ *                   description: Maximum generations by a single wallet
+ *                 minGenerations:
+ *                   type: integer
+ *                   description: Minimum generations by a wallet
+ *             timestamp:
+ *               type: string
+ *               format: date-time
  */
 
 /**
@@ -163,7 +262,7 @@ const plagiarismController = new PlagiarismController();
  *             properties:
  *               chatId:
  *                 type: string
- *                 description: Chat session ID (optional, will create if not provided)
+ *                 description: "Chat session ID (optional, will create if not provided)"
  *                 example: "12345678-1234-4123-8123-123456789012"
  *               question:
  *                 type: string
@@ -522,7 +621,7 @@ router.post("/clear-expired", async (req, res) => {
  *               excel:
  *                 type: string
  *                 format: binary
- *                 description: Excel file (.xlsx or .xls)
+ *                 description: "Excel file (.xlsx or .xls)"
  *     responses:
  *       201:
  *         description: File uploaded and processed successfully
@@ -884,15 +983,15 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *             properties:
  *               category:
  *                 type: string
- *                 description: Main category (e.g., "Apparel & Clothing")
+ *                 description: "Main category (e.g., \"Apparel & Clothing\")"
  *                 example: "Apparel & Clothing"
  *               subcategory:
  *                 type: string
- *                 description: Subcategory (e.g., "Pet Apparel")
+ *                 description: "Subcategory (e.g., \"Pet Apparel\")"
  *                 example: "Pet Apparel"
  *               location:
  *                 type: string
- *                 description: Location filter (optional)
+ *                 description: "Location filter (optional)"
  *                 example: "Pune"
  *               limit:
  *                 type: integer
@@ -901,7 +1000,7 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *               minScore:
  *                 type: integer
  *                 default: 60
- *                 description: Minimum score threshold (0-100)
+ *                 description: "Minimum score threshold (0-100)"
  *               strictFiltering:
  *                 type: boolean
  *                 default: true
@@ -932,7 +1031,7 @@ router.post("/delete", (req, res) => excelController.deleteFile(req, res));
  *                     filteringSummary:
  *                       type: object
  *       400:
- *         description: Missing required parameters (category, subcategory)
+ *         description: "Missing required parameters (category, subcategory)"
  *       404:
  *         description: No relevant leads found
  *       500:
@@ -1371,13 +1470,13 @@ module.exports = router;
  *                 example: "Textiles"
  *               region:
  *                 type: string
- *                 description: Region or Country (optional)
+ *                 description: "Region or Country (optional)"
  *                 example: "India"
  *               keywords:
  *                 type: array
  *                 items:
  *                   type: string
- *                 description: Keywords array (optional)
+ *                 description: "Keywords array (optional)"
  *                 example: ["Sari", "Lehenga", "Fashion"]
  *               limit:
  *                 type: integer
@@ -1386,7 +1485,7 @@ module.exports = router;
  *               minScore:
  *                 type: integer
  *                 default: 55
- *                 description: Minimum score threshold (0-100). Leads with score < 55% will be filtered out
+ *                 description: "Minimum score threshold (0-100). Leads with score < 55% will be filtered out"
  *     responses:
  *       200:
  *         description: Leads found and scored successfully
@@ -1440,7 +1539,7 @@ module.exports = router;
  *                             type: string
  *                           finalScore:
  *                             type: integer
- *                             description: Final weighted score (0-100)
+ *                             description: "Final weighted score (0-100)"
  *                           scoreBreakdown:
  *                             type: object
  *                             properties:
@@ -1498,7 +1597,7 @@ module.exports = router;
  *                     model:
  *                       type: string
  *       400:
- *         description: Missing required parameters (product, industry)
+ *         description: "Missing required parameters (product, industry)"
  *       401:
  *         description: Invalid API key
  *       404:
@@ -1544,7 +1643,7 @@ router.post("/find-leads", (req, res) =>
  *                           type: array
  *                           items:
  *                             type: string
- *                           description: Locations for each subcategory (max 4)
+ *                           description: "Locations for each subcategory (max 4)"
  *                       example:
  *                         "Computer":
  *                           "Hardware": ["Mumbai", "Delhi", "Bangalore", "Pune"]
@@ -1708,6 +1807,442 @@ router.get("/performance/report", (req, res) => {
       success: false,
       error: "Failed to generate performance report",
       details: error.message,
+    });
+  }
+});
+
+// ===========================
+// AI-Text Wallet Routes
+// ===========================
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet:
+ *   post:
+ *     summary: Create or initialize a user wallet for AI text generations
+ *     tags: [AI-Text]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - walletAddress
+ *             properties:
+ *               walletAddress:
+ *                 type: string
+ *                 description: "Unique wallet address (any string format)"
+ *                 example: "0x742d35cc6634c0532925a3b8d1b9e7c1e"
+ *               generationsCount:
+ *                 type: integer
+ *                 description: "Initial generations count (default: 0)"
+ *                 minimum: 0
+ *                 default: 0
+ *                 example: 10
+ *     responses:
+ *       201:
+ *         description: Wallet created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletResponse'
+ *       400:
+ *         description: Invalid request data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Validation error"
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid request data"
+ *                 code:
+ *                   type: string
+ *                   example: "VALIDATION_ERROR"
+ *       500:
+ *         description: Server error
+ */
+router.post(
+  "/ai-text/wallet",
+  [
+    body("walletAddress")
+      .isString()
+      .trim()
+      .notEmpty()
+      .withMessage("Wallet address is required"),
+    body("generationsCount")
+      .optional()
+      .isInt({ min: 0 })
+      .withMessage("Generations count must be a non-negative integer"),
+  ],
+  async (req, res) => {
+    await userWalletController.createWallet(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}:
+ *   get:
+ *     summary: Get wallet information by address
+ *     tags: [AI-Text]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     responses:
+ *       200:
+ *         description: Wallet retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletResponse'
+ *       404:
+ *         description: Wallet not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Wallet not found"
+ *                 message:
+ *                   type: string
+ *                   example: "No wallet found with the provided address"
+ *                 code:
+ *                   type: string
+ *                   example: "WALLET_NOT_FOUND"
+ *       500:
+ *         description: Server error
+ */
+router.get("/ai-text/wallet/:walletAddress", async (req, res) => {
+  await userWalletController.getWallet(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}:
+ *   put:
+ *     summary: Update wallet generations count
+ *     tags: [AI-Text]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - generationsCount
+ *             properties:
+ *               generationsCount:
+ *                 type: integer
+ *                 description: New generations count or increment amount
+ *                 minimum: 0
+ *                 example: 15
+ *               operation:
+ *                 type: string
+ *                 enum: [set, increment]
+ *                 default: set
+ *                 description: Operation type - 'set' to replace count, 'increment' to add to current count
+ *                 example: "increment"
+ *     responses:
+ *       200:
+ *         description: Wallet updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Wallet updated successfully"
+ *                 data:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/UserWallet'
+ *                     - type: object
+ *                       properties:
+ *                         operation:
+ *                           type: string
+ *                           example: "increment"
+ *       400:
+ *         description: Invalid request data
+ *       404:
+ *         description: Wallet not found
+ *       500:
+ *         description: Server error
+ */
+router.put(
+  "/ai-text/wallet/:walletAddress",
+  [
+    body("generationsCount")
+      .isInt({ min: 0 })
+      .withMessage("Generations count must be a non-negative integer"),
+    body("operation")
+      .optional()
+      .isIn(["set", "increment"])
+      .withMessage("Operation must be either 'set' or 'increment'"),
+  ],
+  async (req, res) => {
+    await userWalletController.updateWallet(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}:
+ *   delete:
+ *     summary: Delete wallet by address
+ *     tags: [AI-Text]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     responses:
+ *       200:
+ *         description: Wallet deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Wallet deleted successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     walletAddress:
+ *                       type: string
+ *                       example: "wallet123"
+ *                     deletedAt:
+ *                       type: string
+ *                       format: date-time
+ *       404:
+ *         description: Wallet not found
+ *       500:
+ *         description: Server error
+ */
+router.delete("/ai-text/wallet/:walletAddress", async (req, res) => {
+  await userWalletController.deleteWallet(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallets:
+ *   get:
+ *     summary: Get all wallets with pagination and sorting
+ *     tags: [AI-Text]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *           minimum: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *           minimum: 1
+ *           maximum: 100
+ *         description: "Number of wallets per page (max 100)"
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [walletAddress, generationsCount, createdAt, updatedAt]
+ *           default: updatedAt
+ *         description: Field to sort by
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order
+ *     responses:
+ *       200:
+ *         description: Wallets retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletListResponse'
+ *       500:
+ *         description: Server error
+ */
+router.get("/ai-text/wallets", async (req, res) => {
+  await userWalletController.getAllWallets(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/statistics:
+ *   get:
+ *     summary: Get AI text generation statistics across all wallets
+ *     tags: [AI-Text]
+ *     responses:
+ *       200:
+ *         description: Statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletStatistics'
+ *       500:
+ *         description: Server error
+ */
+router.get("/ai-text/statistics", async (req, res) => {
+  await userWalletController.getStatistics(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/health:
+ *   get:
+ *     summary: Check AI text wallet service health
+ *     tags: [AI-Text]
+ *     responses:
+ *       200:
+ *         description: Service is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Wallet service is healthy"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       enum: [healthy, unhealthy]
+ *                       example: "healthy"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     databaseConnected:
+ *                       type: boolean
+ *                       example: true
+ *                     totalWallets:
+ *                       type: integer
+ *                       example: 150
+ *       503:
+ *         description: Service is unhealthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Service unhealthy"
+ *                 message:
+ *                   type: string
+ *                   example: "Wallet service is experiencing issues"
+ *                 code:
+ *                   type: string
+ *                   example: "SERVICE_UNHEALTHY"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     status:
+ *                       type: string
+ *                       example: "unhealthy"
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *                     databaseConnected:
+ *                       type: boolean
+ *                       example: false
+ */
+router.get("/ai-text/health", async (req, res) => {
+  await userWalletController.healthCheck(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/test:
+ *   get:
+ *     summary: Test endpoint - creates a sample wallet for testing
+ *     tags: [AI-Text]
+ *     responses:
+ *       201:
+ *         description: Test wallet created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Test wallet created successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/UserWallet'
+ *       500:
+ *         description: Server error
+ */
+router.get("/ai-text/test", async (req, res) => {
+  try {
+    const testWalletAddress = `test-wallet-${Date.now()}`;
+    await userWalletController.createWallet(
+      {
+        body: {
+          walletAddress: testWalletAddress,
+          generationsCount: 5,
+        },
+      },
+      res
+    );
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Failed to create test wallet",
+      message: error.message,
     });
   }
 });
