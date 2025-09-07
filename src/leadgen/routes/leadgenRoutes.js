@@ -155,9 +155,38 @@ const userWalletController = new UserWalletController();
  *           example: "wallet123"
  *         generationsCount:
  *           type: integer
- *           description: Number of AI text generations for this wallet
+ *           description: Number of AI text generations used by this wallet
  *           minimum: 0
- *           example: 25
+ *           example: 7
+ *         generationsAllowed:
+ *           type: integer
+ *           description: Maximum number of generations allowed for this wallet
+ *           minimum: 1
+ *           example: 10
+ *         generationsRemaining:
+ *           type: integer
+ *           description: Number of generations remaining (computed field)
+ *           minimum: 0
+ *           example: 3
+ *         usagePercentage:
+ *           type: integer
+ *           description: Usage percentage (computed field)
+ *           minimum: 0
+ *           maximum: 100
+ *           example: 70
+ *         isLimitReached:
+ *           type: boolean
+ *           description: Whether the wallet has reached its generation limit
+ *           example: false
+ *         needsUpgrade:
+ *           type: boolean
+ *           description: Whether the wallet needs an upgrade (low remaining generations)
+ *           example: false
+ *         planType:
+ *           type: string
+ *           enum: [free, basic, premium, enterprise]
+ *           description: Current subscription plan type
+ *           example: "free"
  *         createdAt:
  *           type: string
  *           format: date-time
@@ -166,6 +195,14 @@ const userWalletController = new UserWalletController();
  *           type: string
  *           format: date-time
  *           description: Last update timestamp
+ *         lastUpgrade:
+ *           type: string
+ *           format: date-time
+ *           description: Last plan upgrade timestamp (optional)
+ *         lastPurchase:
+ *           type: string
+ *           format: date-time
+ *           description: Last generations purchase timestamp (optional)
  *
  *     UserWalletResponse:
  *       type: object
@@ -1881,6 +1918,14 @@ router.post(
       .optional()
       .isInt({ min: 0 })
       .withMessage("Generations count must be a non-negative integer"),
+    body("generationsAllowed")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Generations allowed must be a positive integer"),
+    body("planType")
+      .optional()
+      .isIn(["free", "basic", "premium", "enterprise"])
+      .withMessage("Plan type must be free, basic, premium, or enterprise"),
   ],
   async (req, res) => {
     await userWalletController.createWallet(req, res);
@@ -2008,6 +2053,14 @@ router.put(
     body("generationsCount")
       .isInt({ min: 0 })
       .withMessage("Generations count must be a non-negative integer"),
+    body("generationsAllowed")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Generations allowed must be a positive integer"),
+    body("planType")
+      .optional()
+      .isIn(["free", "basic", "premium", "enterprise"])
+      .withMessage("Plan type must be free, basic, premium, or enterprise"),
     body("operation")
       .optional()
       .isIn(["set", "increment"])
@@ -2511,5 +2564,194 @@ router.get("/health", async (req, res) => {
     });
   }
 });
+
+// ==================== SaaS-Specific AI-Text Wallet Endpoints ====================
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}/can-generate:
+ *   get:
+ *     summary: Check if wallet can perform generation (SaaS usage validation)
+ *     description: Validates if the wallet has remaining generations within their plan limits
+ *     tags: [AI-Text, SaaS]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     responses:
+ *       200:
+ *         description: Generation allowed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Usage within limits"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     allowed:
+ *                       type: boolean
+ *                       example: true
+ *                     reason:
+ *                       type: string
+ *                       example: "Usage within limits"
+ *                     currentUsage:
+ *                       type: integer
+ *                       example: 7
+ *                     limit:
+ *                       type: integer
+ *                       example: 10
+ *                     remaining:
+ *                       type: integer
+ *                       example: 3
+ *                     needsUpgrade:
+ *                       type: boolean
+ *                       example: false
+ *                     planType:
+ *                       type: string
+ *                       example: "free"
+ *       403:
+ *         description: Generation limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Generation limit exceeded"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     allowed:
+ *                       type: boolean
+ *                       example: false
+ *                     needsUpgrade:
+ *                       type: boolean
+ *                       example: true
+ */
+router.get("/ai-text/wallet/:walletAddress/can-generate", async (req, res) => {
+  await userWalletController.canGenerate(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}/upgrade:
+ *   post:
+ *     summary: Upgrade wallet plan
+ *     description: Upgrade a wallet to a higher plan with increased generation limits
+ *     tags: [AI-Text, SaaS]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - planType
+ *               - generationsAllowed
+ *             properties:
+ *               planType:
+ *                 type: string
+ *                 enum: [basic, premium, enterprise]
+ *                 description: "New plan type"
+ *                 example: "premium"
+ *               generationsAllowed:
+ *                 type: integer
+ *                 minimum: 1
+ *                 description: "New generation limit for the plan"
+ *                 example: 1000
+ *     responses:
+ *       200:
+ *         description: Plan upgraded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletResponse'
+ */
+router.post(
+  "/ai-text/wallet/:walletAddress/upgrade",
+  [
+    body("planType")
+      .isIn(["basic", "premium", "enterprise"])
+      .withMessage("Plan type must be basic, premium, or enterprise"),
+    body("generationsAllowed")
+      .isInt({ min: 1 })
+      .withMessage("Generations allowed must be a positive integer"),
+  ],
+  async (req, res) => {
+    await userWalletController.upgradePlan(req, res);
+  }
+);
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}/add-generations:
+ *   post:
+ *     summary: Add generations to wallet (purchase more)
+ *     description: Add additional generations to a wallet's limit (for purchases/renewals)
+ *     tags: [AI-Text, SaaS]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - additionalGenerations
+ *             properties:
+ *               additionalGenerations:
+ *                 type: integer
+ *                 minimum: 1
+ *                 description: "Number of additional generations to add"
+ *                 example: 500
+ *     responses:
+ *       200:
+ *         description: Generations added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/UserWalletResponse'
+ */
+router.post(
+  "/ai-text/wallet/:walletAddress/add-generations",
+  [
+    body("additionalGenerations")
+      .isInt({ min: 1 })
+      .withMessage("Additional generations must be a positive integer"),
+  ],
+  async (req, res) => {
+    await userWalletController.addGenerations(req, res);
+  }
+);
 
 module.exports = router;
