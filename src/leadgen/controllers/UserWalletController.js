@@ -170,6 +170,10 @@ class UserWalletController {
       if (operation === "increment") {
         const increment = generationsCount || 1;
 
+        console.log(
+          `UserWalletController: Incrementing wallet ${walletAddress} by ${increment}`
+        );
+
         try {
           // Try to increment first
           updatedWallet = await this.userWalletModel.incrementGenerations(
@@ -177,12 +181,15 @@ class UserWalletController {
             increment
           );
         } catch (error) {
-          // If wallet not found, create it with the increment value
+          // If wallet not found, create it and then increment
           if (error.message === "Wallet not found") {
             console.log(
-              `UserWalletController: Wallet ${walletAddress} not found during increment, creating new wallet`
+              `UserWalletController: Wallet ${walletAddress} not found during increment, creating new wallet with 0 and incrementing by ${increment}`
             );
-            updatedWallet = await this.userWalletModel.createWallet(
+            // First create wallet with 0
+            await this.userWalletModel.createWallet(walletAddress, 0);
+            // Then increment it by the specified amount
+            updatedWallet = await this.userWalletModel.incrementGenerations(
               walletAddress,
               increment
             );
