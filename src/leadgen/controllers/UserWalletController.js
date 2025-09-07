@@ -169,10 +169,28 @@ class UserWalletController {
 
       if (operation === "increment") {
         const increment = generationsCount || 1;
-        updatedWallet = await this.userWalletModel.incrementGenerations(
-          walletAddress,
-          increment
-        );
+
+        try {
+          // Try to increment first
+          updatedWallet = await this.userWalletModel.incrementGenerations(
+            walletAddress,
+            increment
+          );
+        } catch (error) {
+          // If wallet not found, create it with the increment value
+          if (error.message === "Wallet not found") {
+            console.log(
+              `UserWalletController: Wallet ${walletAddress} not found during increment, creating new wallet`
+            );
+            updatedWallet = await this.userWalletModel.createWallet(
+              walletAddress,
+              increment
+            );
+            updatedWallet.created = true; // Flag that this was created
+          } else {
+            throw error; // Re-throw other errors
+          }
+        }
       } else {
         // Default to set operation
         updatedWallet = await this.userWalletModel.updateGenerationsCount(
@@ -181,15 +199,27 @@ class UserWalletController {
         );
       }
 
+      // Determine if this was a creation or update for the response message
+      const isNewWallet =
+        updatedWallet.createdAt &&
+        new Date(updatedWallet.createdAt).getTime() ===
+          new Date(updatedWallet.updatedAt).getTime();
+
+      const message =
+        operation === "increment" && isNewWallet
+          ? "Wallet created and initialized successfully"
+          : "Wallet updated successfully";
+
       res.status(200).json({
         success: true,
-        message: "Wallet updated successfully",
+        message,
         data: {
           walletAddress: updatedWallet.walletAddress,
           generationsCount: updatedWallet.generationsCount,
           createdAt: updatedWallet.createdAt,
           updatedAt: updatedWallet.updatedAt,
           operation,
+          created: isNewWallet,
         },
       });
     } catch (error) {

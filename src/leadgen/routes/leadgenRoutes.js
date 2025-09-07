@@ -1938,7 +1938,8 @@ router.get("/ai-text/wallet/:walletAddress", async (req, res) => {
  * @swagger
  * /api/leadgen/ai-text/wallet/{walletAddress}:
  *   put:
- *     summary: Update wallet generations count
+ *     summary: Update wallet generations count (auto-creates if not found during increment)
+ *     description: Updates the generations count for a wallet. If using 'increment' operation and wallet doesn't exist, it will be automatically created with the increment value.
  *     tags: [AI-Text]
  *     parameters:
  *       - in: path
@@ -1966,7 +1967,7 @@ router.get("/ai-text/wallet/:walletAddress", async (req, res) => {
  *                 type: string
  *                 enum: [set, increment]
  *                 default: set
- *                 description: Operation type - 'set' to replace count, 'increment' to add to current count
+ *                 description: "Operation type - 'set' to replace count, 'increment' to add to current count. For increment operations, wallet will be auto-created if it doesn't exist."
  *                 example: "increment"
  *     responses:
  *       200:
@@ -1990,10 +1991,14 @@ router.get("/ai-text/wallet/:walletAddress", async (req, res) => {
  *                         operation:
  *                           type: string
  *                           example: "increment"
+ *                         created:
+ *                           type: boolean
+ *                           description: "True if wallet was auto-created during increment operation"
+ *                           example: false
  *       400:
  *         description: Invalid request data
  *       404:
- *         description: Wallet not found
+ *         description: "Wallet not found (only for 'set' operations - 'increment' operations auto-create)"
  *       500:
  *         description: Server error
  */
