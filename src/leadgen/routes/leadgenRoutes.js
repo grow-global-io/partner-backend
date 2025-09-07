@@ -1936,7 +1936,8 @@ router.post(
  * @swagger
  * /api/leadgen/ai-text/wallet/{walletAddress}:
  *   get:
- *     summary: Get wallet information by address
+ *     summary: Get wallet information by address (auto-creates if not found)
+ *     description: Retrieves wallet information. If the wallet doesn't exist, it will be automatically created with basic details and generationsAllowed set to 3 by default.
  *     tags: [AI-Text]
  *     parameters:
  *       - in: path
@@ -1948,13 +1949,13 @@ router.post(
  *         example: "wallet123"
  *     responses:
  *       200:
- *         description: Wallet retrieved successfully
+ *         description: Wallet retrieved successfully (or created and retrieved if it didn't exist)
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/UserWalletResponse'
- *       404:
- *         description: Wallet not found
+ *       400:
+ *         description: Missing wallet address
  *         content:
  *           application/json:
  *             schema:
@@ -1965,13 +1966,13 @@ router.post(
  *                   example: false
  *                 error:
  *                   type: string
- *                   example: "Wallet not found"
+ *                   example: "Missing wallet address"
  *                 message:
  *                   type: string
- *                   example: "No wallet found with the provided address"
+ *                   example: "Wallet address is required"
  *                 code:
  *                   type: string
- *                   example: "WALLET_NOT_FOUND"
+ *                   example: "MISSING_WALLET_ADDRESS"
  *       500:
  *         description: Server error
  */
@@ -2709,8 +2710,8 @@ router.post(
  * @swagger
  * /api/leadgen/ai-text/wallet/{walletAddress}/add-generations:
  *   post:
- *     summary: Add generations to wallet (purchase more)
- *     description: Add additional generations to a wallet's limit (for purchases/renewals)
+ *     summary: Add generations to wallet (purchase more) with session tracking
+ *     description: Add additional generations to a wallet's limit (for purchases/renewals). Includes session ID validation to prevent duplicate transactions.
  *     tags: [AI-Text, SaaS]
  *     parameters:
  *       - in: path
@@ -2728,19 +2729,77 @@ router.post(
  *             type: object
  *             required:
  *               - additionalGenerations
+ *               - sessionId
  *             properties:
  *               additionalGenerations:
  *                 type: integer
  *                 minimum: 1
  *                 description: "Number of additional generations to add"
  *                 example: 500
+ *               sessionId:
+ *                 type: string
+ *                 description: "Unique session identifier to prevent duplicate transactions"
+ *                 example: "session_123_456_789"
+ *               metadata:
+ *                 type: object
+ *                 description: "Additional metadata for the transaction (optional)"
+ *                 properties:
+ *                   source:
+ *                     type: string
+ *                     example: "stripe_payment"
+ *                   planType:
+ *                     type: string
+ *                     example: "premium"
+ *                   paymentAmount:
+ *                     type: number
+ *                     example: 29.99
  *     responses:
  *       200:
  *         description: Generations added successfully
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/UserWalletResponse'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "500 generations added successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/UserWallet'
+ *                 transaction:
+ *                   type: object
+ *                   properties:
+ *                     sessionId:
+ *                       type: string
+ *                       example: "session_123_456_789"
+ *                     additionalGenerations:
+ *                       type: integer
+ *                       example: 500
+ *                     timestamp:
+ *                       type: string
+ *                       format: date-time
+ *       409:
+ *         description: Duplicate session ID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Duplicate transaction"
+ *                 message:
+ *                   type: string
+ *                   example: "This session ID has already been used. Duplicate transactions are not allowed."
+ *                 code:
+ *                   type: string
+ *                   example: "DUPLICATE_SESSION_ID"
  */
 router.post(
   "/ai-text/wallet/:walletAddress/add-generations",
@@ -2748,10 +2807,115 @@ router.post(
     body("additionalGenerations")
       .isInt({ min: 1 })
       .withMessage("Additional generations must be a positive integer"),
+    body("sessionId")
+      .isString()
+      .isLength({ min: 1 })
+      .withMessage("Session ID is required and must be a non-empty string"),
+    body("metadata")
+      .optional()
+      .isObject()
+      .withMessage("Metadata must be an object if provided"),
   ],
   async (req, res) => {
     await userWalletController.addGenerations(req, res);
   }
 );
+
+/**
+ * @swagger
+ * /api/leadgen/ai-text/wallet/{walletAddress}/transactions:
+ *   get:
+ *     summary: Get transaction history for a wallet
+ *     description: Retrieve the transaction history for a specific wallet with pagination
+ *     tags: [AI-Text, SaaS]
+ *     parameters:
+ *       - in: path
+ *         name: walletAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Wallet address (any string format)"
+ *         example: "wallet123"
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: "Page number for pagination"
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: "Number of transactions per page"
+ *         example: 50
+ *     responses:
+ *       200:
+ *         description: Transaction history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Transaction history retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           sessionId:
+ *                             type: string
+ *                             example: "session_123_456_789"
+ *                           walletAddress:
+ *                             type: string
+ *                             example: "wallet123"
+ *                           type:
+ *                             type: string
+ *                             example: "add_generations"
+ *                           additionalGenerations:
+ *                             type: integer
+ *                             example: 500
+ *                           metadata:
+ *                             type: object
+ *                           createdAt:
+ *                             type: string
+ *                             format: date-time
+ *                           status:
+ *                             type: string
+ *                             example: "completed"
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         currentPage:
+ *                           type: integer
+ *                           example: 1
+ *                         totalPages:
+ *                           type: integer
+ *                           example: 5
+ *                         totalTransactions:
+ *                           type: integer
+ *                           example: 237
+ *                         hasNextPage:
+ *                           type: boolean
+ *                           example: true
+ *                         hasPrevPage:
+ *                           type: boolean
+ *                           example: false
+ */
+router.get("/ai-text/wallet/:walletAddress/transactions", async (req, res) => {
+  await userWalletController.getTransactionHistory(req, res);
+});
 
 module.exports = router;

@@ -9,6 +9,7 @@ class UserWalletModel {
     this.client = null;
     this.db = null;
     this.collection = null;
+    this.transactionCollection = null;
   }
 
   /**
@@ -21,11 +22,20 @@ class UserWalletModel {
       await this.client.connect();
       this.db = this.client.db("Partners");
       this.collection = this.db.collection("user_wallets");
+      this.transactionCollection = this.db.collection("wallet_transactions");
 
       // Create indexes for better performance
       await this.collection.createIndex({ walletAddress: 1 }, { unique: true });
       await this.collection.createIndex({ createdAt: -1 });
       await this.collection.createIndex({ updatedAt: -1 });
+
+      // Create indexes for transaction collection
+      await this.transactionCollection.createIndex(
+        { sessionId: 1 },
+        { unique: true }
+      );
+      await this.transactionCollection.createIndex({ walletAddress: 1 });
+      await this.transactionCollection.createIndex({ createdAt: -1 });
 
       console.log("UserWalletModel: Connected to MongoDB");
     } catch (error) {
@@ -270,6 +280,139 @@ class UserWalletModel {
       return await this.getWallet(walletAddress);
     } catch (error) {
       console.error("UserWalletModel: Error adding generations:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * @description Check if a session ID already exists in transaction history
+   * @param {string} sessionId - Session ID to check
+   * @returns {Promise<boolean>} True if session ID exists, false otherwise
+   */
+  async isSessionIdExists(sessionId) {
+    try {
+      const transaction = await this.transactionCollection.findOne({
+        sessionId,
+      });
+      return transaction !== null;
+    } catch (error) {
+      console.error("UserWalletModel: Error checking session ID:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * @description Add generations to wallet with session tracking (for purchases/renewals)
+   * @param {string} walletAddress - Wallet address
+   * @param {number} additionalGenerations - Additional generations to add
+   * @param {string} sessionId - Unique session ID for this transaction
+   * @param {Object} metadata - Additional transaction metadata
+   * @returns {Promise<Object>} Updated wallet document with transaction record
+   */
+  async addGenerationsWithSession(
+    walletAddress,
+    additionalGenerations,
+    sessionId,
+    metadata = {}
+  ) {
+    try {
+      // First check if session ID already exists
+      const sessionExists = await this.isSessionIdExists(sessionId);
+      if (sessionExists) {
+        throw new Error(
+          "Session ID already exists - duplicate transaction not allowed"
+        );
+      }
+
+      // Use MongoDB transaction to ensure atomicity
+      const session = this.client.startSession();
+
+      try {
+        await session.withTransaction(async () => {
+          // Create transaction record first
+          const transactionRecord = {
+            sessionId,
+            walletAddress,
+            type: "add_generations",
+            additionalGenerations,
+            metadata,
+            createdAt: new Date(),
+            status: "completed",
+          };
+
+          await this.transactionCollection.insertOne(transactionRecord, {
+            session,
+          });
+
+          // Update wallet
+          const result = await this.collection.updateOne(
+            { walletAddress },
+            {
+              $inc: { generationsAllowed: additionalGenerations },
+              $set: {
+                updatedAt: new Date(),
+                lastPurchase: new Date(),
+              },
+            },
+            { session }
+          );
+
+          if (result.matchedCount === 0) {
+            throw new Error("Wallet not found");
+          }
+        });
+
+        return await this.getWallet(walletAddress);
+      } finally {
+        await session.endSession();
+      }
+    } catch (error) {
+      console.error(
+        "UserWalletModel: Error adding generations with session:",
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * @description Get transaction history for a wallet
+   * @param {string} walletAddress - Wallet address
+   * @param {number} page - Page number (default: 1)
+   * @param {number} limit - Number of transactions per page (default: 50)
+   * @returns {Promise<Object>} Transaction history with pagination
+   */
+  async getTransactionHistory(walletAddress, page = 1, limit = 50) {
+    try {
+      const skip = (page - 1) * limit;
+
+      const transactions = await this.transactionCollection
+        .find({ walletAddress })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+
+      const totalTransactions = await this.transactionCollection.countDocuments(
+        { walletAddress }
+      );
+      const totalPages = Math.ceil(totalTransactions / limit);
+
+      return {
+        transactions,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalTransactions,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+      };
+    } catch (error) {
+      console.error(
+        "UserWalletModel: Error getting transaction history:",
+        error
+      );
       throw error;
     }
   }
