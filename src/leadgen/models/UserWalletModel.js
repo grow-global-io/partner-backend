@@ -291,8 +291,9 @@ class UserWalletModel {
    */
   async isSessionIdExists(sessionId) {
     try {
+      // Use $eq to ensure sessionId is always treated as a literal value
       const transaction = await this.transactionCollection.findOne({
-        sessionId,
+        sessionId: { $eq: sessionId },
       });
       return transaction !== null;
     } catch (error) {
