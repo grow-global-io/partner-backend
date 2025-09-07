@@ -42,7 +42,12 @@ class UserWalletController {
         });
       }
 
-      const { walletAddress, generationsCount = 0 } = req.body;
+      const {
+        walletAddress,
+        generationsCount = 0,
+        generationsAllowed = 10,
+        planType = "free",
+      } = req.body;
 
       // Basic validation - just check if wallet address exists
       if (
@@ -60,7 +65,8 @@ class UserWalletController {
 
       const wallet = await this.userWalletModel.createWallet(
         walletAddress,
-        generationsCount
+        generationsCount,
+        generationsAllowed
       );
 
       res.status(201).json({
@@ -69,6 +75,12 @@ class UserWalletController {
         data: {
           walletAddress: wallet.walletAddress,
           generationsCount: wallet.generationsCount,
+          generationsAllowed: wallet.generationsAllowed,
+          planType: wallet.planType,
+          generationsRemaining: wallet.generationsRemaining,
+          usagePercentage: wallet.usagePercentage,
+          isLimitReached: wallet.isLimitReached,
+          needsUpgrade: wallet.needsUpgrade,
           createdAt: wallet.createdAt,
           updatedAt: wallet.updatedAt,
         },
@@ -85,7 +97,7 @@ class UserWalletController {
   }
 
   /**
-   * @description Get wallet by address
+   * @description Get wallet by address (auto-creates if not found)
    * @param {Object} req - Express request object
    * @param {Object} res - Express response object
    */
@@ -102,23 +114,42 @@ class UserWalletController {
         });
       }
 
-      const wallet = await this.userWalletModel.getWallet(walletAddress);
+      let wallet = await this.userWalletModel.getWallet(walletAddress);
 
+      // If wallet doesn't exist, create a new one with default settings
       if (!wallet) {
-        return res.status(404).json({
-          success: false,
-          error: "Wallet not found",
-          message: "No wallet found with the provided address",
-          code: "WALLET_NOT_FOUND",
-        });
+        console.log(
+          `UserWalletController: Wallet not found for address ${walletAddress}, creating new wallet`
+        );
+
+        // Create wallet with basic details and generationsAllowed = 3 by default
+        wallet = await this.userWalletModel.createWallet(
+          walletAddress,
+          0, // generationsCount = 0
+          3 // generationsAllowed = 3
+        );
+
+        // Get the wallet again to ensure we have all computed fields
+        wallet = await this.userWalletModel.getWallet(walletAddress);
       }
 
       res.status(200).json({
         success: true,
-        message: "Wallet retrieved successfully",
+        message:
+          wallet.createdAt === wallet.updatedAt
+            ? "Wallet created and retrieved successfully"
+            : "Wallet retrieved successfully",
         data: {
           walletAddress: wallet.walletAddress,
           generationsCount: wallet.generationsCount,
+          generationsAllowed: wallet.generationsAllowed,
+          planType: wallet.planType,
+          generationsRemaining: wallet.generationsRemaining,
+          usagePercentage: wallet.usagePercentage,
+          isLimitReached: wallet.isLimitReached,
+          needsUpgrade: wallet.needsUpgrade,
+          lastUpgrade: wallet.lastUpgrade,
+          lastPurchase: wallet.lastPurchase,
           createdAt: wallet.createdAt,
           updatedAt: wallet.updatedAt,
         },
@@ -365,7 +396,268 @@ class UserWalletController {
         success: false,
         error: "Failed to retrieve statistics",
         message: "Internal server error while retrieving statistics",
-        code: "STATISTICS_ERROR",
+      });
+    }
+  }
+
+  /**
+   * @description Check if wallet can perform generation (SaaS usage validation)
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   */
+  async canGenerate(req, res) {
+    try {
+      const { walletAddress } = req.params;
+
+      if (!walletAddress) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing wallet address",
+          message: "Wallet address is required",
+          code: "MISSING_WALLET_ADDRESS",
+        });
+      }
+
+      const validation = await this.userWalletModel.canGenerate(walletAddress);
+
+      const statusCode = validation.allowed ? 200 : 403;
+
+      res.status(statusCode).json({
+        success: validation.allowed,
+        message: validation.reason,
+        data: validation,
+      });
+    } catch (error) {
+      console.error(
+        "UserWalletController: Error validating generation:",
+        error
+      );
+      res.status(500).json({
+        success: false,
+        error: "Failed to validate generation",
+        message: "Internal server error while validating generation permission",
+        code: "GENERATION_VALIDATION_ERROR",
+      });
+    }
+  }
+
+  /**
+   * @description Upgrade wallet plan
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   */
+  async upgradePlan(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Invalid request data",
+          details: errors.array(),
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      const { walletAddress } = req.params;
+      const { planType, generationsAllowed } = req.body;
+
+      if (!walletAddress) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing wallet address",
+          message: "Wallet address is required",
+          code: "MISSING_WALLET_ADDRESS",
+        });
+      }
+
+      const wallet = await this.userWalletModel.upgradePlan(
+        walletAddress,
+        planType,
+        generationsAllowed
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `Plan upgraded to ${planType} successfully`,
+        data: wallet,
+      });
+    } catch (error) {
+      console.error("UserWalletController: Error upgrading plan:", error);
+      if (error.message === "Wallet not found") {
+        return res.status(404).json({
+          success: false,
+          error: "Wallet not found",
+          message: "No wallet found with the provided address",
+          code: "WALLET_NOT_FOUND",
+        });
+      }
+      res.status(500).json({
+        success: false,
+        error: "Failed to upgrade plan",
+        message: "Internal server error while upgrading plan",
+        code: "PLAN_UPGRADE_ERROR",
+      });
+    }
+  }
+
+  /**
+   * @description Add generations to wallet (purchase more) with session tracking
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   */
+  async addGenerations(req, res) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Invalid request data",
+          details: errors.array(),
+          code: "VALIDATION_ERROR",
+        });
+      }
+
+      const { walletAddress } = req.params;
+      const { additionalGenerations, sessionId, metadata = {} } = req.body;
+
+      if (!walletAddress) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing wallet address",
+          message: "Wallet address is required",
+          code: "MISSING_WALLET_ADDRESS",
+        });
+      }
+
+      if (!sessionId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing session ID",
+          message: "Session ID is required to prevent duplicate transactions",
+          code: "MISSING_SESSION_ID",
+        });
+      }
+
+      // Check if wallet exists, create if it doesn't
+      let existingWallet = await this.userWalletModel.getWallet(walletAddress);
+      if (!existingWallet) {
+        console.log(
+          `UserWalletController: Wallet not found for address ${walletAddress}, creating new wallet`
+        );
+        await this.userWalletModel.createWallet(walletAddress, 0, 3);
+      }
+
+      const wallet = await this.userWalletModel.addGenerationsWithSession(
+        walletAddress,
+        additionalGenerations,
+        sessionId,
+        {
+          ...metadata,
+          requestTimestamp: new Date(),
+          userAgent: req.headers["user-agent"],
+          ipAddress: req.ip || req.connection.remoteAddress,
+        }
+      );
+
+      res.status(200).json({
+        success: true,
+        message: `${additionalGenerations} generations added successfully`,
+        data: {
+          walletAddress: wallet.walletAddress,
+          generationsCount: wallet.generationsCount,
+          generationsAllowed: wallet.generationsAllowed,
+          planType: wallet.planType,
+          generationsRemaining: wallet.generationsRemaining,
+          usagePercentage: wallet.usagePercentage,
+          isLimitReached: wallet.isLimitReached,
+          needsUpgrade: wallet.needsUpgrade,
+          lastUpgrade: wallet.lastUpgrade,
+          lastPurchase: wallet.lastPurchase,
+          createdAt: wallet.createdAt,
+          updatedAt: wallet.updatedAt,
+        },
+        transaction: {
+          sessionId,
+          additionalGenerations,
+          timestamp: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error("UserWalletController: Error adding generations:", error);
+
+      if (
+        error.message ===
+        "Session ID already exists - duplicate transaction not allowed"
+      ) {
+        return res.status(409).json({
+          success: false,
+          error: "Duplicate transaction",
+          message:
+            "This session ID has already been used. Duplicate transactions are not allowed.",
+          code: "DUPLICATE_SESSION_ID",
+        });
+      }
+
+      if (error.message === "Wallet not found") {
+        return res.status(404).json({
+          success: false,
+          error: "Wallet not found",
+          message: "No wallet found with the provided address",
+          code: "WALLET_NOT_FOUND",
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: "Failed to add generations",
+        message: "Internal server error while adding generations",
+        code: "ADD_GENERATIONS_ERROR",
+      });
+    }
+  }
+
+  /**
+   * @description Get transaction history for a wallet
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   */
+  async getTransactionHistory(req, res) {
+    try {
+      const { walletAddress } = req.params;
+      const { page = 1, limit = 50 } = req.query;
+
+      if (!walletAddress) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing wallet address",
+          message: "Wallet address is required",
+          code: "MISSING_WALLET_ADDRESS",
+        });
+      }
+
+      const history = await this.userWalletModel.getTransactionHistory(
+        walletAddress,
+        parseInt(page),
+        parseInt(limit)
+      );
+
+      res.status(200).json({
+        success: true,
+        message: "Transaction history retrieved successfully",
+        data: history,
+      });
+    } catch (error) {
+      console.error(
+        "UserWalletController: Error getting transaction history:",
+        error
+      );
+      res.status(500).json({
+        success: false,
+        error: "Failed to retrieve transaction history",
+        message: "Internal server error while retrieving transaction history",
+        code: "TRANSACTION_HISTORY_ERROR",
       });
     }
   }
