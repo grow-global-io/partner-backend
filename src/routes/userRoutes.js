@@ -749,47 +749,6 @@ router.post('/register-creator', async (req, res) => {
         const finalProfilePicture = logoUrl || profilePicture;
 
         // Log all data received from frontend
-        console.log('=== REGISTER CREATOR - FRONTEND DATA ===');
-        console.log('Received data:', {
-            name,
-            username,
-            email,
-            phone,
-            nationality,
-            profilePicture,
-            passion,
-            existingOnlineStoreLink,
-            paymentPreference,
-            instagramId,
-            instagramUsername,
-            terms,
-            apiKey,
-            aboutMe,
-            businessDescription,
-            businessPhotos,
-            businessVideo,
-            connectedSocials,
-            creatorName,
-            firstName,
-            lastName,
-            customCategory,
-            customWorkType,
-            hasBrandColors,
-            hasLogo,
-            selectedCategories,
-            selectedWorkTypes,
-            userType,
-            userData,
-            platform,
-            connectedAt,
-            logoUrl
-        });
-        console.log('Final processed values:', {
-            finalUsername,
-            finalProfilePicture
-        });
-        console.log('=== END FRONTEND DATA ===');
-
         // console.log('=== CREATOR REGISTER DEBUG ===');
         // console.log('Received data:', {
         //     name,
