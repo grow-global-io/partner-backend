@@ -704,6 +704,158 @@ router.post('/check-username-availability', async (req, res) => {
     }
 });
 
+// Get all creator activities (services, posts, courses, products) with transaction data
+router.get('/creator-activities', async (req, res) => {
+    try {
+        console.log('=== FETCHING CREATOR ACTIVITIES ===');
+
+        // Fetch data from all four creator tables
+        const [services, posts, courses, products] = await Promise.all([
+            // Creator Services
+            prisma.creatorService.findMany({
+                select: {
+                    email: true,
+                    title: true,
+                    transactionHash: true,
+                    createdAt: true,
+                    rewardAmount: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            
+            // Creator Posts
+            prisma.creatorPost.findMany({
+                select: {
+                    userEmail: true,
+                    content: true,
+                    transactionHash: true,
+                    timestamp: true,
+                    rewardAmount: true
+                },
+                orderBy: {
+                    timestamp: 'desc'
+                }
+            }),
+            
+            // Creator Courses
+            prisma.creatorCourse.findMany({
+                select: {
+                    email: true,
+                    title: true,
+                    transactionHash: true,
+                    createdAt: true,
+                    rewardAmount: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            
+            // Creator Products
+            prisma.creatorProduct.findMany({
+                select: {
+                    email: true,
+                    title: true,
+                    transactionHash: true,
+                    createdAt: true,
+                    rewardAmount: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            })
+        ]);
+
+        // Transform the data to have consistent structure
+        const transformedServices = services.map(item => ({
+            type: 'service',
+            email: item.email,
+            title: item.title,
+            transactionHash: item.transactionHash,
+            timestamp: item.createdAt,
+            rewardAmount: item.rewardAmount
+        }));
+
+        const transformedPosts = posts.map(item => ({
+            type: 'post',
+            email: item.userEmail,
+            title: item.content.length > 50 ? item.content.substring(0, 50) + '...' : item.content,
+            transactionHash: item.transactionHash,
+            timestamp: item.timestamp,
+            rewardAmount: item.rewardAmount
+        }));
+
+        const transformedCourses = courses.map(item => ({
+            type: 'course',
+            email: item.email,
+            title: item.title,
+            transactionHash: item.transactionHash,
+            timestamp: item.createdAt,
+            rewardAmount: item.rewardAmount
+        }));
+
+        const transformedProducts = products.map(item => ({
+            type: 'product',
+            email: item.email,
+            title: item.title,
+            transactionHash: item.transactionHash,
+            timestamp: item.createdAt,
+            rewardAmount: item.rewardAmount
+        }));
+
+        // Combine all activities
+        const allActivities = [
+            ...transformedServices,
+            ...transformedPosts,
+            ...transformedCourses,
+            ...transformedProducts
+        ];
+
+        // Sort by timestamp (newest first)
+        allActivities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        // Calculate statistics
+        const stats = {
+            totalActivities: allActivities.length,
+            services: services.length,
+            posts: posts.length,
+            courses: courses.length,
+            products: products.length,
+            totalRewardAmount: allActivities.reduce((sum, activity) => sum + (activity.rewardAmount || 0), 0),
+            activitiesWithTransactions: allActivities.filter(activity => activity.transactionHash).length
+        };
+
+        console.log('Activities fetched:', {
+            total: allActivities.length,
+            services: services.length,
+            posts: posts.length,
+            courses: courses.length,
+            products: products.length
+        });
+
+        const responseData = {
+            success: true,
+            message: "Creator activities fetched successfully",
+            data: {
+                activities: allActivities,
+                statistics: stats
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error("Error fetching creator activities:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while fetching creator activities",
+            error: error.message
+        });
+    }
+});
+
 
 router.post('/register-creator', async (req, res) => {
     try {
