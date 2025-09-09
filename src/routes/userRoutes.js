@@ -344,7 +344,46 @@ router.post('/personal-details', async (req, res) => {
 
 // Save personal details from step 1 registration for creator
 router.post('/personal-details-creator', async (req, res) => {
-    const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo } = req.body;
+    const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo, connectedSocials, creatorName, firstName, lastName, customCategory, customWorkType, hasBrandColors, hasLogo, selectedCategories, selectedWorkTypes, userType, userData, platform, connectedAt, logoUrl } = req.body;
+    
+    // Log all data received from frontend
+    console.log('=== PERSONAL DETAILS CREATOR - FRONTEND DATA ===');
+    console.log('Received data:', {
+        name,
+        username,
+        email,
+        phone,
+        nationality,
+        profilePicture,
+        passion,
+        existingOnlineStoreLink,
+        paymentPreference,
+        businessDescription,
+        businessPhotos,
+        businessVideo,
+        connectedSocials,
+        creatorName,
+        firstName,
+        lastName,
+        customCategory,
+        customWorkType,
+        hasBrandColors,
+        hasLogo,
+        selectedCategories,
+        selectedWorkTypes,
+        userType,
+        userData,
+        platform,
+        connectedAt,
+        logoUrl
+    });
+    console.log('=== END FRONTEND DATA ===');
+    
+    // Use creatorName as username if provided, otherwise fall back to username
+    const finalUsername = creatorName || username;
+    
+    // Use logoUrl as profilePicture if provided, otherwise fall back to profilePicture
+    const finalProfilePicture = logoUrl || profilePicture;
 
     const tempCreator = await prisma.creator.findUnique({
         where: { email }
@@ -354,17 +393,32 @@ router.post('/personal-details-creator', async (req, res) => {
             const creator = await prisma.creator.create({
                 data: {
                     name: name,
-                    username: username,
+                    username: finalUsername,
                     email: email,
                     phone: phone,
                     nationality: nationality,
-                    profilePicture: profilePicture || null,
+                    profilePicture: finalProfilePicture || null,
                     passion: passion || "",
                     existingOnlineStoreLink: existingOnlineStoreLink || "",
                     paymentPreference: paymentPreference || "",
                     aboutMe: businessDescription || "",
                     userPhotos: businessPhotos || [],
                     userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : [],
+                    firstName: firstName || null,
+                    lastName: lastName || null,
+                    customCategory: customCategory || null,
+                    customWorkType: customWorkType || null,
+                    hasBrandColors: typeof hasBrandColors === 'boolean' ? hasBrandColors : false,
+                    hasLogo: typeof hasLogo === 'boolean' ? hasLogo : false,
+                    selectedCategories: Array.isArray(selectedCategories) ? selectedCategories : [],
+                    selectedWorkTypes: Array.isArray(selectedWorkTypes) ? selectedWorkTypes : [],
+                    userType: userType || "creator",
+                    connectedSocials: connectedSocials ? {
+                        platform: platform || null,
+                        connectedAt: connectedAt || new Date().toISOString(),
+                        list: Array.isArray(connectedSocials) ? connectedSocials : [],
+                        userData: userData || null
+                    } : undefined,
                     gllBalance: 0, // Initially set to 0, will be updated in the final step
                     isKycComplete: false,
                     isRegistrationComplete: false,
@@ -381,17 +435,32 @@ router.post('/personal-details-creator', async (req, res) => {
                 where: { id: tempCreator.id },
                 data: {
                     name: name,
-                    username: username,
+                    username: finalUsername,
                     email: email,
                     phone: phone,
                     nationality: nationality,
-                    profilePicture: profilePicture || tempCreator.profilePicture,
+                    profilePicture: finalProfilePicture || tempCreator.profilePicture,
                     passion: passion || tempCreator.passion || "",
                     existingOnlineStoreLink: existingOnlineStoreLink || tempCreator.existingOnlineStoreLink || "",
                     paymentPreference: paymentPreference || tempCreator.paymentPreference || "",
                     aboutMe: businessDescription || tempCreator.aboutMe || "",
                     userPhotos: businessPhotos || tempCreator.userPhotos || [],
                     userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
+                    firstName: firstName || tempCreator.firstName || null,
+                    lastName: lastName || tempCreator.lastName || null,
+                    customCategory: customCategory || tempCreator.customCategory || null,
+                    customWorkType: customWorkType || tempCreator.customWorkType || null,
+                    hasBrandColors: typeof hasBrandColors === 'boolean' ? hasBrandColors : (tempCreator.hasBrandColors ?? false),
+                    hasLogo: typeof hasLogo === 'boolean' ? hasLogo : (tempCreator.hasLogo ?? false),
+                    selectedCategories: Array.isArray(selectedCategories) ? selectedCategories : (tempCreator.selectedCategories || []),
+                    selectedWorkTypes: Array.isArray(selectedWorkTypes) ? selectedWorkTypes : (tempCreator.selectedWorkTypes || []),
+                    userType: userType || tempCreator.userType || "creator",
+                    connectedSocials: connectedSocials ? {
+                        platform: platform || null,
+                        connectedAt: connectedAt || new Date().toISOString(),
+                        list: Array.isArray(connectedSocials) ? connectedSocials : [],
+                        userData: userData || null
+                    } : tempCreator.connectedSocials,
                     // Don't update gllBalance here
                 }
             });
@@ -561,6 +630,80 @@ router.post('/register', async (req, res) => {
     }
 });
 
+// Check if username is available for creators
+router.post('/check-username-availability', async (req, res) => {
+    try {
+        const { username } = req.body;
+
+        // Log the request
+        console.log('=== CHECK USERNAME AVAILABILITY ===');
+        console.log('Checking username:', username);
+
+        // Validation
+        if (!username) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Username is required" 
+            });
+        }
+
+        if (typeof username !== 'string') {
+            return res.status(400).json({ 
+                success: false,
+                message: "Username must be a string" 
+            });
+        }
+
+        // Trim and validate username
+        const trimmedUsername = username.trim();
+        
+        if (trimmedUsername.length < 4) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Username must be at least 4 characters long" 
+            });
+        }
+
+        if (trimmedUsername.length > 30) {
+            return res.status(400).json({ 
+                success: false,
+                message: "Username must be less than 30 characters" 
+            });
+        }
+
+        // Check if username exists in creator database
+        const existingCreator = await prisma.creator.findUnique({
+            where: { username: trimmedUsername }
+        });
+
+        if (existingCreator) {
+            console.log('Username already exists:', trimmedUsername);
+            return res.json({
+                success: true,
+                available: false,
+                message: "This username already exists",
+                username: trimmedUsername
+            });
+        } else {
+            console.log('Username is available:', trimmedUsername);
+            return res.json({
+                success: true,
+                available: true,
+                message: "This username is available",
+                username: trimmedUsername
+            });
+        }
+
+    } catch (error) {
+        console.error("Error checking username availability:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while checking username availability",
+            error: error.message
+        });
+    }
+});
+
 
 router.post('/register-creator', async (req, res) => {
     try {
@@ -582,7 +725,70 @@ router.post('/register-creator', async (req, res) => {
             businessDescription,
             businessPhotos,
             businessVideo,
+            connectedSocials,
+            creatorName,
+            firstName,
+            lastName,
+            customCategory,
+            customWorkType,
+            hasBrandColors,
+            hasLogo,
+            selectedCategories,
+            selectedWorkTypes,
+            userType,
+            userData,
+            platform,
+            connectedAt,
+            logoUrl
         } = req.body;
+
+        // Use creatorName as username if provided, otherwise fall back to username
+        const finalUsername = creatorName || username;
+        
+        // Use logoUrl as profilePicture if provided, otherwise fall back to profilePicture
+        const finalProfilePicture = logoUrl || profilePicture;
+
+        // Log all data received from frontend
+        console.log('=== REGISTER CREATOR - FRONTEND DATA ===');
+        console.log('Received data:', {
+            name,
+            username,
+            email,
+            phone,
+            nationality,
+            profilePicture,
+            passion,
+            existingOnlineStoreLink,
+            paymentPreference,
+            instagramId,
+            instagramUsername,
+            terms,
+            apiKey,
+            aboutMe,
+            businessDescription,
+            businessPhotos,
+            businessVideo,
+            connectedSocials,
+            creatorName,
+            firstName,
+            lastName,
+            customCategory,
+            customWorkType,
+            hasBrandColors,
+            hasLogo,
+            selectedCategories,
+            selectedWorkTypes,
+            userType,
+            userData,
+            platform,
+            connectedAt,
+            logoUrl
+        });
+        console.log('Final processed values:', {
+            finalUsername,
+            finalProfilePicture
+        });
+        console.log('=== END FRONTEND DATA ===');
 
         // console.log('=== CREATOR REGISTER DEBUG ===');
         // console.log('Received data:', {
@@ -621,10 +827,10 @@ router.post('/register-creator', async (req, res) => {
             where: { id: tempCreator.id },
             data: {
                 name: name || tempCreator.name,
-                username: username || tempCreator.username,
+                username: finalUsername || tempCreator.username,
                 phone: phone || tempCreator.phone,
                 nationality: nationality || tempCreator.nationality,
-                profilePicture: profilePicture || tempCreator.profilePicture,
+                profilePicture: finalProfilePicture || tempCreator.profilePicture,
                 passion: passion || tempCreator.passion || "",
                 existingOnlineStoreLink: existingOnlineStoreLink || tempCreator.existingOnlineStoreLink || "",
                 paymentPreference: paymentPreference || tempCreator.paymentPreference || "",
@@ -635,6 +841,22 @@ router.post('/register-creator', async (req, res) => {
                 aboutMe: aboutMe ? aboutMe.trim() : tempCreator.aboutMe || '', // Add aboutMe field
                 userPhotos: businessPhotos || tempCreator.userPhotos || [],
                 userVideos: businessVideo ? (Array.isArray(businessVideo) ? businessVideo : [businessVideo]) : (tempCreator.userVideos || []),
+                // New fields
+                firstName: firstName || tempCreator.firstName || null,
+                lastName: lastName || tempCreator.lastName || null,
+                customCategory: customCategory || tempCreator.customCategory || null,
+                customWorkType: customWorkType || tempCreator.customWorkType || null,
+                hasBrandColors: typeof hasBrandColors === 'boolean' ? hasBrandColors : (tempCreator.hasBrandColors ?? false),
+                hasLogo: typeof hasLogo === 'boolean' ? hasLogo : (tempCreator.hasLogo ?? false),
+                selectedCategories: Array.isArray(selectedCategories) ? selectedCategories : (tempCreator.selectedCategories || []),
+                selectedWorkTypes: Array.isArray(selectedWorkTypes) ? selectedWorkTypes : (tempCreator.selectedWorkTypes || []),
+                userType: userType || tempCreator.userType || "creator",
+                connectedSocials: connectedSocials ? {
+                    platform: platform || null,
+                    connectedAt: connectedAt || new Date().toISOString(),
+                    list: Array.isArray(connectedSocials) ? connectedSocials : [],
+                    userData: userData || null
+                } : tempCreator.connectedSocials,
                 // Set GLL balance to 100.0 upon successful completion of all steps
                 gllBalance: {
                     increment: parseFloat(process.env.REGISTER_REWARD)
@@ -1667,7 +1889,33 @@ router.post('/ifscCode-verify', async (req, res) => {
 router.put('/creator-profile/:email', async (req, res) => {
     try {
         const { email } = req.params;
-        const { aboutMe, passion, existingOnlineStoreLink, paymentPreference } = req.body;
+        const { aboutMe, passion, existingOnlineStoreLink, paymentPreference, creatorName, firstName, lastName, customCategory, customWorkType, hasBrandColors, hasLogo, selectedCategories, selectedWorkTypes, userType, connectedSocials, userData, platform, connectedAt, logoUrl } = req.body;
+        
+        // Log all data received from frontend
+        console.log('=== CREATOR PROFILE UPDATE - FRONTEND DATA ===');
+        console.log('Email from params:', email);
+        console.log('Received data:', {
+            aboutMe,
+            passion,
+            existingOnlineStoreLink,
+            paymentPreference,
+            creatorName,
+            firstName,
+            lastName,
+            customCategory,
+            customWorkType,
+            hasBrandColors,
+            hasLogo,
+            selectedCategories,
+            selectedWorkTypes,
+            userType,
+            connectedSocials,
+            userData,
+            platform,
+            connectedAt,
+            logoUrl
+        });
+        console.log('=== END FRONTEND DATA ===');
         
         // Decode URL-encoded email
         const decodedEmail = decodeURIComponent(email);
@@ -1723,6 +1971,26 @@ router.put('/creator-profile/:email', async (req, res) => {
         
         if (paymentPreference !== undefined) {
             updateData.paymentPreference = paymentPreference.trim();
+        }
+
+        if (creatorName !== undefined) updateData.username = creatorName;
+        if (logoUrl !== undefined) updateData.profilePicture = logoUrl;
+        if (firstName !== undefined) updateData.firstName = firstName;
+        if (lastName !== undefined) updateData.lastName = lastName;
+        if (customCategory !== undefined) updateData.customCategory = customCategory;
+        if (customWorkType !== undefined) updateData.customWorkType = customWorkType;
+        if (typeof hasBrandColors === 'boolean') updateData.hasBrandColors = hasBrandColors;
+        if (typeof hasLogo === 'boolean') updateData.hasLogo = hasLogo;
+        if (Array.isArray(selectedCategories)) updateData.selectedCategories = selectedCategories;
+        if (Array.isArray(selectedWorkTypes)) updateData.selectedWorkTypes = selectedWorkTypes;
+        if (userType !== undefined) updateData.userType = userType;
+        if (connectedSocials !== undefined) {
+            updateData.connectedSocials = {
+                platform: platform || null,
+                connectedAt: connectedAt || new Date().toISOString(),
+                list: Array.isArray(connectedSocials) ? connectedSocials : [],
+                userData: userData || null
+            };
         }
 
         // Update the creator profile

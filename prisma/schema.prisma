@@ -83,6 +83,7 @@ model Creator {
   phone         String?
   nationality   String?
   walletAddress String? // Add wallet address field for blockchain transactions
+  glltag        String?
   terms         Boolean @default(false)
 
   // Instagram fields
@@ -94,6 +95,18 @@ model Creator {
   passion                 String? // Creator's passion/interest
   existingOnlineStoreLink String? // Link to existing online store
   paymentPreference       String? // How they prefer to receive payments
+
+  // Extended profile fields
+  firstName          String?
+  lastName           String?
+  customCategory     String?
+  customWorkType     String?
+  hasBrandColors     Boolean? @default(false)
+  hasLogo            Boolean? @default(false)
+  selectedCategories String[] @default([])
+  selectedWorkTypes  String[] @default([])
+  connectedSocials   Json?
+  userType           String?  @default("creator")
 
   // KYC and Registration status fields
   isKycComplete          Boolean   @default(false)
