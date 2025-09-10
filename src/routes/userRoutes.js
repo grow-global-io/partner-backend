@@ -153,6 +153,31 @@ const upload = multer({
     }
 });
 
+// Security helper function to validate file paths
+function validateFilePath(filePath) {
+    try {
+        // Get the absolute path of the upload directory (same as multer storage)
+        const uploadDir = path.join(__dirname, '../uploads');
+        
+        // Get the absolute canonical path of the file
+        const fileAbsolutePath = path.resolve(filePath);
+        
+        // Check if the file path starts with the upload directory
+        if (!fileAbsolutePath.startsWith(uploadDir)) {
+            throw new Error('Invalid file path: file is outside the allowed upload directory');
+        }
+        
+        // Additional check: ensure the file exists and is a file (not a directory)
+        if (!fs.existsSync(fileAbsolutePath) || !fs.statSync(fileAbsolutePath).isFile()) {
+            throw new Error('Invalid file path: file does not exist or is not a regular file');
+        }
+        
+        return fileAbsolutePath;
+    } catch (error) {
+        throw new Error(`File path validation failed: ${error.message}`);
+    }
+}
+
 // Function to synchronize GLL balance between User and Creator tables
 async function syncGLLBalance(email) {
     try {
@@ -1210,7 +1235,9 @@ router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), a
         // Upload file to S3
         let fileUrl = null;
         try {
-            const fileContent = fs.readFileSync(req.file.path);
+            // Validate file path for security
+            const validatedFilePath = validateFilePath(req.file.path);
+            const fileContent = fs.readFileSync(validatedFilePath);
             
             const params = {
                 Bucket: process.env.AWS_BUCKET_NAME,
@@ -1225,8 +1252,8 @@ router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), a
 
             // Delete the temporary file
             try {
-                if (fs.existsSync(req.file.path)) {
-                    fs.unlinkSync(req.file.path);
+                if (fs.existsSync(validatedFilePath)) {
+                    fs.unlinkSync(validatedFilePath);
                 }
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
@@ -1275,11 +1302,6 @@ router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), a
             walletAddress = creator.walletAddress;
         }
 
-        console.log("🔍 Task4 Reward - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
 
         const rewardAmount = process.env.CREATOR_TASK4_REWARD;
         let transactionHash = null;
@@ -1374,9 +1396,9 @@ router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), a
 
     } catch (error) {
         // Clean up temporary file if it exists and there was an error
-        if (req.file && fs.existsSync(req.file.path)) {
+        if (req.file && validatedFilePath && fs.existsSync(validatedFilePath)) {
             try {
-                fs.unlinkSync(req.file.path);
+                fs.unlinkSync(validatedFilePath);
             } catch (unlinkError) {
                 console.log("Warning: Could not delete temporary file:", unlinkError);
             }
@@ -1470,7 +1492,9 @@ router.post('/creator-task5-reward', upload.single('testimonialFile'), async (re
             if (req.file) {
                 // Upload file to S3 (similar to your Task4 implementation)
                 try {
-                    const fileContent = fs.readFileSync(req.file.path);
+                    // Validate file path for security
+                    const validatedFilePath = validateFilePath(req.file.path);
+                    const fileContent = fs.readFileSync(validatedFilePath);
                     
                     const params = {
                         Bucket: process.env.AWS_BUCKET_NAME,
@@ -1485,8 +1509,8 @@ router.post('/creator-task5-reward', upload.single('testimonialFile'), async (re
 
                     // Delete the temporary file
                     try {
-                        if (fs.existsSync(req.file.path)) {
-                            fs.unlinkSync(req.file.path);
+                        if (fs.existsSync(validatedFilePath)) {
+                            fs.unlinkSync(validatedFilePath);
                         }
                     } catch (unlinkError) {
                         console.log("Warning: Could not delete temporary file:", unlinkError);
@@ -1971,7 +1995,9 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
 
 
         if (req.file) {
-            const fileContent = fs.readFileSync(req.file.path);
+            // Validate file path for security
+            const validatedFilePath = validateFilePath(req.file.path);
+            const fileContent = fs.readFileSync(validatedFilePath);
             const params = {
                 Bucket: process.env.AWS_BUCKET_NAME,
                 Key: `documents/${Date.now()}-${req.file.originalname}`,
@@ -1984,7 +2010,7 @@ router.post('/uploads', upload.single('file'), async (req, res) => {
             documentUrl = uploadResult.Location;
 
             // Delete the temporary file
-            fs.unlinkSync(req.file.path);
+            fs.unlinkSync(validatedFilePath);
         }
 
         const responseData = {
