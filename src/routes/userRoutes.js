@@ -166,12 +166,12 @@ const upload = multer({
             'audio/mp4', 'audio/x-m4a', 'audio/mp4a-latm', 'audio/x-wav', 'audio/wave'
         ];
         
-        console.log('File upload attempt - MIME type:', file.mimetype, 'Original name:', file.originalname);
+        // console.log('File upload attempt - MIME type:', file.mimetype, 'Original name:', file.originalname);
         
         if (allowedMimes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            console.log('Rejected file type:', file.mimetype);
+            // console.log('Rejected file type:', file.mimetype);
             cb(new Error(`Invalid file type: ${file.mimetype}. Only images, videos, and audio files are allowed.`), false);
         }
     }
@@ -401,37 +401,6 @@ router.post('/personal-details-creator', async (req, res) => {
     const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo, connectedSocials, creatorName, firstName, lastName, customCategory, customWorkType, hasBrandColors, hasLogo, selectedCategories, selectedWorkTypes, userType, userData, platform, connectedAt, logoUrl } = req.body;
     
     // Log all data received from frontend
-    console.log('=== PERSONAL DETAILS CREATOR - FRONTEND DATA ===');
-    console.log('Received data:', {
-        name,
-        username,
-        email,
-        phone,
-        nationality,
-        profilePicture,
-        passion,
-        existingOnlineStoreLink,
-        paymentPreference,
-        businessDescription,
-        businessPhotos,
-        businessVideo,
-        connectedSocials,
-        creatorName,
-        firstName,
-        lastName,
-        customCategory,
-        customWorkType,
-        hasBrandColors,
-        hasLogo,
-        selectedCategories,
-        selectedWorkTypes,
-        userType,
-        userData,
-        platform,
-        connectedAt,
-        logoUrl
-    });
-    console.log('=== END FRONTEND DATA ===');
     
     // Use creatorName as username if provided, otherwise fall back to username
     const finalUsername = creatorName || username;
@@ -652,11 +621,11 @@ router.post('/register', async (req, res) => {
         if (process.env.SWITCH === 'true') {
             try {
                 if (!tempUser.walletAddress) {
-                    console.log("⚠️ User registration skipped blockchain transaction - no wallet address found for email:", tempUser.email);
+                    // console.log("⚠️ User registration skipped blockchain transaction - no wallet address found for email:", tempUser.email);
                 } else {
                     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), tempUser.walletAddress);
                     await sendTx.wait();
-                    console.log("✅ User registration GLL transaction completed for wallet:", tempUser.walletAddress);
+                    // console.log("✅ User registration GLL transaction completed for wallet:", tempUser.walletAddress);
                 }
             } catch (blockchainError) {
                 console.error("❌ User registration blockchain transaction failed:", blockchainError.message);
@@ -690,8 +659,8 @@ router.post('/check-username-availability', async (req, res) => {
         const { username } = req.body;
 
         // Log the request
-        console.log('=== CHECK USERNAME AVAILABILITY ===');
-        console.log('Checking username:', username);
+        // console.log('=== CHECK USERNAME AVAILABILITY ===');
+        // console.log('Checking username:', username);
 
         // Validation
         if (!username) {
@@ -731,7 +700,7 @@ router.post('/check-username-availability', async (req, res) => {
         });
 
         if (existingCreator) {
-            console.log('Username already exists:', trimmedUsername);
+            // console.log('Username already exists:', trimmedUsername);
             return res.json({
                 success: true,
                 available: false,
@@ -739,7 +708,7 @@ router.post('/check-username-availability', async (req, res) => {
                 username: trimmedUsername
             });
         } else {
-            console.log('Username is available:', trimmedUsername);
+            // console.log('Username is available:', trimmedUsername);
             return res.json({
                 success: true,
                 available: true,
@@ -761,7 +730,7 @@ router.post('/check-username-availability', async (req, res) => {
 // Get all creator activities (services, posts, courses, products) with transaction data
 router.get('/creator-activities', async (req, res) => {
     try {
-        console.log('=== FETCHING CREATOR ACTIVITIES ===');
+        // console.log('=== FETCHING CREATOR ACTIVITIES ===');
 
         // Fetch data from all four creator tables
         const [services, posts, courses, products] = await Promise.all([
@@ -881,13 +850,7 @@ router.get('/creator-activities', async (req, res) => {
             activitiesWithTransactions: allActivities.filter(activity => activity.transactionHash).length
         };
 
-        console.log('Activities fetched:', {
-            total: allActivities.length,
-            services: services.length,
-            posts: posts.length,
-            courses: courses.length,
-            products: products.length
-        });
+        
 
         const responseData = {
             success: true,
@@ -913,7 +876,7 @@ router.get('/creator-activities', async (req, res) => {
 // Get all creators with basic info (username, email, createdAt, name)
 router.get('/creators-all', async (req, res) => {
     try {
-        console.log('=== FETCHING CREATORS ===');
+        // console.log('=== FETCHING CREATORS ===');
 
         // Fetch all creators with selected fields
         const creators = await prisma.creator.findMany({
@@ -934,12 +897,6 @@ router.get('/creators-all', async (req, res) => {
             creatorsWithUsernames: creators.filter(creator => creator.username).length,
             creatorsWithoutUsernames: creators.filter(creator => !creator.username).length
         };
-
-        console.log('Creators fetched:', {
-            total: creators.length,
-            withUsernames: stats.creatorsWithUsernames,
-            withoutUsernames: stats.creatorsWithoutUsernames
-        });
 
         const responseData = {
             success: true,
@@ -966,12 +923,6 @@ router.get('/creators-all', async (req, res) => {
 router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
     try {
         const { email } = req.body;
-        
-        console.log('=== CREATOR TASK3 REWARD ===');
-        console.log('Email:', email);
-        console.log('SWITCH status:', process.env.SWITCH);
-        console.log('CREATOR_TASK3_REWARD:', process.env.CREATOR_TASK3_REWARD || '0');
-
         // Validation
         if (!email) {
             return res.status(400).json({
@@ -991,7 +942,7 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
         });
 
         if (existingTask) {
-            console.log('❌ Email has already completed Task3:', email);
+            // console.log('❌ Email has already completed Task3:', email);
             return res.status(400).json({
                 success: false,
                 message: 'This email has already completed Task3',
@@ -1039,18 +990,12 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
             walletAddress = creator.walletAddress;
         }
 
-        console.log("🔍 Task3 Reward - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
-
         const rewardAmount = process.env.CREATOR_TASK3_REWARD || '0';
         let transactionHash = null;
 
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
-            console.log("🚀 Starting Task3 Reward blockchain transaction...");
+            // console.log("🚀 Starting Task3 Reward blockchain transaction...");
             try {
                 // Update database balance (only if user/creator found)
                 if (user) {
@@ -1062,7 +1007,7 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for Task3 reward");
+                    // console.log("✅ Updated user database balance for Task3 reward");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -1072,24 +1017,18 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for Task3 reward");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for Task3 reward");
+                    // console.log("✅ Updated creator database balance for Task3 reward");
                 }
 
                 // Send blockchain transaction
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
                 transactionHash = sendTx.hash;
-                console.log("✅ Task3 Reward GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", transactionHash);
                 
             } catch (blockchainError) {
                 console.error("❌ Task3 Reward blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            console.log("⚠️ Task3 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
         }
 
         // Record the task completion
@@ -1101,7 +1040,7 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
             }
         });
 
-        console.log("✅ Task3 completion recorded for email:", email);
+        // console.log("✅ Task3 completion recorded for email:", email);
 
         const responseData = {
             success: true,
@@ -1134,8 +1073,8 @@ router.post('/check-task3-reward-status', async (req, res) => {
     try {
         const { email } = req.body;
 
-        console.log('=== CHECK TASK3 REWARD STATUS ===');
-        console.log('Email:', email);
+        // console.log('=== CHECK TASK3 REWARD STATUS ===');
+        // console.log('Email:', email);
 
         if (!email) {
             return res.status(400).json({
@@ -1154,7 +1093,7 @@ router.post('/check-task3-reward-status', async (req, res) => {
         });
 
         if (existingTask) {
-            console.log('✅ Email has already completed Task3:', email);
+            // console.log('✅ Email has already completed Task3:', email);
             return res.json({
                 success: true,
                 message: "Task3 already completed",
@@ -1167,7 +1106,7 @@ router.post('/check-task3-reward-status', async (req, res) => {
                 }
             });
         } else {
-            console.log('❌ Email has not completed Task3 yet:', email);
+            // console.log('❌ Email has not completed Task3 yet:', email);
             return res.json({
                 success: true,
                 message: "Task3 not completed yet",
@@ -1194,15 +1133,6 @@ router.post('/check-task3-reward-status', async (req, res) => {
 router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), async (req, res) => {
     try {
         const { email, type, customerClient } = req.body;
-        
-        console.log('=== CREATOR TASK4 REWARD ===');
-        console.log('Email:', email);
-        console.log('Type:', type);
-        console.log('Customer/Client:', customerClient);
-        console.log('File uploaded:', !!req.file);
-        console.log('SWITCH status:', process.env.SWITCH);
-        console.log('CREATOR_TASK4_REWARD:', process.env.CREATOR_TASK4_REWARD );
-
         // Validation
         if (!email) {
             return res.status(400).json({
@@ -1243,7 +1173,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
         });
 
         if (existingTask) {
-            console.log('❌ Email has already completed Task4:', email);
+            // console.log('❌ Email has already completed Task4:', email);
             return res.status(400).json({
                 success: false,
                 message: 'This email has already completed Task4',
@@ -1272,7 +1202,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
 
             const uploadResult = await s3.upload(params).promise();
             fileUrl = uploadResult.Location;
-            console.log("✅ File uploaded to S3:", fileUrl);
+            // console.log("✅ File uploaded to S3:", fileUrl);
 
             // Delete the temporary file
             try {
@@ -1280,7 +1210,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
                     fs.unlinkSync(validatedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         } catch (uploadError) {
             console.error("❌ File upload failed:", uploadError);
@@ -1332,7 +1262,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
 
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
-            console.log("🚀 Starting Task4 Reward blockchain transaction...");
+            // console.log("🚀 Starting Task4 Reward blockchain transaction...");
             try {
                 // Update database balance (only if user/creator found)
                 if (user) {
@@ -1344,7 +1274,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for Task4 reward");
+                    // console.log("✅ Updated user database balance for Task4 reward");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -1354,24 +1284,20 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for Task4 reward");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for Task4 reward");
+                    // console.log("✅ Updated creator database balance for Task4 reward");
                 }
 
                 // Send blockchain transaction
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
                 transactionHash = sendTx.hash;
-                console.log("✅ Task4 Reward GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", transactionHash);
+                // console.log("✅ Task4 Reward GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", transactionHash);
                 
             } catch (blockchainError) {
                 console.error("❌ Task4 Reward blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            console.log("⚠️ Task4 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
         }
 
         // Record the task completion
@@ -1397,7 +1323,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
             }
         });
 
-        console.log("✅ Task4 completion and data recorded for email:", email);
+        // console.log("✅ Task4 completion and data recorded for email:", email);
 
         const responseData = {
             success: true,
@@ -1424,7 +1350,7 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
             try {
                 fs.unlinkSync(validatedFilePath);
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
@@ -1441,9 +1367,6 @@ router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), 
 router.post('/check-task4-reward-status', async (req, res) => {
     try {
         const { email } = req.body;
-
-        console.log('=== CHECK TASK4 REWARD STATUS ===');
-        console.log('Email:', email);
 
         if (!email) {
             return res.status(400).json({
@@ -1462,7 +1385,7 @@ router.post('/check-task4-reward-status', async (req, res) => {
         });
 
         if (existingTask) {
-            console.log('✅ Email has already completed Task4:', email);
+            // console.log('✅ Email has already completed Task4:', email);
             return res.json({
                 success: true,
                 message: "Task4 already completed",
@@ -1475,7 +1398,7 @@ router.post('/check-task4-reward-status', async (req, res) => {
                 }
             });
         } else {
-            console.log('❌ Email has not completed Task4 yet:', email);
+            // console.log('❌ Email has not completed Task4 yet:', email);
             return res.json({
                 success: true,
                 message: "Task4 not completed yet",
@@ -1529,7 +1452,7 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
 
                     const uploadResult = await s3.upload(params).promise();
                     testimonialFileUrl = uploadResult.Location;
-                    console.log("✅ Testimonial file uploaded to S3:", testimonialFileUrl);
+                    // console.log("✅ Testimonial file uploaded to S3:", testimonialFileUrl);
 
                     // Delete the temporary file
                     try {
@@ -1537,7 +1460,7 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
                             fs.unlinkSync(validatedFilePath);
                         }
                     } catch (unlinkError) {
-                        console.log("Warning: Could not delete temporary file:", unlinkError);
+                        // console.log("Warning: Could not delete temporary file:", unlinkError);
                     }
                 } catch (uploadError) {
                     console.error("❌ File upload failed:", uploadError);
@@ -1550,15 +1473,6 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
             }
         }
         
-        console.log('=== CREATOR TASK5 REWARD ===');
-        console.log('Email:', email);
-        console.log('Customer Name:', customerName);
-        console.log('Format:', format);
-        console.log('Testimonial:', testimonial);
-        console.log('Testimonial File URL:', testimonialFileUrl);
-        console.log('SWITCH status:', process.env.SWITCH);
-        console.log('CREATOR_TASK5_REWARD:', process.env.CREATOR_TASK5_REWARD);
-
         // Validation
         if (!email) {
             return res.status(400).json({
@@ -1615,7 +1529,7 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
         });
 
         if (existingTask) {
-            console.log('❌ Email has already completed Task5:', email);
+            // console.log('❌ Email has already completed Task5:', email);
             return res.status(400).json({
                 success: false,
                 message: 'This email has already completed Task5',
@@ -1663,18 +1577,12 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
             walletAddress = creator.walletAddress;
         }
 
-        console.log("🔍 Task5 Reward - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
-
         const rewardAmount = process.env.CREATOR_TASK5_REWARD;
         let transactionHash = null;
 
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
-            console.log("🚀 Starting Task5 Reward blockchain transaction...");
+            // console.log("🚀 Starting Task5 Reward blockchain transaction...");
             try {
                 // Update database balance (only if user/creator found)
                 if (user) {
@@ -1686,7 +1594,7 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for Task5 reward");
+                    // console.log("✅ Updated user database balance for Task5 reward");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -1696,24 +1604,20 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for Task5 reward");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for Task5 reward");
+                    // console.log("✅ Updated creator database balance for Task5 reward");
                 }
 
                 // Send blockchain transaction
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
                 transactionHash = sendTx.hash;
-                console.log("✅ Task5 Reward GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", transactionHash);
+                // console.log("✅ Task5 Reward GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", transactionHash);
                 
             } catch (blockchainError) {
                 console.error("❌ Task5 Reward blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            console.log("⚠️ Task5 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
         }
 
         // Record the task completion
@@ -1740,7 +1644,7 @@ router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimon
             }
         });
 
-        console.log("✅ Task5 completion and data recorded for email:", email);
+        // console.log("✅ Task5 completion and data recorded for email:", email);
 
         const responseData = {
             success: true,
@@ -1777,8 +1681,8 @@ router.post('/check-task5-reward-status', async (req, res) => {
     try {
         const { email } = req.body;
 
-        console.log('=== CHECK TASK5 REWARD STATUS ===');
-        console.log('Email:', email);
+        // console.log('=== CHECK TASK5 REWARD STATUS ===');
+        // console.log('Email:', email);
 
         if (!email) {
             return res.status(400).json({
@@ -1797,7 +1701,7 @@ router.post('/check-task5-reward-status', async (req, res) => {
         });
 
         if (existingTask) {
-            console.log('✅ Email has already completed Task5:', email);
+            // console.log('✅ Email has already completed Task5:', email);
             return res.json({
                 success: true,
                 message: "Task5 already completed",
@@ -1810,7 +1714,7 @@ router.post('/check-task5-reward-status', async (req, res) => {
                 }
             });
         } else {
-            console.log('❌ Email has not completed Task5 yet:', email);
+            // console.log('❌ Email has not completed Task5 yet:', email);
             return res.json({
                 success: true,
                 message: "Task5 not completed yet",
@@ -1973,11 +1877,11 @@ router.post('/register-creator', async (req, res) => {
                 const creatorWalletAddress = await getCreatorWalletAddress(tempCreator.email);
                 
                 if (!creatorWalletAddress) {
-                    console.log("⚠️ Creator registration skipped blockchain transaction - no wallet address found for email:", tempCreator.email);
+                    // console.log("⚠️ Creator registration skipped blockchain transaction - no wallet address found for email:", tempCreator.email);
                 } else {
                     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), creatorWalletAddress);
                     await sendTx.wait();
-                    console.log("✅ Creator registration GLL transaction completed for wallet:", creatorWalletAddress);
+                    // console.log("✅ Creator registration GLL transaction completed for wallet:", creatorWalletAddress);
                 }
             } catch (blockchainError) {
                 console.error("❌ Creator registration blockchain transaction failed:", blockchainError.message);
@@ -2983,30 +2887,30 @@ router.put('/creator-profile/:email', async (req, res) => {
         const { aboutMe, passion, existingOnlineStoreLink, paymentPreference, creatorName, firstName, lastName, customCategory, customWorkType, hasBrandColors, hasLogo, selectedCategories, selectedWorkTypes, userType, connectedSocials, userData, platform, connectedAt, logoUrl } = req.body;
         
         // Log all data received from frontend
-        console.log('=== CREATOR PROFILE UPDATE - FRONTEND DATA ===');
-        console.log('Email from params:', email);
-        console.log('Received data:', {
-            aboutMe,
-            passion,
-            existingOnlineStoreLink,
-            paymentPreference,
-            creatorName,
-            firstName,
-            lastName,
-            customCategory,
-            customWorkType,
-            hasBrandColors,
-            hasLogo,
-            selectedCategories,
-            selectedWorkTypes,
-            userType,
-            connectedSocials,
-            userData,
-            platform,
-            connectedAt,
-            logoUrl
-        });
-        console.log('=== END FRONTEND DATA ===');
+        // console.log('=== CREATOR PROFILE UPDATE - FRONTEND DATA ===');
+        // console.log('Email from params:', email);
+        // console.log('Received data:', {
+        //     aboutMe,
+        //     passion,
+        //     existingOnlineStoreLink,
+        //     paymentPreference,
+        //     creatorName,
+        //     firstName,
+        //     lastName,
+        //     customCategory,
+        //     customWorkType,
+        //     hasBrandColors,
+        //     hasLogo,
+        //     selectedCategories,
+        //     selectedWorkTypes,
+        //     userType,
+        //     connectedSocials,
+        //     userData,
+        //     platform,
+        //     connectedAt,
+        //     logoUrl
+        // });
+        // console.log('=== END FRONTEND DATA ===');
         
         // Decode URL-encoded email
         const decodedEmail = decodeURIComponent(email);
@@ -3471,7 +3375,7 @@ router.post('/claim', async (req, res) => {
                 // console.log('Transaction sent, waiting for confirmation...');
                 await sendTx.wait();
                 blockchainSuccess = true;
-                console.log("✅ Claim GLL transaction completed successfully");
+                // console.log("✅ Claim GLL transaction completed successfully");
             } catch (blockchainError) {
                 blockchainError = blockchainError.message;
                 console.error("❌ Claim blockchain transaction failed:", blockchainError);
@@ -3927,27 +3831,21 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
         // Get wallet address if user/creator found
         if (user && user.walletAddress) {
             walletAddress = user.walletAddress;
-            console.log("✅ Found user with wallet address:", walletAddress);
+            // console.log("✅ Found user with wallet address:", walletAddress);
         } else if (creator && creator.walletAddress) {
             walletAddress = creator.walletAddress;
-            console.log("✅ Found creator with wallet address:", walletAddress);
-        } else {
-            console.log("❌ No user/creator found or no wallet address");
-            console.log("User found:", !!user);
-            console.log("Creator found:", !!creator);
-            if (user) console.log("User wallet address:", user.walletAddress);
-            if (creator) console.log("Creator wallet address:", creator.walletAddress);
+            // console.log("✅ Found creator with wallet address:", walletAddress);
         }
 
         // Debug logging
-        console.log("🔍 Blockchain Debug Info:");
-        console.log("- walletAddress:", walletAddress);
-        console.log("- SWITCH env var:", process.env.SWITCH);
-        console.log("- CREATOR_POST_REWARD:", process.env.CREATOR_POST_REWARD);
+        // console.log("🔍 Blockchain Debug Info:");
+        // console.log("- walletAddress:", walletAddress);
+        // console.log("- SWITCH env var:", process.env.SWITCH);
+        // console.log("- CREATOR_POST_REWARD:", process.env.CREATOR_POST_REWARD);
 
         // Process blockchain reward if wallet address found and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true') {
-            console.log("🚀 Starting blockchain transaction...");
+            // console.log("🚀 Starting blockchain transaction...");
             try {
                 const rewardAmount = process.env.CREATOR_POST_REWARD || '0'; // Default 0 GLL if not set
                 
@@ -3961,7 +3859,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance");
+                    // console.log("✅ Updated user database balance");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -3971,16 +3869,14 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update");
+                    // console.log("✅ Updated creator database balance");
                 }
 
                 // Send blockchain transaction using the walletAddress variable (not user.walletAddress)
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
-                console.log("✅ Creator Post GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", sendTx.hash);
+                // console.log("✅ Creator Post GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the post with transaction hash and reward amount
                 await prisma.creatorPost.update({
@@ -3990,7 +3886,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                         rewardAmount: parseFloat(rewardAmount)
                     }
                 });
-                console.log("✅ Updated post with transaction hash and reward amount");
+                // console.log("✅ Updated post with transaction hash and reward amount");
                 
             } catch (blockchainError) {
                 console.error("❌ Creator Post blockchain transaction failed:", blockchainError.message);
@@ -4026,7 +3922,7 @@ router.post('/creator-posts', createPostLimiter, upload.array('media', 10), asyn
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -5146,17 +5042,9 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
             walletAddress = creator.walletAddress;
         }
 
-        console.log("🔍 Creator Service - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
-        console.log("- SWITCH status:", process.env.SWITCH);
-        console.log("- CREATOR_SERVICE_REWARD:", process.env.CREATOR_SERVICE_REWARD || '0');
-
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true') {
-            console.log("🚀 Starting Creator Service blockchain transaction...");
+            // console.log("🚀 Starting Creator Service blockchain transaction...");
             try {
                 const rewardAmount = process.env.CREATOR_SERVICE_REWARD || '0'; // Default 0 GLL if not set
                 
@@ -5170,7 +5058,7 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for service");
+                    // console.log("✅ Updated user database balance for service");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -5180,16 +5068,14 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for service");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for service");
+                    // console.log("✅ Updated creator database balance for service");
                 }
 
                 // Send blockchain transaction using the walletAddress variable
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
-                console.log("✅ Creator Service GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", sendTx.hash);
+                // console.log("✅ Creator Service GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the service with transaction hash and reward amount
                 await prisma.creatorService.update({
@@ -5199,14 +5085,14 @@ router.post('/creatorService', createPostLimiter, async (req, res) => {
                         rewardAmount: parseFloat(rewardAmount)
                     }
                 });
-                console.log("✅ Updated service with transaction hash and reward amount");
+                // console.log("✅ Updated service with transaction hash and reward amount");
                 
             } catch (blockchainError) {
                 console.error("❌ Creator Service blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
         } else {
-            console.log("⚠️ Creator Service blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
+            // console.log("⚠️ Creator Service blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
         }
         
         const responseData = {
@@ -5431,7 +5317,7 @@ router.post('/creator-reward-card1', async (req, res) => {
                 try {
                     const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(amount.toString()), user.walletAddress);
                     await sendTx.wait();
-                     console.log("✅ User registration GLL transaction completed for wallet:", sendTx);
+                     // console.log("✅ User registration GLL transaction completed for wallet:", sendTx);
                     // console.log("✅ Creator reward card 1 GLL transaction completed");
                 } catch (blockchainError) {
                     console.error("❌ Creator reward card 1 blockchain transaction failed:", blockchainError.message);
@@ -5615,7 +5501,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -5674,17 +5560,9 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
             walletAddress = creator.walletAddress;
         }
 
-        console.log("🔍 Creator Product - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
-        console.log("- SWITCH status:", process.env.SWITCH);
-        console.log("- CREATOR_PRODUCT_REWARD:", process.env.CREATOR_PRODUCT_REWARD || '0');
-
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true') {
-            console.log("🚀 Starting Creator Product blockchain transaction...");
+            // console.log("🚀 Starting Creator Product blockchain transaction...");
             try {
                 const rewardAmount = process.env.CREATOR_PRODUCT_REWARD || '0'; // Default 0 GLL if not set
                 
@@ -5698,7 +5576,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for product");
+                    // console.log("✅ Updated user database balance for product");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -5708,16 +5586,14 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for product");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for product");
+                    // console.log("✅ Updated creator database balance for product");
                 }
 
                 // Send blockchain transaction using the walletAddress variable
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
-                console.log("✅ Creator Product GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", sendTx.hash);
+                // console.log("✅ Creator Product GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the product with transaction hash and reward amount
                 await prisma.creatorProduct.update({
@@ -5727,14 +5603,12 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                         rewardAmount: parseFloat(rewardAmount)
                     }
                 });
-                console.log("✅ Updated product with transaction hash and reward amount");
+                // console.log("✅ Updated product with transaction hash and reward amount");
                 
             } catch (blockchainError) {
                 console.error("❌ Creator Product blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            console.log("⚠️ Creator Product blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
         }
         
         const responseData = {
@@ -5752,7 +5626,7 @@ router.post('/creatorProduct', createPostLimiter, upload.array('images', 10), as
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -5925,7 +5799,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -5963,7 +5837,7 @@ router.put('/creatorProduct/:id', createPostLimiter, upload.array('images', 10),
                         fs.unlinkSync(file.path);
                     }
                 } catch (unlinkError) {
-                    console.log("Warning: Could not delete temporary file:", unlinkError);
+                    // console.log("Warning: Could not delete temporary file:", unlinkError);
                 }
             }
         }
@@ -6021,7 +5895,7 @@ router.delete('/creatorProduct/:id', createPostLimiter, async (req, res) => {
                         Key: `creator-products/${key}`
                     }).promise();
                 } catch (s3Error) {
-                    console.log("Warning: Could not delete image from S3:", s3Error);
+                    // console.log("Warning: Could not delete image from S3:", s3Error);
                 }
             }
         }
@@ -6096,7 +5970,7 @@ router.delete('/creatorProduct/:id/images', createPostLimiter, async (req, res) 
                     Key: `creator-products/${key}`
                 }).promise();
             } catch (s3Error) {
-                console.log("Warning: Could not delete image from S3:", s3Error);
+                // console.log("Warning: Could not delete image from S3:", s3Error);
                 // Continue with other images even if one fails
             }
         }
@@ -6199,7 +6073,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                     fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
@@ -6258,18 +6132,9 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
         } else if (creator && creator.walletAddress) {
             walletAddress = creator.walletAddress;
         }
-
-        console.log("🔍 Creator Course - User lookup results:");
-        console.log("- Email:", email);
-        console.log("- User found:", !!user);
-        console.log("- Creator found:", !!creator);
-        console.log("- Wallet Address:", walletAddress);
-        console.log("- SWITCH status:", process.env.SWITCH);
-        console.log("- CREATOR_COURSE_REWARD:", process.env.CREATOR_COURSE_REWARD || '0');
-
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
         if (walletAddress && process.env.SWITCH === 'true') {
-            console.log("🚀 Starting Creator Course blockchain transaction...");
+            // console.log("🚀 Starting Creator Course blockchain transaction...");
             try {
                 const rewardAmount = process.env.CREATOR_COURSE_REWARD || '0'; // Default 0 GLL if not set
                 
@@ -6283,7 +6148,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                             }
                         }
                     });
-                    console.log("✅ Updated user database balance for course");
+                    // console.log("✅ Updated user database balance for course");
                 } else if (creator) {
                     await prisma.creator.update({
                         where: { id: creator.id },
@@ -6293,16 +6158,14 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                             }
                         }
                     });
-                    console.log("✅ Updated creator database balance for course");
-                } else {
-                    console.log("⚠️ No user/creator found - skipping database balance update for course");
+                    // console.log("✅ Updated creator database balance for course");
                 }
 
                 // Send blockchain transaction using the walletAddress variable
                 const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
                 await sendTx.wait();
-                console.log("✅ Creator Course GLL transaction completed successfully");
-                console.log("📝 Transaction Hash:", sendTx.hash);
+                // console.log("✅ Creator Course GLL transaction completed successfully");
+                // console.log("📝 Transaction Hash:", sendTx.hash);
 
                 // Update the course with transaction hash and reward amount
                 await prisma.creatorCourse.update({
@@ -6312,14 +6175,12 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                         rewardAmount: parseFloat(rewardAmount)
                     }
                 });
-                console.log("✅ Updated course with transaction hash and reward amount");
+                // console.log("✅ Updated course with transaction hash and reward amount");
                 
             } catch (blockchainError) {
                 console.error("❌ Creator Course blockchain transaction failed:", blockchainError.message);
                 // Don't crash the endpoint, just log the error
             }
-        } else {
-            console.log("⚠️ Creator Course blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH);
         }
         
         const responseData = {
@@ -6338,7 +6199,7 @@ router.post('/creatorCourse', createPostLimiter, upload.single('courseImage'), a
                     fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
@@ -6520,7 +6381,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
                         Key: `creator-courses/${key}`
                     }).promise();
                 } catch (s3Error) {
-                    console.log("Warning: Could not delete image from S3:", s3Error);
+                    // console.log("Warning: Could not delete image from S3:", s3Error);
                 }
             }
             courseImageUrl = '';
@@ -6547,7 +6408,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
                         Key: `creator-courses/${key}`
                     }).promise();
                 } catch (s3Error) {
-                    console.log("Warning: Could not delete image from S3:", s3Error);
+                    // console.log("Warning: Could not delete image from S3:", s3Error);
                 }
             }
 
@@ -6569,7 +6430,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
                     fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
@@ -6609,7 +6470,7 @@ router.put('/creatorCourse/:id', createPostLimiter, upload.single('courseImage')
                 fs.unlinkSync(resolvedFilePath);
             }
         } catch (unlinkError) {
-            console.log("Warning: Could not delete temporary file:", unlinkError);
+            // console.log("Warning: Could not delete temporary file:", unlinkError);
         }
     }
     
@@ -6665,7 +6526,7 @@ router.delete('/creatorCourse/:id', createPostLimiter, async (req, res) => {
                     Key: `creator-courses/${key}`
                 }).promise();
             } catch (s3Error) {
-                console.log("Warning: Could not delete image from S3:", s3Error);
+                // console.log("Warning: Could not delete image from S3:", s3Error);
             }
         }
         
@@ -6776,7 +6637,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
                         Key: `creator-profiles/${key}`
                     }).promise();
                 } catch (s3Error) {
-                    console.log("Warning: Could not delete old profile picture from S3:", s3Error);
+                    // console.log("Warning: Could not delete old profile picture from S3:", s3Error);
                 }
             }
             
@@ -6799,7 +6660,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
                     fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
@@ -6844,7 +6705,7 @@ router.put('/creator/profile', createPostLimiter, upload.single('profilePicture'
                     fs.unlinkSync(resolvedFilePath);
                 }
             } catch (unlinkError) {
-                console.log("Warning: Could not delete temporary file:", unlinkError);
+                // console.log("Warning: Could not delete temporary file:", unlinkError);
             }
         }
         
