@@ -856,6 +856,58 @@ router.get('/creator-activities', async (req, res) => {
     }
 });
 
+// Get all creators with basic info (username, email, createdAt, name)
+router.get('/creators-all', async (req, res) => {
+    try {
+        console.log('=== FETCHING CREATORS ===');
+
+        // Fetch all creators with selected fields
+        const creators = await prisma.creator.findMany({
+            select: {
+                username: true,
+                email: true,
+                createdAt: true,
+                name: true
+            },
+            orderBy: {
+                createdAt: 'desc' // Newest creators first
+            }
+        });
+
+        // Calculate statistics
+        const stats = {
+            totalCreators: creators.length,
+            creatorsWithUsernames: creators.filter(creator => creator.username).length,
+            creatorsWithoutUsernames: creators.filter(creator => !creator.username).length
+        };
+
+        console.log('Creators fetched:', {
+            total: creators.length,
+            withUsernames: stats.creatorsWithUsernames,
+            withoutUsernames: stats.creatorsWithoutUsernames
+        });
+
+        const responseData = {
+            success: true,
+            message: "Creators fetched successfully",
+            data: {
+                creators: creators,
+                statistics: stats
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error("Error fetching creators:", error);
+        res.status(500).json({
+            success: false,
+            message: "Something went wrong while fetching creators",
+            error: error.message
+        });
+    }
+});
+
 
 router.post('/register-creator', async (req, res) => {
     try {
