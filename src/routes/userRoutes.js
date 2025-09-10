@@ -1999,6 +1999,7 @@ router.post('/register-creator', async (req, res) => {
 // AWS bucket code for uploading files to S3
 router.post('/uploads', uploadLimiter, upload.single('file'), async (req, res) => {
 
+    
     let documentUrl = null;
     try {
         // console.log("Request body:", req.body);
