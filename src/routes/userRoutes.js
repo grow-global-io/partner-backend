@@ -58,6 +58,18 @@ const uploadLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Rate limiter for creator task rewards (financial operations)
+const creatorTaskLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    max: 3, // limit each IP to 3 task reward attempts per 5 minutes
+    message: {
+        success: false,
+        message: "Too many task reward requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // Function to read airdrop data from Google Sheets
 async function readAirdropData() {
     try {
@@ -951,7 +963,7 @@ router.get('/creators-all', async (req, res) => {
 });
 
 // Creator Task3 Reward - One time reward per email
-router.post('/creator-task3-reward', async (req, res) => {
+router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
     try {
         const { email } = req.body;
         
@@ -1179,7 +1191,7 @@ router.post('/check-task3-reward-status', async (req, res) => {
 });
 
 // Creator Task4 Reward - One time reward per email
-router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), async (req, res) => {
+router.post('/creator-task4-reward', creatorTaskLimiter, upload.single('file'), async (req, res) => {
     try {
         const { email, type, customerClient } = req.body;
         
@@ -1487,7 +1499,7 @@ router.post('/check-task4-reward-status', async (req, res) => {
 });
 
 // Creator Task5 Reward - One time reward per email
-router.post('/creator-task5-reward', upload.single('testimonialFile'), async (req, res) => {
+router.post('/creator-task5-reward', creatorTaskLimiter, upload.single('testimonialFile'), async (req, res) => {
     try {
         let email, customerName, format, testimonial, testimonialFileUrl = null;
         
