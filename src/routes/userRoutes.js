@@ -134,16 +134,21 @@ const upload = multer({
     storage,
     limits: { fileSize: 50 * 1024 * 1024 }, // Increased to 50MB for video files
     fileFilter: (req, file, cb) => {
-        // Allow images and videos
+        // Allow images, videos, and audio files
         const allowedMimes = [
             'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
-            'video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm'
+            'video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv', 'video/webm', 'video/quicktime',
+            'audio/mp3', 'audio/wav', 'audio/mpeg', 'audio/ogg', 'audio/m4a', 'audio/aac', 'audio/wma',
+            'audio/mp4', 'audio/x-m4a', 'audio/mp4a-latm', 'audio/x-wav', 'audio/wave'
         ];
+        
+        console.log('File upload attempt - MIME type:', file.mimetype, 'Original name:', file.originalname);
         
         if (allowedMimes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Invalid file type. Only images and videos are allowed.'), false);
+            console.log('Rejected file type:', file.mimetype);
+            cb(new Error(`Invalid file type: ${file.mimetype}. Only images, videos, and audio files are allowed.`), false);
         }
     }
 });
@@ -903,6 +908,878 @@ router.get('/creators-all', async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Something went wrong while fetching creators",
+            error: error.message
+        });
+    }
+});
+
+// Creator Task3 Reward - One time reward per email
+router.post('/creator-task3-reward', async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        console.log('=== CREATOR TASK3 REWARD ===');
+        console.log('Email:', email);
+        console.log('SWITCH status:', process.env.SWITCH);
+        console.log('CREATOR_TASK3_REWARD:', process.env.CREATOR_TASK3_REWARD || '0');
+
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        // Check if this email has already completed the task
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task3'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('❌ Email has already completed Task3:', email);
+            return res.status(400).json({
+                success: false,
+                message: 'This email has already completed Task3',
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task3'
+                }
+            });
+        }
+
+        // Find user/creator and get wallet address
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Task3 Reward - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+
+        const rewardAmount = process.env.CREATOR_TASK3_REWARD || '0';
+        let transactionHash = null;
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
+            console.log("🚀 Starting Task3 Reward blockchain transaction...");
+            try {
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for Task3 reward");
+                } else if (creator) {
+                    await prisma.creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for Task3 reward");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for Task3 reward");
+                }
+
+                // Send blockchain transaction
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                transactionHash = sendTx.hash;
+                console.log("✅ Task3 Reward GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", transactionHash);
+                
+            } catch (blockchainError) {
+                console.error("❌ Task3 Reward blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Task3 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
+        }
+
+        // Record the task completion
+        const taskCompletion = await prisma.userCompletedTask.create({
+            data: {
+                userEmail: email,
+                taskId: 'creator_task3',
+                completedAt: new Date()
+            }
+        });
+
+        console.log("✅ Task3 completion recorded for email:", email);
+
+        const responseData = {
+            success: true,
+            message: "Task3 reward claimed successfully",
+            data: {
+                email: email,
+                rewardAmount: parseFloat(rewardAmount),
+                transactionHash: transactionHash,
+                walletAddress: walletAddress,
+                completedAt: taskCompletion.completedAt,
+                taskId: 'creator_task3',
+                alreadyCompleted: false
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error("Error processing Task3 reward:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to process Task3 reward',
+            error: error.message
+        });
+    }
+});
+
+// Check if email has already claimed Task3 reward
+router.post('/check-task3-reward-status', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        console.log('=== CHECK TASK3 REWARD STATUS ===');
+        console.log('Email:', email);
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task3'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('✅ Email has already completed Task3:', email);
+            return res.json({
+                success: true,
+                message: "Task3 already completed",
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task3',
+                    rewardAmount: process.env.CREATOR_TASK3_REWARD
+                }
+            });
+        } else {
+            console.log('❌ Email has not completed Task3 yet:', email);
+            return res.json({
+                success: true,
+                message: "Task3 not completed yet",
+                data: {
+                    email: email,
+                    alreadyCompleted: false,
+                    taskId: 'creator_task3',
+                    rewardAmount: process.env.CREATOR_TASK3_REWARD
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Error checking Task3 reward status:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check Task3 reward status',
+            error: error.message
+        });
+    }
+});
+
+// Creator Task4 Reward - One time reward per email
+router.post('/creator-task4-reward', createPostLimiter, upload.single('file'), async (req, res) => {
+    try {
+        const { email, type, customerClient } = req.body;
+        
+        console.log('=== CREATOR TASK4 REWARD ===');
+        console.log('Email:', email);
+        console.log('Type:', type);
+        console.log('Customer/Client:', customerClient);
+        console.log('File uploaded:', !!req.file);
+        console.log('SWITCH status:', process.env.SWITCH);
+        console.log('CREATOR_TASK4_REWARD:', process.env.CREATOR_TASK4_REWARD );
+
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        if (!type) {
+            return res.status(400).json({
+                success: false,
+                message: 'Type is required'
+            });
+        }
+
+        if (!customerClient) {
+            return res.status(400).json({
+                success: false,
+                message: 'Customer/Client is required'
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: 'File upload is required'
+            });
+        }
+
+        // Check if this email has already completed the task
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task4'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('❌ Email has already completed Task4:', email);
+            return res.status(400).json({
+                success: false,
+                message: 'This email has already completed Task4',
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task4'
+                }
+            });
+        }
+
+        // Upload file to S3
+        let fileUrl = null;
+        try {
+            const fileContent = fs.readFileSync(req.file.path);
+            
+            const params = {
+                Bucket: process.env.AWS_BUCKET_NAME,
+                Key: `creator-task4/${Date.now()}-${Math.round(Math.random() * 1E9)}-${req.file.originalname}`,
+                Body: fileContent,
+                ContentType: req.file.mimetype,
+            };
+
+            const uploadResult = await s3.upload(params).promise();
+            fileUrl = uploadResult.Location;
+            console.log("✅ File uploaded to S3:", fileUrl);
+
+            // Delete the temporary file
+            try {
+                if (fs.existsSync(req.file.path)) {
+                    fs.unlinkSync(req.file.path);
+                }
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        } catch (uploadError) {
+            console.error("❌ File upload failed:", uploadError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to upload file',
+                error: uploadError.message
+            });
+        }
+
+        // Find user/creator and get wallet address
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Task4 Reward - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+
+        const rewardAmount = process.env.CREATOR_TASK4_REWARD;
+        let transactionHash = null;
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
+            console.log("🚀 Starting Task4 Reward blockchain transaction...");
+            try {
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for Task4 reward");
+                } else if (creator) {
+                    await prisma.creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for Task4 reward");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for Task4 reward");
+                }
+
+                // Send blockchain transaction
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                transactionHash = sendTx.hash;
+                console.log("✅ Task4 Reward GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", transactionHash);
+                
+            } catch (blockchainError) {
+                console.error("❌ Task4 Reward blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Task4 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
+        }
+
+        // Record the task completion
+        const taskCompletion = await prisma.userCompletedTask.create({
+            data: {
+                userEmail: email,
+                taskId: 'creator_task4',
+                completedAt: new Date()
+            }
+        });
+
+        // Record the Task4 data
+        const task4Data = await prisma.creatorTask4Data.create({
+            data: {
+                email: email,
+                type: type,
+                customerClient: customerClient,
+                fileUrl: fileUrl,
+                rewardAmount: parseFloat(rewardAmount),
+                transactionHash: transactionHash,
+                walletAddress: walletAddress,
+                completedAt: new Date()
+            }
+        });
+
+        console.log("✅ Task4 completion and data recorded for email:", email);
+
+        const responseData = {
+            success: true,
+            message: "Task4 reward claimed successfully",
+            data: {
+                email: email,
+                type: type,
+                customerClient: customerClient,
+                fileUrl: fileUrl,
+                rewardAmount: parseFloat(rewardAmount),
+                transactionHash: transactionHash,
+                walletAddress: walletAddress,
+                completedAt: taskCompletion.completedAt,
+                taskId: 'creator_task4',
+                alreadyCompleted: false
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        // Clean up temporary file if it exists and there was an error
+        if (req.file && fs.existsSync(req.file.path)) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (unlinkError) {
+                console.log("Warning: Could not delete temporary file:", unlinkError);
+            }
+        }
+        
+        console.error("Error processing Task4 reward:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to process Task4 reward',
+            error: error.message
+        });
+    }
+});
+
+// Check if email has already completed Task4
+router.post('/check-task4-reward-status', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        console.log('=== CHECK TASK4 REWARD STATUS ===');
+        console.log('Email:', email);
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task4'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('✅ Email has already completed Task4:', email);
+            return res.json({
+                success: true,
+                message: "Task4 already completed",
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task4',
+                    rewardAmount: process.env.CREATOR_TASK4_REWARD
+                }
+            });
+        } else {
+            console.log('❌ Email has not completed Task4 yet:', email);
+            return res.json({
+                success: true,
+                message: "Task4 not completed yet",
+                data: {
+                    email: email,
+                    alreadyCompleted: false,
+                    taskId: 'creator_task4',
+                    rewardAmount: process.env.CREATOR_TASK4_REWARD
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Error checking Task4 reward status:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check Task4 reward status',
+            error: error.message
+        });
+    }
+});
+
+// Creator Task5 Reward - One time reward per email
+router.post('/creator-task5-reward', upload.single('testimonialFile'), async (req, res) => {
+    try {
+        let email, customerName, format, testimonial, testimonialFileUrl = null;
+        
+        // Check if request is JSON (text format) or FormData (video/audio format)
+        if (req.headers['content-type']?.includes('application/json')) {
+            // Handle text testimonial
+            ({ email, customerName, format, testimonial } = req.body);
+        } else {
+            // Handle video/audio testimonial
+            ({ email, customerName, format } = req.body);
+            testimonial = null; // No text for video/audio
+            
+            // Handle file upload
+            if (req.file) {
+                // Upload file to S3 (similar to your Task4 implementation)
+                try {
+                    const fileContent = fs.readFileSync(req.file.path);
+                    
+                    const params = {
+                        Bucket: process.env.AWS_BUCKET_NAME,
+                        Key: `creator-task5/${Date.now()}-${Math.round(Math.random() * 1E9)}-${req.file.originalname}`,
+                        Body: fileContent,
+                        ContentType: req.file.mimetype,
+                    };
+
+                    const uploadResult = await s3.upload(params).promise();
+                    testimonialFileUrl = uploadResult.Location;
+                    console.log("✅ Testimonial file uploaded to S3:", testimonialFileUrl);
+
+                    // Delete the temporary file
+                    try {
+                        if (fs.existsSync(req.file.path)) {
+                            fs.unlinkSync(req.file.path);
+                        }
+                    } catch (unlinkError) {
+                        console.log("Warning: Could not delete temporary file:", unlinkError);
+                    }
+                } catch (uploadError) {
+                    console.error("❌ File upload failed:", uploadError);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'Failed to upload testimonial file',
+                        error: uploadError.message
+                    });
+                }
+            }
+        }
+        
+        console.log('=== CREATOR TASK5 REWARD ===');
+        console.log('Email:', email);
+        console.log('Customer Name:', customerName);
+        console.log('Format:', format);
+        console.log('Testimonial:', testimonial);
+        console.log('Testimonial File URL:', testimonialFileUrl);
+        console.log('SWITCH status:', process.env.SWITCH);
+        console.log('CREATOR_TASK5_REWARD:', process.env.CREATOR_TASK5_REWARD);
+
+        // Validation
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        if (!customerName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Customer Name is required'
+            });
+        }
+
+        if (!format) {
+            return res.status(400).json({
+                success: false,
+                message: 'Format is required'
+            });
+        }
+
+        // Validate based on format
+        if (format === 'Text') {
+            if (!testimonial) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Testimonial is required for text format'
+                });
+            }
+            if (testimonial.length < 40) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Testimonial must be at least 40 characters long'
+                });
+            }
+        } else if (format === 'Video' || format === 'Audio') {
+            if (!testimonialFileUrl) {
+                return res.status(400).json({
+                    success: false,
+                    message: `${format} file is required`
+                });
+            }
+        }
+
+        // Check if this email has already completed the task
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task5'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('❌ Email has already completed Task5:', email);
+            return res.status(400).json({
+                success: false,
+                message: 'This email has already completed Task5',
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task5'
+                }
+            });
+        }
+
+        // Find user/creator and get wallet address
+        let user = null;
+        let creator = null;
+        let walletAddress = null;
+
+        // Try to find user by email first
+        user = await prisma.user.findFirst({
+            where: { 
+                OR: [
+                    { email: email },
+                    { name: email }
+                ]
+            }
+        });
+
+        // If user not found, try to find creator
+        if (!user) {
+            creator = await prisma.creator.findFirst({
+                where: { 
+                    OR: [
+                        { email: email },
+                        { name: email },
+                        { username: email }
+                    ]
+                }
+            });
+        }
+
+        // Get wallet address
+        if (user && user.walletAddress) {
+            walletAddress = user.walletAddress;
+        } else if (creator && creator.walletAddress) {
+            walletAddress = creator.walletAddress;
+        }
+
+        console.log("🔍 Task5 Reward - User lookup results:");
+        console.log("- Email:", email);
+        console.log("- User found:", !!user);
+        console.log("- Creator found:", !!creator);
+        console.log("- Wallet Address:", walletAddress);
+
+        const rewardAmount = process.env.CREATOR_TASK5_REWARD;
+        let transactionHash = null;
+
+        // Process blockchain transaction if wallet address exists and SWITCH is enabled
+        if (walletAddress && process.env.SWITCH === 'true' && parseFloat(rewardAmount) > 0) {
+            console.log("🚀 Starting Task5 Reward blockchain transaction...");
+            try {
+                // Update database balance (only if user/creator found)
+                if (user) {
+                    await prisma.user.update({
+                        where: { id: user.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated user database balance for Task5 reward");
+                } else if (creator) {
+                    await prisma.creator.update({
+                        where: { id: creator.id },
+                        data: {
+                            gllBalance: {
+                                increment: parseFloat(rewardAmount)
+                            }
+                        }
+                    });
+                    console.log("✅ Updated creator database balance for Task5 reward");
+                } else {
+                    console.log("⚠️ No user/creator found - skipping database balance update for Task5 reward");
+                }
+
+                // Send blockchain transaction
+                const sendTx = await phoneLinkContract.getGLL(convertToEtherAmount(rewardAmount.toString()), walletAddress);
+                await sendTx.wait();
+                transactionHash = sendTx.hash;
+                console.log("✅ Task5 Reward GLL transaction completed successfully");
+                console.log("📝 Transaction Hash:", transactionHash);
+                
+            } catch (blockchainError) {
+                console.error("❌ Task5 Reward blockchain transaction failed:", blockchainError.message);
+                // Don't crash the endpoint, just log the error
+            }
+        } else {
+            console.log("⚠️ Task5 Reward blockchain transaction skipped - Wallet:", !!walletAddress, "Switch:", process.env.SWITCH, "Reward Amount:", rewardAmount);
+        }
+
+        // Record the task completion
+        const taskCompletion = await prisma.userCompletedTask.create({
+            data: {
+                userEmail: email,
+                taskId: 'creator_task5',
+                completedAt: new Date()
+            }
+        });
+
+        // Record the Task5 data
+        const task5Data = await prisma.creatorTask5Data.create({
+            data: {
+                email: email,
+                customerName: customerName,
+                format: format,
+                testimonial: testimonial, // null for video/audio
+                testimonialFileUrl: testimonialFileUrl, // null for text
+                rewardAmount: parseFloat(rewardAmount),
+                transactionHash: transactionHash,
+                walletAddress: walletAddress,
+                completedAt: new Date()
+            }
+        });
+
+        console.log("✅ Task5 completion and data recorded for email:", email);
+
+        const responseData = {
+            success: true,
+            message: "Task5 reward claimed successfully",
+            data: {
+                email: email,
+                customerName: customerName,
+                format: format,
+                testimonial: testimonial,
+                testimonialFileUrl: testimonialFileUrl,
+                rewardAmount: parseFloat(rewardAmount),
+                transactionHash: transactionHash,
+                walletAddress: walletAddress,
+                completedAt: taskCompletion.completedAt,
+                taskId: 'creator_task5',
+                alreadyCompleted: false
+            }
+        };
+
+        res.send(encryptJSON(responseData));
+
+    } catch (error) {
+        console.error("Error processing Task5 reward:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to process Task5 reward',
+            error: error.message
+        });
+    }
+});
+
+// Check if email has already completed Task5
+router.post('/check-task5-reward-status', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        console.log('=== CHECK TASK5 REWARD STATUS ===');
+        console.log('Email:', email);
+
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email is required'
+            });
+        }
+
+        const existingTask = await prisma.userCompletedTask.findUnique({
+            where: {
+                userEmail_taskId: {
+                    userEmail: email,
+                    taskId: 'creator_task5'
+                }
+            }
+        });
+
+        if (existingTask) {
+            console.log('✅ Email has already completed Task5:', email);
+            return res.json({
+                success: true,
+                message: "Task5 already completed",
+                data: {
+                    email: email,
+                    alreadyCompleted: true,
+                    completedAt: existingTask.completedAt,
+                    taskId: 'creator_task5',
+                    rewardAmount: process.env.CREATOR_TASK5_REWARD
+                }
+            });
+        } else {
+            console.log('❌ Email has not completed Task5 yet:', email);
+            return res.json({
+                success: true,
+                message: "Task5 not completed yet",
+                data: {
+                    email: email,
+                    alreadyCompleted: false,
+                    taskId: 'creator_task5',
+                    rewardAmount: process.env.CREATOR_TASK5_REWARD
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Error checking Task5 reward status:", error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check Task5 reward status',
             error: error.message
         });
     }
