@@ -46,6 +46,18 @@ const generalPostLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Rate limiter for file uploads
+const uploadLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 10, // limit each IP to 10 upload requests per minute
+    message: {
+        success: false,
+        message: "Too many upload requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // Function to read airdrop data from Google Sheets
 async function readAirdropData() {
     try {
@@ -1985,7 +1997,7 @@ router.post('/register-creator', async (req, res) => {
 });
 
 // AWS bucket code for uploading files to S3
-router.post('/uploads', upload.single('file'), async (req, res) => {
+router.post('/uploads', uploadLimiter, upload.single('file'), async (req, res) => {
 
     let documentUrl = null;
     try {
