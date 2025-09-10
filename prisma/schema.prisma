@@ -606,3 +606,54 @@ model CreatorCourse {
   @@index([priceType])
   @@map("creatorCourses")
 }
+
+// Creator Task3 Reward tracking model
+model CreatorTask3Reward {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  email           String   @unique
+  rewardAmount    Float
+  transactionHash String?
+  walletAddress   String?
+  claimedAt       DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([claimedAt])
+}
+
+// Creator Task4 data model
+model CreatorTask4Data {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  email           String
+  type            String
+  customerClient  String
+  fileUrl         String
+  rewardAmount    Float
+  transactionHash String?
+  walletAddress   String?
+  completedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([email])
+  @@index([completedAt])
+}
+
+// Creator Task5 data model
+model CreatorTask5Data {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  email              String
+  customerName       String
+  format             String
+  testimonial        String? // null for video/audio
+  testimonialFileUrl String? // null for text
+  rewardAmount       Float
+  transactionHash    String?
+  walletAddress      String?
+  completedAt        DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([email])
+  @@index([completedAt])
+}
