@@ -79,6 +79,9 @@ jobs:
             --build-arg CREATOR_PRODUCT_REWARD=$CREATOR_PRODUCT_REWARD \
             --build-arg CREATOR_SERVICE_REWARD=$CREATOR_SERVICE_REWARD \
             --build-arg CREATOR_COURSE_REWARD=$CREATOR_COURSE_REWARD \
+            --build-arg CREATOR_TASK3_REWARD=$CREATOR_TASK3_REWARD \
+            --build-arg CREATOR_TASK4_REWARD=$CREATOR_TASK4_REWARD \
+            --build-arg CREATOR_TASK5_REWARD=$CREATOR_TASK5_REWARD \
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -114,6 +117,9 @@ jobs:
           CREATOR_PRODUCT_REWARD: ${{ secrets.CREATOR_PRODUCT_REWARD }}
           CREATOR_SERVICE_REWARD: ${{ secrets.CREATOR_SERVICE_REWARD }}
           CREATOR_COURSE_REWARD: ${{ secrets.CREATOR_COURSE_REWARD }}
+          CREATOR_TASK3_REWARD: ${{ secrets.CREATOR_TASK3_REWARD }}
+          CREATOR_TASK4_REWARD: ${{ secrets.CREATOR_TASK4_REWARD }}
+          CREATOR_TASK5_REWARD: ${{ secrets.CREATOR_TASK5_REWARD }}
 
       - name: Docker Tag
         run: docker tag ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} ${{ env.REPOSITORY_URI }}:${{ env.IMAGE_TAG }}
