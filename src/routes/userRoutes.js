@@ -316,18 +316,6 @@ router.post('/save-connect-wallet', async (req, res) => {
 router.post('/personal-details', async (req, res) => {
     const { name, email, designation, phone, international, businessDescription, businessPhotos, businessVideo } = req.body;
 
-    // console.log('=== PERSONAL DETAILS DEBUG ===');
-        // console.log('Received data:', {
-        //     name,
-        //     email,
-        //     designation,
-        //     phone,
-        //     international,
-        //     businessDescription: businessDescription || 'NOT PROVIDED',
-        //     businessPhotos: businessPhotos ? `Array with ${businessPhotos.length} items: ${JSON.stringify(businessPhotos)}` : 'NOT PROVIDED',
-        //     businessVideo: businessVideo ? `${Array.isArray(businessVideo) ? 'Array' : 'String'} with value: ${JSON.stringify(businessVideo)}` : 'NOT PROVIDED'
-        // });
-    // console.log('=== END DEBUG ===');
 
     const tempUser = await prisma.user.findUnique({
         where: { email }
@@ -7093,6 +7081,457 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
         res.status(500).json({
             success: false,
             message: "Internal server error while fetching creator data"
+        });
+    }
+});
+
+// ==================== GAME HIGH SCORES ROUTES ====================
+
+// Supported games and validation constants
+const SUPPORTED_GAMES = ["flappy-bird", "chrome-dinosaur"];
+const MAX_SCORE = 999999;
+
+// Secure email validation function to prevent ReDoS attacks
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') {
+        return false;
+    }
+    
+    // Basic length check to prevent extremely long inputs
+    if (email.length > 254) {
+        return false;
+    }
+    
+    // Simple and secure email validation
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email);
+}
+
+// Validation function for score data
+function validateScoreData(data) {
+    if (!data.gameName || !SUPPORTED_GAMES.includes(data.gameName)) {
+        throw new Error("INVALID_GAME");
+    }
+
+    if (
+        !data.score ||
+        typeof data.score !== "number" ||
+        data.score < 0 ||
+        data.score > MAX_SCORE
+    ) {
+        throw new Error("INVALID_SCORE");
+    }
+
+    if (
+        !data.playerEmail ||
+        !isValidEmail(data.playerEmail)
+    ) {
+        throw new Error("INVALID_EMAIL");
+    }
+
+    if (!data.playerName || data.playerName.trim().length === 0) {
+        throw new Error("INVALID_PLAYER_NAME");
+    }
+}
+
+// Helper function to serialize BigInt values to strings
+function serializeBigInt(obj) {
+    if (obj === null || obj === undefined) return obj;
+    
+    if (typeof obj === 'bigint') {
+        return obj.toString();
+    }
+    
+    if (Array.isArray(obj)) {
+        return obj.map(serializeBigInt);
+    }
+    
+    if (typeof obj === 'object') {
+        const serialized = {};
+        for (const [key, value] of Object.entries(obj)) {
+            serialized[key] = serializeBigInt(value);
+        }
+        return serialized;
+    }
+    
+    return obj;
+}
+
+// Helper function to submit game score
+async function submitGameScore(data) {
+    try {
+        // Check if user already has a score for this game
+        const existingScore = await prisma.gameHighScore.findFirst({
+            where: {
+                gameName: data.gameName,
+                playerEmail: data.playerEmail,
+            },
+        });
+
+        let result;
+        let isNewHighScore = false;
+        let previousHighScore = 0;
+
+        if (existingScore) {
+            if (data.score > existingScore.score) {
+                // Update existing score if new score is higher
+                result = await prisma.gameHighScore.update({
+                    where: { id: existingScore.id },
+                    data: {
+                        score: data.score,
+                        timestamp: data.timestamp,
+                        date: data.date,
+                        playerName: data.playerName,
+                    },
+                });
+                isNewHighScore = true;
+                previousHighScore = existingScore.score;
+            } else {
+                // Don't update if score is not higher
+                result = existingScore;
+            }
+        } else {
+            // Create new score record
+            result = await prisma.gameHighScore.create({
+                data: {
+                    gameName: data.gameName,
+                    score: data.score,
+                    playerName: data.playerName,
+                    playerEmail: data.playerEmail,
+                    timestamp: data.timestamp,
+                    date: data.date,
+                },
+            });
+            isNewHighScore = true;
+        }
+
+        // Serialize BigInt values before returning
+        const serializedResult = serializeBigInt(result);
+
+        return {
+            success: true,
+            message: "Score submitted successfully",
+            data: {
+                ...serializedResult,
+                isNewHighScore,
+                previousHighScore,
+            },
+        };
+    } catch (error) {
+        console.error("Error submitting score:", error);
+        return {
+            success: false,
+            error: "DATABASE_ERROR",
+            message: "Failed to submit score",
+        };
+    }
+}
+
+// Helper function to get user's high scores
+async function getUserHighScores(playerEmail) {
+    try {
+        const scores = await prisma.gameHighScore.findMany({
+            where: { playerEmail },
+            orderBy: { score: "desc" },
+        });
+
+        // Group by game and get highest score for each
+        const gameHighScores = scores.reduce((acc, score) => {
+            if (!acc[score.gameName] || score.score > acc[score.gameName].score) {
+                acc[score.gameName] = score;
+            }
+            return acc;
+        }, {});
+
+        // Serialize BigInt values before returning
+        const serializedGameHighScores = serializeBigInt(gameHighScores);
+
+        return {
+            success: true,
+            data: {
+                userEmail: playerEmail,
+                gameHighScores: serializedGameHighScores,
+            },
+        };
+    } catch (error) {
+        console.error("Error fetching user scores:", error);
+        return {
+            success: false,
+            error: "DATABASE_ERROR",
+            message: "Failed to fetch user scores",
+        };
+    }
+}
+
+// Helper function to get game leaderboard
+async function getGameLeaderboard(gameName, limit = 10) {
+    try {
+        // Get all scores for the game
+        const allScores = await prisma.gameHighScore.findMany({
+            where: { gameName },
+            orderBy: { score: "desc" },
+        });
+
+        // Group by player and get their highest score
+        const playerHighScores = allScores.reduce((acc, score) => {
+            if (
+                !acc[score.playerEmail] ||
+                score.score > acc[score.playerEmail].score
+            ) {
+                acc[score.playerEmail] = score;
+            }
+            return acc;
+        }, {});
+
+        // Convert to array and sort by score
+        const leaderboard = Object.values(playerHighScores)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+
+        // Serialize BigInt values before returning
+        const serializedLeaderboard = serializeBigInt(leaderboard);
+
+        return {
+            success: true,
+            data: {
+                gameName,
+                leaderboard: serializedLeaderboard,
+                totalPlayers: Object.keys(playerHighScores).length,
+            },
+        };
+    } catch (error) {
+        console.error("Error fetching leaderboard:", error);
+        return {
+            success: false,
+            error: "DATABASE_ERROR",
+            message: "Failed to fetch leaderboard",
+        };
+    }
+}
+
+// Helper function to get global high scores
+async function getGlobalHighScores() {
+    try {
+        const globalHighScores = {};
+
+        for (const gameName of SUPPORTED_GAMES) {
+            const highestScore = await prisma.gameHighScore.findFirst({
+                where: { gameName },
+                orderBy: { score: "desc" },
+            });
+
+            if (highestScore) {
+                globalHighScores[gameName] = highestScore;
+            }
+        }
+
+        // Serialize BigInt values before returning
+        const serializedGlobalHighScores = serializeBigInt(globalHighScores);
+
+        return {
+            success: true,
+            data: serializedGlobalHighScores,
+        };
+    } catch (error) {
+        console.error("Error fetching global high scores:", error);
+        return {
+            success: false,
+            error: "DATABASE_ERROR",
+            message: "Failed to fetch global high scores",
+        };
+    }
+}
+
+// Rate limiter for game score submissions
+const gameScoreLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 20, // limit each IP to 20 score submissions per minute
+    message: {
+        success: false,
+        message: "Too many score submission requests, please try again later."
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// POST route for submitting game scores
+router.post('/game-scores/submit', gameScoreLimiter, async (req, res) => {
+    try {
+        // Validate request data
+        validateScoreData(req.body);
+
+        const result = await submitGameScore(req.body);
+
+        if (result.success) {
+            res.status(200).json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        console.error("API Error:", error);
+        let statusCode = 500;
+        let errorMessage = "An unexpected error occurred";
+
+        if (error.message === "INVALID_GAME") {
+            statusCode = 400;
+            errorMessage = "Game name not supported";
+        } else if (error.message === "INVALID_SCORE") {
+            statusCode = 400;
+            errorMessage = "Score must be a positive integer";
+        } else if (error.message === "INVALID_EMAIL") {
+            statusCode = 400;
+            errorMessage = "Email format invalid";
+        } else if (error.message === "INVALID_PLAYER_NAME") {
+            statusCode = 400;
+            errorMessage = "Player name is required";
+        }
+
+        res.status(statusCode).json({
+            success: false,
+            error: error.message || "INTERNAL_SERVER_ERROR",
+            message: errorMessage,
+        });
+    }
+});
+
+// GET route for fetching user's high scores
+router.get('/game-scores/user/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        
+        // Decode URL-encoded email
+        const decodedEmail = decodeURIComponent(email);
+        
+        if (!decodedEmail) {
+            return res.status(400).json({
+                success: false,
+                error: "INVALID_EMAIL",
+                message: "Email parameter is required",
+            });
+        }
+
+        const result = await getUserHighScores(decodedEmail);
+        res.status(200).json(result);
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({
+            success: false,
+            error: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected error occurred",
+        });
+    }
+});
+
+// GET route for fetching game leaderboard
+router.get('/game-scores/leaderboard/:gameName', async (req, res) => {
+    try {
+        const { gameName } = req.params;
+        const limit = parseInt(req.query.limit) || 10;
+
+        if (!gameName || !SUPPORTED_GAMES.includes(gameName)) {
+            return res.status(400).json({
+                success: false,
+                error: "INVALID_GAME",
+                message: "Game name parameter is required and must be supported",
+            });
+        }
+
+        const result = await getGameLeaderboard(gameName, limit);
+        res.status(200).json(result);
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({
+            success: false,
+            error: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected error occurred",
+        });
+    }
+});
+
+// GET route for fetching global high scores
+router.get('/game-scores/global', async (req, res) => {
+    try {
+        const result = await getGlobalHighScores();
+        res.status(200).json(result);
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({
+            success: false,
+            error: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected error occurred",
+        });
+    }
+});
+
+// POST route for bulk submitting scores (for localStorage sync)
+router.post('/game-scores/bulk-submit', gameScoreLimiter, async (req, res) => {
+    try {
+        const { userEmail, userName, scores } = req.body;
+
+        if (!userEmail || !userName || !scores || !Array.isArray(scores)) {
+            return res.status(400).json({
+                success: false,
+                error: "INVALID_REQUEST",
+                message: "userEmail, userName, and scores array are required",
+            });
+        }
+
+        const results = [];
+        let newHighScores = 0;
+        let updatedScores = 0;
+
+        for (const scoreData of scores) {
+            try {
+                // Validate each score
+                validateScoreData({
+                    ...scoreData,
+                    playerName: userName,
+                    playerEmail: userEmail,
+                });
+
+                const result = await submitGameScore({
+                    ...scoreData,
+                    playerName: userName,
+                    playerEmail: userEmail,
+                });
+
+                if (result.success && result.data.isNewHighScore) {
+                    if (result.data.previousHighScore > 0) {
+                        updatedScores++;
+                    } else {
+                        newHighScores++;
+                    }
+                }
+
+                // Serialize BigInt values in the result
+                const serializedResult = serializeBigInt(result);
+                results.push(serializedResult);
+            } catch (error) {
+                console.error("Error processing score:", error);
+                results.push({
+                    success: false,
+                    error: error.message,
+                    message: "Failed to process score",
+                });
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Scores submitted successfully",
+            data: {
+                submittedCount: scores.length,
+                newHighScores,
+                updatedScores,
+                results,
+            },
+        });
+    } catch (error) {
+        console.error("API Error:", error);
+        res.status(500).json({
+            success: false,
+            error: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected error occurred",
         });
     }
 });

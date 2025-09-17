@@ -657,3 +657,22 @@ model CreatorTask5Data {
   @@index([email])
   @@index([completedAt])
 }
+
+// Game High Scores model
+model GameHighScore {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  gameName    String   @map("game_name")
+  score       Int
+  playerName  String   @map("player_name")
+  playerEmail String   @map("player_email")
+  timestamp   BigInt
+  date        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([gameName])
+  @@index([playerEmail])
+  @@index([score(sort: Desc)])
+  @@index([gameName, playerEmail])
+  @@map("game_high_scores")
+}
