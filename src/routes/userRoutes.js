@@ -7091,6 +7091,22 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
 const SUPPORTED_GAMES = ["flappy-bird", "chrome-dinosaur"];
 const MAX_SCORE = 999999;
 
+// Secure email validation function to prevent ReDoS attacks
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') {
+        return false;
+    }
+    
+    // Basic length check to prevent extremely long inputs
+    if (email.length > 254) {
+        return false;
+    }
+    
+    // Simple and secure email validation
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email);
+}
+
 // Validation function for score data
 function validateScoreData(data) {
     if (!data.gameName || !SUPPORTED_GAMES.includes(data.gameName)) {
@@ -7108,7 +7124,7 @@ function validateScoreData(data) {
 
     if (
         !data.playerEmail ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.playerEmail)
+        !isValidEmail(data.playerEmail)
     ) {
         throw new Error("INVALID_EMAIL");
     }
