@@ -16,12 +16,12 @@ const router = express.Router();
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const FRONTEND_URL = process.env.NODE_ENV === "production" 
-  ? "https://www.gll.one" 
+const FRONTEND_URL = process.env.NODE_ENV === "production"
+  ? "https://www.gll.one"
   : "http://localhost:3000";
-const BASE_URL = process.env.NODE_ENV === "production" 
-  ? "https://backend.gll.one" 
-  : "http://localhost:8000";
+const BASE_URL = process.env.NODE_ENV === "production"
+  ? "https://backend.gll.one"
+  : "http://localhost:8001";
 
 // Currency Cache Configuration
 const CACHE_FILE_PATH = path.join(__dirname, "../cache/currency_cache.json");
@@ -249,13 +249,13 @@ function getMaskedStripeKey() {
     keyType: isSecretKey
       ? "secret"
       : apiKey.startsWith("pk_")
-      ? "publishable"
-      : "unknown",
+        ? "publishable"
+        : "unknown",
     error: !isValidFormat
       ? "Stripe key must start with 'sk_' (secret) or 'pk_' (publishable)"
       : !isSecretKey
-      ? "Must use secret key (sk_) for server-side operations"
-      : null,
+        ? "Must use secret key (sk_) for server-side operations"
+        : null,
   };
 }
 
@@ -304,8 +304,8 @@ async function testStripeKey() {
         error.type === "StripeAuthenticationError"
           ? "Invalid Stripe API key - check your key is correct"
           : error.type === "StripePermissionError"
-          ? "Stripe API key lacks required permissions"
-          : "Network or API error",
+            ? "Stripe API key lacks required permissions"
+            : "Network or API error",
     };
   }
 }
@@ -440,7 +440,7 @@ function validateProductPurchasePayload(payload) {
   if (typeof payload.amount !== "number") {
     return { isValid: false, error: `amount must be a number, received: ${typeof payload.amount} (${payload.amount})` };
   }
-  
+
   if (payload.amount <= 0) {
     return { isValid: false, error: `amount must be greater than 0, received: ${payload.amount}` };
   }
@@ -586,8 +586,8 @@ router.post("/purchase-plan", async (req, res) => {
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-            cancel_url
-          )}`
+          cancel_url
+        )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -649,9 +649,8 @@ router.post("/purchase-plan", async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: `Payment gateway error (${error.response.status}): ${
-          error.response.data?.message || error.message
-        }`,
+        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
+          }`,
       });
     }
 
@@ -758,8 +757,8 @@ router.post("/stripe/purchase-plan", async (req, res) => {
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-            cancel_url
-          )}`
+          cancel_url
+        )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -986,8 +985,8 @@ router.post("/wallet-balance", async (req, res) => {
       success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-            cancel_url
-          )}`
+          cancel_url
+        )}`
         : `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
@@ -1215,8 +1214,8 @@ router.post("/gateway/wallet-balance", async (req, res) => {
       success_url: `${BASE_URL}/api/payments/gateway/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-            cancel_url
-          )}`
+          cancel_url
+        )}`
         : `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
@@ -1296,9 +1295,8 @@ router.post("/gateway/wallet-balance", async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: `Payment gateway error (${error.response.status}): ${
-          error.response.data?.message || error.message
-        }`,
+        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
+          }`,
         details: {
           status: error.response.status,
           data: error.response.data,
@@ -1381,9 +1379,8 @@ router.get("/success", async (req, res) => {
       : "Payment successful! Documents updated successfully.";
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/resume?status=success&sessionId=${session_id}&walletId=${walletId}&documents=${
-      updatedWallet.noOfDocuments
-    }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/resume?status=success&sessionId=${session_id}&walletId=${walletId}&documents=${updatedWallet.noOfDocuments
+      }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment success handler error:", error);
@@ -1447,9 +1444,8 @@ router.get("/cancel", async (req, res) => {
       ? "Payment was cancelled by user"
       : "Payment was cancelled";
 
-    const redirectUrl = `${FRONTEND_URL}/resume?status=cancelled&sessionId=${
-      session_id || ""
-    }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/resume?status=cancelled&sessionId=${session_id || ""
+      }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment cancel handler error:", error);
@@ -1575,11 +1571,10 @@ router.get("/wallet-balance/success", async (req, res) => {
     }
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${
-      transactionResult.transactionHash
-    }&message=${encodeURIComponent(
-      "Payment successful! Ions credited to wallet."
-    )}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${transactionResult.transactionHash
+      }&message=${encodeURIComponent(
+        "Payment successful! Ions credited to wallet."
+      )}`;
 
     console.log("🚀 Redirecting to frontend with success status");
     console.log("🔗 Redirect URL:", redirectUrl);
@@ -1653,9 +1648,8 @@ router.get("/wallet-balance/cancel", async (req, res) => {
       ? "Wallet balance payment was cancelled by user"
       : "Wallet balance payment was cancelled";
 
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancelled&sessionId=${
-      session_id || ""
-    }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancelled&sessionId=${session_id || ""
+      }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Wallet balance payment cancel handler error:", error);
@@ -1787,11 +1781,10 @@ router.get("/gateway/wallet-balance/success", async (req, res) => {
     }
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${
-      transactionResult.transactionHash
-    }&gateway=true&message=${encodeURIComponent(
-      "Payment successful! Ions credited to wallet via payment gateway."
-    )}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${transactionResult.transactionHash
+      }&gateway=true&message=${encodeURIComponent(
+        "Payment successful! Ions credited to wallet via payment gateway."
+      )}`;
 
     console.log(
       "🚀 Redirecting to frontend with payment gateway success status"
@@ -1854,8 +1847,7 @@ router.get("/gateway/wallet-balance/cancel", async (req, res) => {
     const { session_id, original_cancel_url } = req.query;
 
     console.log(
-      `Payment gateway wallet balance payment cancelled for session: ${
-        session_id || "unknown"
+      `Payment gateway wallet balance payment cancelled for session: ${session_id || "unknown"
       }`
     );
     console.log(
@@ -2929,9 +2921,8 @@ router.get("/currency/cache-stats", async (req, res) => {
         expiredEntries: expiredEntries.length,
         cacheEntries: cacheEntries,
         apiCallsSaved: `Estimated ${validEntries.length} API calls saved today`,
-        monthlySavings: `Potentially ${
-          validEntries.length * 30
-        } API calls saved per month`,
+        monthlySavings: `Potentially ${validEntries.length * 30
+          } API calls saved per month`,
         freeApiLimit: "30 calls per month",
         cacheFilePath: CACHE_FILE_PATH,
       },
@@ -2995,7 +2986,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
   try {
     console.log("🎯 Creating payment gateway session for product purchase");
     console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
-    
+
     const { walletAddress, noOfProducts, amount, currency, cancel_url, return_url } = req.body;
 
     console.log("📋 Received product purchase payment request:", {
@@ -3053,8 +3044,8 @@ router.post("/gateway/product-purchase", async (req, res) => {
       success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(return_url || '')}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-            cancel_url
-          )}`
+          cancel_url
+        )}`
         : `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
@@ -3135,9 +3126,8 @@ router.post("/gateway/product-purchase", async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: `Payment gateway error (${error.response.status}): ${
-          error.response.data?.message || error.message
-        }`,
+        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
+          }`,
         details: {
           status: error.response.status,
           data: error.response.data,
@@ -3243,7 +3233,7 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
       // Fallback to payment page
       redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&walletAddress=${walletAddress}&products=${noOfProducts}&message=${encodeURIComponent('Product purchase successful!')}`;
     }
-    
+
     console.log(`Redirecting to: ${redirectUrl}`);
     res.redirect(redirectUrl);
 
@@ -3321,8 +3311,8 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
 router.get("/getLiveGLLData", async (req, res) => {
   try {
 
-    const payload = {"query":"query MyQuery {\n  pools(where: {id_in: [\"0xbc4dcf7539d9261731888a7d95994cbedf07ab52\",\"0x5854b550482dc2785c9c4ecdb235076b5e1d75b7\"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}","operationName":"MyQuery"}
-    const payloadYesterday = {"query":"query MyQuery {\n  tokenDayDatas(first: 1, orderBy: \"id\", orderDirection: \"desc\", where: {token:\"0xc6126ebfa8b5ffd41561c086979c97416969cebf\"}) {\n    id\n    priceUSD\n  }\n}","operationName":"MyQuery"}
+    const payload = { "query": "query MyQuery {\n  pools(where: {id_in: [\"0xbc4dcf7539d9261731888a7d95994cbedf07ab52\",\"0x5854b550482dc2785c9c4ecdb235076b5e1d75b7\"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}", "operationName": "MyQuery" }
+    const payloadYesterday = { "query": "query MyQuery {\n  tokenDayDatas(first: 1, orderBy: \"id\", orderDirection: \"desc\", where: {token:\"0xc6126ebfa8b5ffd41561c086979c97416969cebf\"}) {\n    id\n    priceUSD\n  }\n}", "operationName": "MyQuery" }
 
     const reso = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
       method: 'POST',
@@ -3344,10 +3334,11 @@ router.get("/getLiveGLLData", async (req, res) => {
 
     const json1 = await reso.json();
     const json1YesterDay = await resoYesterday.json();
-    const output = {"gll/xdc": Number(json1.data.pools[1].token1Price).toFixed(6),
-      "gll/usd": (Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)).toFixed(7),
+    const output = {
+      "gll/xdc": Number(json1.data.pools[1].token1Price).toFixed(6),
+      "gll/usd": (Number(json1.data.pools[0].token1Price) / Number(json1.data.pools[1].token1Price)).toFixed(7),
       "gll/usd Yesterday": Number(json1YesterDay.data.tokenDayDatas[0].priceUSD).toFixed(7),
-      "change": ((((Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)) - Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))/Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))*100).toFixed(2) + " %"
+      "change": ((((Number(json1.data.pools[0].token1Price) / Number(json1.data.pools[1].token1Price)) - Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) / Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) * 100).toFixed(2) + " %"
     }
     res.send(JSON.stringify(output, null, 2));
 
