@@ -16,8 +16,12 @@ const router = express.Router();
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const FRONTEND_URL = "https://www.gll.one";
-const BASE_URL = "https://backend.gll.one";
+const FRONTEND_URL = process.env.NODE_ENV === "production" 
+  ? "https://www.gll.one" 
+  : "http://localhost:3000";
+const BASE_URL = process.env.NODE_ENV === "production" 
+  ? "https://backend.gll.one" 
+  : "http://localhost:8000";
 
 // Currency Cache Configuration
 const CACHE_FILE_PATH = path.join(__dirname, "../cache/currency_cache.json");
@@ -396,7 +400,53 @@ function validateWalletBalancePayload(payload) {
   }
 
   // Validate currency
-  const supportedCurrencies = ["USD", "EUR", "INR"];
+  const supportedCurrencies = ["GLL", "IONS", "USD", "EUR", "INR"];
+  if (!supportedCurrencies.includes(payload.currency.toUpperCase())) {
+    return {
+      isValid: false,
+      error: `Currency must be one of: ${supportedCurrencies.join(", ")}`,
+    };
+  }
+
+  return { isValid: true };
+}
+
+/**
+ * @description Validates product purchase payload
+ * @param {Object} payload - The payload to validate
+ * @returns {Object} Validation result with isValid boolean and error message if invalid
+ */
+function validateProductPurchasePayload(payload) {
+  const requiredFields = ["walletAddress", "noOfProducts", "amount", "currency"];
+
+  for (const field of requiredFields) {
+    if (!payload[field]) {
+      return { isValid: false, error: `Missing required field: ${field}` };
+    }
+  }
+
+  // Validate wallet address
+  const walletValidation = validateWalletAddress(payload.walletAddress);
+  if (!walletValidation.isValid) {
+    return walletValidation;
+  }
+
+  // Validate noOfProducts is a positive number
+  if (typeof payload.noOfProducts !== "number" || payload.noOfProducts <= 0) {
+    return { isValid: false, error: "noOfProducts must be a positive number" };
+  }
+
+  // Validate amount is a positive number
+  if (typeof payload.amount !== "number") {
+    return { isValid: false, error: `amount must be a number, received: ${typeof payload.amount} (${payload.amount})` };
+  }
+  
+  if (payload.amount <= 0) {
+    return { isValid: false, error: `amount must be greater than 0, received: ${payload.amount}` };
+  }
+
+  // Validate currency
+  const supportedCurrencies = ["GLL", "IONS", "USD", "EUR", "INR"];
   if (!supportedCurrencies.includes(payload.currency.toUpperCase())) {
     return {
       isValid: false,
@@ -2938,5 +2988,377 @@ router.delete("/currency/clear-cache", async (req, res) => {
     });
   }
 });
+
+// ==================== PRODUCT PURCHASE PAYMENT GATEWAY ====================
+
+router.post("/gateway/product-purchase", async (req, res) => {
+  try {
+    console.log("🎯 Creating payment gateway session for product purchase");
+    console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
+    
+    const { walletAddress, noOfProducts, amount, currency, cancel_url, return_url } = req.body;
+
+    console.log("📋 Received product purchase payment request:", {
+      walletAddress,
+      noOfProducts,
+      amount,
+      currency,
+      amountType: typeof amount,
+      amountValue: amount,
+      amountTruthy: !!amount
+    });
+
+    // Validate payload
+    const validation = validateProductPurchasePayload(req.body);
+    if (!validation.isValid) {
+      console.error(
+        "❌ Product purchase payload validation failed:",
+        validation.error
+      );
+      return res.status(400).json({
+        success: false,
+        error: validation.error,
+      });
+    }
+
+    console.log("✅ Product purchase payload validation passed");
+
+    // Note: Frontend can send any supported currency, but we use USD for payment gateway
+    // This ensures compatibility with the working wallet-balance route
+
+    // Create line items for the payment gateway
+    const line_items = [
+      {
+        price_data: {
+          currency: "usd", // Use USD like the working wallet-balance route
+          product_data: {
+            name: `${noOfProducts} Product(s)`,
+            description: `Purchase ${noOfProducts} product(s) for wallet ${walletAddress.substring(
+              0,
+              6
+            )}...${walletAddress.substring(38)}`,
+          },
+          unit_amount: amount * 100, // Convert to cents like USD
+        },
+        quantity: 1,
+      },
+    ];
+
+    console.log("🏷️ Created line items for payment gateway:", line_items);
+
+    // Prepare payment gateway payload
+    const paymentPayload = {
+      line_items,
+      mode: "payment",
+      success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(return_url || '')}`,
+      cancel_url: cancel_url
+        ? `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
+            cancel_url
+          )}`
+        : `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}`,
+      metadata: {
+        walletAddress,
+        noOfProducts: noOfProducts.toString(),
+        currency: "USD", // Use USD like the working wallet-balance route
+        paymentType: "gateway_product_purchase",
+        return_url: return_url || null,
+      },
+      apiKey: "growinvoice",
+    };
+
+    console.log("🔧 Prepared payment gateway payload:");
+    console.log("📡 Payment Gateway URL:", PAYMENT_GATEWAY_URL);
+    console.log("📦 Payload:", JSON.stringify(paymentPayload, null, 2));
+
+    // Call payment gateway with proper headers
+    const response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      timeout: 30000, // 30 second timeout
+    });
+
+    console.log("📊 Payment Gateway Response Status:", response.status);
+    console.log("📝 Payment Gateway Response Headers:", response.headers);
+
+    // Check if response is HTML instead of JSON
+    const contentType = response.headers["content-type"];
+    if (contentType && contentType.includes("text/html")) {
+      console.error("❌ Received HTML response instead of JSON:");
+      console.error("🌐 Response data:", response.data);
+      throw new Error(
+        "Payment gateway returned HTML error page instead of JSON. Please check the gateway URL and endpoint."
+      );
+    }
+
+    console.log(
+      "✅ Payment Gateway Response (JSON):",
+      JSON.stringify(response.data, null, 2)
+    );
+
+    // Validate response structure
+    if (!response.data || typeof response.data !== "object") {
+      throw new Error("Invalid response format from payment gateway");
+    }
+
+    if (!response.data.id || !response.data.uri) {
+      console.error(
+        "❌ Missing required fields in payment gateway response:",
+        response.data
+      );
+      throw new Error(
+        "Payment gateway response missing required fields (id, uri)"
+      );
+    }
+
+    console.log("🎉 Payment gateway session created successfully!");
+    console.log("🆔 Session ID:", response.data.id);
+    console.log("🔗 Checkout URL:", response.data.uri);
+
+    // Return success response
+    res.status(200).json({
+      success: true,
+      sessionId: response.data.id,
+      checkoutUrl: response.data.uri,
+      message:
+        "Payment gateway session created successfully for product purchase",
+    });
+  } catch (error) {
+    console.error("❌ Payment gateway product purchase creation error:", error);
+
+    // Handle different types of errors
+    if (error.response) {
+      console.error("📊 Error Response Status:", error.response.status);
+      console.error("📝 Error Response Headers:", error.response.headers);
+      console.error("📦 Error Response Data:", error.response.data);
+
+      return res.status(500).json({
+        success: false,
+        error: `Payment gateway error (${error.response.status}): ${
+          error.response.data?.message || error.message
+        }`,
+        details: {
+          status: error.response.status,
+          data: error.response.data,
+        },
+      });
+    }
+
+    if (error.request) {
+      console.error("🌐 Request Error:", error.request);
+      return res.status(500).json({
+        success: false,
+        error: "Unable to connect to payment gateway. Please try again later.",
+        details: "Network connectivity issue",
+      });
+    }
+
+    // Generic error handling
+    res.status(500).json({
+      success: false,
+      error: `Payment gateway error: ${error.message}`,
+      details: {
+        errorType: error.constructor.name,
+        message: error.message,
+      },
+    });
+  }
+});
+
+// ==================== PRODUCT PURCHASE SUCCESS/CANCEL HANDLERS ====================
+
+/**
+ * @swagger
+ * /api/payments/gateway/product-purchase/success:
+ *   get:
+ *     summary: Handle successful product purchase payment
+ *     description: Processes successful product purchase payment completion and redirects to frontend
+ *     tags:
+ *       - Payment Processing
+ *     parameters:
+ *       - name: session_id
+ *         in: query
+ *         required: true
+ *         description: Payment session ID
+ *         schema:
+ *           type: string
+ *       - name: walletAddress
+ *         in: query
+ *         required: true
+ *         description: Wallet address that made the purchase
+ *         schema:
+ *           type: string
+ *       - name: noOfProducts
+ *         in: query
+ *         required: true
+ *         description: Number of products purchased
+ *         schema:
+ *           type: string
+ *     responses:
+ *       302:
+ *         description: Redirects to frontend with success status
+ *       400:
+ *         description: Missing required parameters
+ *       500:
+ *         description: Error processing payment
+ */
+router.get("/gateway/product-purchase/success", async (req, res) => {
+  try {
+    const { session_id, walletAddress, noOfProducts, return_url } = req.query;
+
+    console.log("🎉 Product purchase payment successful:", {
+      session_id,
+      walletAddress,
+      noOfProducts,
+      return_url
+    });
+
+    // Validate required parameters
+    if (!session_id || !walletAddress || !noOfProducts) {
+      console.error("Missing required parameters for product purchase success:", {
+        session_id,
+        walletAddress,
+        noOfProducts
+      });
+      return res.redirect(
+        `${FRONTEND_URL}/payment?status=error&message=Missing required parameters`
+      );
+    }
+
+    // Here you can add logic to:
+    // 1. Update product inventory
+    // 2. Record the purchase in your database
+    // 3. Send confirmation emails
+    // 4. Update user's purchase history
+
+    console.log(`Product purchase successful: Session ${session_id}, Wallet ${walletAddress}, Products ${noOfProducts}`);
+
+    // Determine redirect URL - go back to original page if provided
+    let redirectUrl;
+    if (return_url) {
+      // Redirect back to the original page with success parameters
+      redirectUrl = `${return_url}&payment=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent('Purchase completed successfully!')}`;
+    } else {
+      // Fallback to payment page
+      redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&walletAddress=${walletAddress}&products=${noOfProducts}&message=${encodeURIComponent('Product purchase successful!')}`;
+    }
+    
+    console.log(`Redirecting to: ${redirectUrl}`);
+    res.redirect(redirectUrl);
+
+  } catch (error) {
+    console.error("Product purchase success handler error:", error);
+
+    // Redirect to frontend with error
+    const errorMessage = "Failed to process successful product purchase";
+    res.redirect(
+      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent(errorMessage)}`
+    );
+  }
+});
+
+/**
+ * @swagger
+ * /api/payments/gateway/product-purchase/cancel:
+ *   get:
+ *     summary: Handle cancelled product purchase payment
+ *     description: Processes cancelled product purchase payment and redirects to frontend or original cancel URL
+ *     tags:
+ *       - Payment Processing
+ *     parameters:
+ *       - name: session_id
+ *         in: query
+ *         required: false
+ *         description: Payment session ID
+ *         schema:
+ *           type: string
+ *       - name: original_cancel_url
+ *         in: query
+ *         required: false
+ *         description: Original cancel URL to redirect to
+ *         schema:
+ *           type: string
+ *     responses:
+ *       302:
+ *         description: Redirects to frontend or original cancel URL
+ */
+router.get("/gateway/product-purchase/cancel", async (req, res) => {
+  try {
+    const { session_id, original_cancel_url } = req.query;
+
+    console.log("❌ Product purchase payment cancelled:", {
+      session_id,
+      original_cancel_url
+    });
+
+    // Here you can add logic to:
+    // 1. Log the cancellation
+    // 2. Update payment status
+    // 3. Send cancellation notification
+
+    // Determine redirect URL
+    let redirectUrl;
+    if (original_cancel_url) {
+      redirectUrl = decodeURIComponent(original_cancel_url);
+    } else {
+      redirectUrl = `${FRONTEND_URL}/payment&status=cancelled&sessionId=${session_id || 'unknown'}&message=${encodeURIComponent('Product purchase cancelled')}`;
+    }
+
+    console.log(`Redirecting to: ${redirectUrl}`);
+    res.redirect(redirectUrl);
+
+  } catch (error) {
+    console.error("Product purchase cancel handler error:", error);
+
+    // Fallback redirect to frontend
+    res.redirect(
+      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent('Failed to process cancellation')}`
+    );
+  }
+});
+
+router.get("/getLiveGLLData", async (req, res) => {
+  try {
+
+    const payload = {"query":"query MyQuery {\n  pools(where: {id_in: [\"0xbc4dcf7539d9261731888a7d95994cbedf07ab52\",\"0x5854b550482dc2785c9c4ecdb235076b5e1d75b7\"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}","operationName":"MyQuery"}
+    const payloadYesterday = {"query":"query MyQuery {\n  tokenDayDatas(first: 1, orderBy: \"id\", orderDirection: \"desc\", where: {token:\"0xc6126ebfa8b5ffd41561c086979c97416969cebf\"}) {\n    id\n    priceUSD\n  }\n}","operationName":"MyQuery"}
+
+    const reso = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const resoYesterday = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(payloadYesterday),
+    });
+
+    const json1 = await reso.json();
+    const json1YesterDay = await resoYesterday.json();
+    const output = {"gll/xdc": Number(json1.data.pools[1].token1Price).toFixed(6),
+      "gll/usd": (Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)).toFixed(7),
+      "gll/usd Yesterday": Number(json1YesterDay.data.tokenDayDatas[0].priceUSD).toFixed(7),
+      "change": ((((Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)) - Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))/Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))*100).toFixed(2) + " %"
+    }
+    res.send(JSON.stringify(output, null, 2));
+
+  } catch (error) {
+    console.error("Live GLL price query error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve live GLL price",
+      details: error.message,
+    });
+  }
+})
 
 module.exports = router;
