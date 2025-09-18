@@ -3053,7 +3053,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
         paymentType: "gateway_product_purchase",
         return_url: return_url || null,
       },
-      apiKey: "growinvoice",
+      apiKey: "M53C3RXXXX",
     };
 
     console.log("🔧 Prepared payment gateway payload:");
