@@ -83,7 +83,6 @@ jobs:
             --build-arg CREATOR_TASK4_REWARD=$CREATOR_TASK4_REWARD \
             --build-arg CREATOR_TASK5_REWARD=$CREATOR_TASK5_REWARD \
             --build-arg BASE_URL=$BASE_URL \
-
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
 
         env:
