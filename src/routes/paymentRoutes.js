@@ -19,9 +19,7 @@ const PAYMENT_GATEWAY_URL =
 const FRONTEND_URL = process.env.NODE_ENV === "production"
   ? "https://www.gll.one"
   : "http://localhost:3000";
-const BASE_URL = process.env.NODE_ENV === "production"
-  ? "https://backend.gll.one"
-  : "http://localhost:8001";
+const BASE_URL = process.env.BASE_URL;
 
 // Currency Cache Configuration
 const CACHE_FILE_PATH = path.join(__dirname, "../cache/currency_cache.json");
