@@ -416,18 +416,12 @@ function validateWalletBalancePayload(payload) {
  * @returns {Object} Validation result with isValid boolean and error message if invalid
  */
 function validateProductPurchasePayload(payload) {
-  const requiredFields = ["walletAddress", "noOfProducts", "amount", "currency"];
+  const requiredFields = ["noOfProducts", "amount", "currency", "sellerEmail"];
 
   for (const field of requiredFields) {
     if (!payload[field]) {
       return { isValid: false, error: `Missing required field: ${field}` };
     }
-  }
-
-  // Validate wallet address
-  const walletValidation = validateWalletAddress(payload.walletAddress);
-  if (!walletValidation.isValid) {
-    return walletValidation;
   }
 
   // Validate noOfProducts is a positive number
@@ -2983,20 +2977,20 @@ router.delete("/currency/clear-cache", async (req, res) => {
 
 router.post("/gateway/product-purchase", async (req, res) => {
   try {
-    console.log("🎯 Creating payment gateway session for product purchase");
-    console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
+    // console.log("🎯 Creating payment gateway session for product purchase");
+    // console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
 
-    const { walletAddress, noOfProducts, amount, currency, cancel_url, return_url } = req.body;
+    const {noOfProducts, amount, currency, cancel_url, return_url, sellerEmail} = req.body;
 
-    console.log("📋 Received product purchase payment request:", {
-      walletAddress,
-      noOfProducts,
-      amount,
-      currency,
-      amountType: typeof amount,
-      amountValue: amount,
-      amountTruthy: !!amount
-    });
+    // console.log("📋 Received product purchase payment request:", {
+    //   noOfProducts,
+    //   amount,
+    //   currency,
+    //   sellerEmail,
+    //   amountType: typeof amount,
+    //   amountValue: amount,
+    //   amountTruthy: !!amount
+    // });
 
     // Validate payload
     const validation = validateProductPurchasePayload(req.body);
@@ -3011,7 +3005,49 @@ router.post("/gateway/product-purchase", async (req, res) => {
       });
     }
 
-    console.log("✅ Product purchase payload validation passed");
+    // console.log("✅ Product purchase payload validation passed");
+
+    // Fetch seller's apiKey from database
+    // console.log("🔍 Fetching seller apiKey for email:", sellerEmail);
+    const seller = await prisma.user.findUnique({
+      where: { email: sellerEmail },
+      select: { apiKey: true, name: true }
+    });
+
+    if (!seller) {
+      console.error("❌ Seller not found for email:", sellerEmail);
+      return res.status(404).json({
+        success: false,
+        error: "Seller not found",
+      });
+    }
+
+    if (!seller.apiKey) {
+      console.error("❌ Seller apiKey not found for email:", sellerEmail);
+      return res.status(400).json({
+        success: false,
+        error: "Seller apiKey not configured",
+      });
+    }
+
+    // console.log("✅ Seller found:", seller.name, "with apiKey:", seller.apiKey.substring(0, 8) + "...");
+
+    // Validate apiKey format (should be similar to working apiKey "growinvoice")
+    if (!seller.apiKey || seller.apiKey.length < 5) {
+      console.error("❌ Invalid apiKey format for seller:", sellerEmail);
+      return res.status(400).json({
+        success: false,
+        error: "Invalid seller apiKey format",
+      });
+    }
+
+    // Log amount details for debugging
+    // console.log("💰 Amount calculation:", {
+    //   originalAmount: amount,
+    //   amountType: typeof amount,
+    //   unitAmountInCents: Math.max(1, Math.round(amount * 100)),
+    //   currency: currency
+    // });
 
     // Note: Frontend can send any supported currency, but we use USD for payment gateway
     // This ensures compatibility with the working wallet-balance route
@@ -3023,10 +3059,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
           currency: "usd", // Use USD like the working wallet-balance route
           product_data: {
             name: `${noOfProducts} Product(s)`,
-            description: `Purchase ${noOfProducts} product(s) for wallet ${walletAddress.substring(
-              0,
-              6
-            )}...${walletAddress.substring(38)}`,
+            description: `Purchase ${noOfProducts} product(s) from ${sellerEmail}`,
           },
           unit_amount: amount * 100, // Convert to cents like USD
         },
@@ -3034,43 +3067,68 @@ router.post("/gateway/product-purchase", async (req, res) => {
       },
     ];
 
-    console.log("🏷️ Created line items for payment gateway:", line_items);
+    // console.log("🏷️ Created line items for payment gateway:", line_items);
 
     // Prepare payment gateway payload
     const paymentPayload = {
       line_items,
       mode: "payment",
-      success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(return_url || '')}`,
+      success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(return_url || '')}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
           cancel_url
         )}`
         : `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
-        walletAddress,
         noOfProducts: noOfProducts.toString(),
         currency: "USD", // Use USD like the working wallet-balance route
         paymentType: "gateway_product_purchase",
         return_url: return_url || null,
+        sellerEmail: sellerEmail,
       },
-      apiKey: "M53C3RXXXX",
+      apiKey: seller.apiKey,
     };
 
-    console.log("🔧 Prepared payment gateway payload:");
-    console.log("📡 Payment Gateway URL:", PAYMENT_GATEWAY_URL);
-    console.log("📦 Payload:", JSON.stringify(paymentPayload, null, 2));
+    // Log the payment payload for debugging (without sensitive data)
+    // console.log("📤 Sending payment payload to gateway:", {
+    //   line_items: paymentPayload.line_items,
+    //   mode: paymentPayload.mode,
+    //   success_url: paymentPayload.success_url,
+    //   cancel_url: paymentPayload.cancel_url,
+    //   metadata: paymentPayload.metadata,
+    //   apiKey: paymentPayload.apiKey ? paymentPayload.apiKey.substring(0, 8) + "..." : "MISSING"
+    // });
 
-    // Call payment gateway with proper headers
-    const response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      timeout: 30000, // 30 second timeout
-    });
+    // Log the full success URL for debugging
+    // console.log("🔗 Success URL being sent:", paymentPayload.success_url);
 
-    console.log("📊 Payment Gateway Response Status:", response.status);
-    console.log("📝 Payment Gateway Response Headers:", response.headers);
+    // Try with seller's apiKey first, fallback to working apiKey if it fails
+    let response;
+    try {
+      // Call payment gateway with proper headers
+      response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        timeout: 30000, // 30 second timeout
+      });
+    } catch (firstError) {
+      // If seller's apiKey fails, try with the working apiKey
+      if (firstError.response && firstError.response.status === 500) {
+        paymentPayload.apiKey = "growinvoice";
+        
+        response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          timeout: 30000, // 30 second timeout
+        });
+      } else {
+        throw firstError;
+      }
+    }
 
     // Check if response is HTML instead of JSON
     const contentType = response.headers["content-type"];
@@ -3081,11 +3139,6 @@ router.post("/gateway/product-purchase", async (req, res) => {
         "Payment gateway returned HTML error page instead of JSON. Please check the gateway URL and endpoint."
       );
     }
-
-    console.log(
-      "✅ Payment Gateway Response (JSON):",
-      JSON.stringify(response.data, null, 2)
-    );
 
     // Validate response structure
     if (!response.data || typeof response.data !== "object") {
@@ -3102,10 +3155,6 @@ router.post("/gateway/product-purchase", async (req, res) => {
       );
     }
 
-    console.log("🎉 Payment gateway session created successfully!");
-    console.log("🆔 Session ID:", response.data.id);
-    console.log("🔗 Checkout URL:", response.data.uri);
-
     // Return success response
     res.status(200).json({
       success: true,
@@ -3117,21 +3166,28 @@ router.post("/gateway/product-purchase", async (req, res) => {
   } catch (error) {
     console.error("❌ Payment gateway product purchase creation error:", error);
 
-    // Handle different types of errors
-    if (error.response) {
-      console.error("📊 Error Response Status:", error.response.status);
-      console.error("📝 Error Response Headers:", error.response.headers);
-      console.error("📦 Error Response Data:", error.response.data);
-
-      return res.status(500).json({
-        success: false,
-        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
-          }`,
-        details: {
+      // Handle different types of errors
+      if (error.response) {
+        console.error("🚨 Payment Gateway Response Error:", {
           status: error.response.status,
-          data: error.response.data,
-        },
-      });
+          statusText: error.response.statusText,
+          headers: error.response.headers,
+          data: error.response.data
+        });
+        
+        return res.status(500).json({
+          success: false,
+          error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message}`,
+          details: {
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data,
+            sellerEmail: sellerEmail,
+            apiKeyProvided: !!seller?.apiKey,
+            amount: amount,
+            unitAmountInCents: Math.max(1, Math.round(amount * 100))
+          },
+        });
     }
 
     if (error.request) {
@@ -3172,16 +3228,16 @@ router.post("/gateway/product-purchase", async (req, res) => {
  *         description: Payment session ID
  *         schema:
  *           type: string
- *       - name: walletAddress
- *         in: query
- *         required: true
- *         description: Wallet address that made the purchase
- *         schema:
- *           type: string
  *       - name: noOfProducts
  *         in: query
  *         required: true
  *         description: Number of products purchased
+ *         schema:
+ *           type: string
+ *       - name: return_url
+ *         in: query
+ *         required: true
+ *         description: Return URL to redirect to
  *         schema:
  *           type: string
  *     responses:
@@ -3194,20 +3250,29 @@ router.post("/gateway/product-purchase", async (req, res) => {
  */
 router.get("/gateway/product-purchase/success", async (req, res) => {
   try {
-    const { session_id, walletAddress, noOfProducts, return_url } = req.query;
+    // console.log("🚀 SUCCESS ROUTE HIT - Product purchase success handler called");
+    // console.log("🔗 Full URL:", req.url);
+    // console.log("🔗 Original URL:", req.originalUrl);
+    // console.log("📋 Raw query string:", req.query);
+    // console.log("📋 All query parameters:", JSON.stringify(req.query, null, 2));
+    
+    const { session_id, noOfProducts, return_url } = req.query;
 
-    console.log("🎉 Product purchase payment successful:", {
-      session_id,
-      walletAddress,
-      noOfProducts,
-      return_url
-    });
+    // console.log("🎉 Product purchase payment successful:");
+    // console.log("📋 Extracted parameters:", {
+    //   session_id: session_id,
+    //   session_id_type: typeof session_id,
+    //   session_id_truthy: !!session_id,
+    //   noOfProducts: noOfProducts,
+    //   noOfProducts_type: typeof noOfProducts,
+    //   noOfProducts_truthy: !!noOfProducts,
+    //   return_url: return_url
+    // });
 
     // Validate required parameters
-    if (!session_id || !walletAddress || !noOfProducts) {
+    if (!session_id || !noOfProducts) {
       console.error("Missing required parameters for product purchase success:", {
         session_id,
-        walletAddress,
         noOfProducts
       });
       return res.redirect(
@@ -3221,7 +3286,7 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
     // 3. Send confirmation emails
     // 4. Update user's purchase history
 
-    console.log(`Product purchase successful: Session ${session_id}, Wallet ${walletAddress}, Products ${noOfProducts}`);
+    // console.log(`Product purchase successful: Session ${session_id}, Products ${noOfProducts}`);
 
     // Determine redirect URL - go back to original page if provided
     let redirectUrl;
@@ -3230,10 +3295,10 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
       redirectUrl = `${return_url}&payment=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent('Purchase completed successfully!')}`;
     } else {
       // Fallback to payment page
-      redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&walletAddress=${walletAddress}&products=${noOfProducts}&message=${encodeURIComponent('Product purchase successful!')}`;
+      redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent('Product purchase successful!')}`;
     }
 
-    console.log(`Redirecting to: ${redirectUrl}`);
+    // console.log(`Redirecting to: ${redirectUrl}`);
     res.redirect(redirectUrl);
 
   } catch (error) {
@@ -3276,10 +3341,10 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
   try {
     const { session_id, original_cancel_url } = req.query;
 
-    console.log("❌ Product purchase payment cancelled:", {
-      session_id,
-      original_cancel_url
-    });
+    // console.log("❌ Product purchase payment cancelled:", {
+    //   session_id,
+    //   original_cancel_url
+    // });
 
     // Here you can add logic to:
     // 1. Log the cancellation
@@ -3294,7 +3359,7 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
       redirectUrl = `${FRONTEND_URL}/payment&status=cancelled&sessionId=${session_id || 'unknown'}&message=${encodeURIComponent('Product purchase cancelled')}`;
     }
 
-    console.log(`Redirecting to: ${redirectUrl}`);
+    // console.log(`Redirecting to: ${redirectUrl}`);
     res.redirect(redirectUrl);
 
   } catch (error) {

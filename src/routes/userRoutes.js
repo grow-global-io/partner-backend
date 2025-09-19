@@ -231,7 +231,7 @@ async function syncGLLBalance(email) {
 }
 
 router.post('/save-connect-wallet-creator', async (req, res) => {
-    const { name, email, walletAddress, glltag } = req.body;
+    const { name, email, walletAddress, glltag, apiKey } = req.body;
 
     const tempCreator = await prisma.creator.findUnique({
         where: { email }
@@ -243,7 +243,8 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
                     name: name,
                     email: email,
                     walletAddress: walletAddress,
-                    glltag: glltag
+                    glltag: glltag,
+                    apiKey: glltag
                 }
             });
             const responseData = {
@@ -257,7 +258,8 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
                     name: name,
                     email: email,
                     walletAddress: walletAddress,
-                    glltag: glltag
+                    glltag: glltag,
+                    apiKey: glltag
                 }
             });
             const responseData = {
@@ -272,7 +274,7 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
 });
 
 router.post('/save-connect-wallet', async (req, res) => {
-    const { name, email, walletAddress, glltag } = req.body;
+    const { name, email, walletAddress, glltag, apiKey } = req.body;
 
     const tempUser = await prisma.user.findUnique({
         where: { email }
@@ -284,7 +286,8 @@ router.post('/save-connect-wallet', async (req, res) => {
                     name: name,
                     email: email,
                     walletAddress: walletAddress,
-                    glltag: glltag
+                    glltag: glltag,
+                    apiKey: glltag
                 }
             });
             const responseData = {
@@ -298,7 +301,8 @@ router.post('/save-connect-wallet', async (req, res) => {
                     name: name,
                     email: email,
                     walletAddress: walletAddress,
-                    glltag: glltag
+                    glltag: glltag,
+                    apiKey: glltag
                 }
             });
             const responseData = {
