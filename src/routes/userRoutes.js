@@ -982,7 +982,7 @@ router.post('/creator-task3-reward', creatorTaskLimiter, async (req, res) => {
             walletAddress = creator.walletAddress;
         }
 
-        const rewardAmount = process.env.CREATOR_TASK3_REWARD || '0';
+        const rewardAmount = process.env.CREATOR_TASK3_REWARD;
         let transactionHash = null;
 
         // Process blockchain transaction if wallet address exists and SWITCH is enabled
@@ -5302,6 +5302,7 @@ router.post('/creator-reward-card1', async (req, res) => {
                     }
                 }
             });
+
 
             /** Code to send GLL to email wallet *******/
             const amount = process.env.CREATOR_TASK1_REWARD;
