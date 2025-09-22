@@ -342,6 +342,85 @@ router.post('/personal-details', async (req, res) => {
     }
 });
 
+router.post("/sendMoneyGasless", async (req, res) => {
+    try {
+      const {
+        amount,
+        token,
+        sender,
+        receiver,
+        chain,
+        target,
+        currency,
+        v,
+        r,
+        s,
+        deadline,
+        userSignature,
+        skipDb = false,
+      } = req.body;
+      //amount, chain, currency, date, receiver,sender, sendto, txHash
+      // console.log( "values chck",amount, token, sender, receiver, chain, target, currency, v, r, s, deadline, userSignature )
+      // console.log("userSignature", userSignature)
+  
+      
+  
+      const etherAmount = convertToEtherAmount(amount.toString());
+      
+      // Execute permit
+      const permitTx = await tokenContract.permit(
+        sender,
+        process.env.CONTRACT_ADDRESS,
+        etherAmount,
+        deadline,
+        v,
+        r,
+        s
+      );
+      console.log("signer1");
+      await permitTx.wait();
+      console.log("signer2");
+      const messageHash = ethers.utils.solidityKeccak256(
+        ["address", "address", "address", "uint256"],
+        [sender, token, receiver, etherAmount]
+      );
+  
+      // console.log("check values for msghash", sender, token, receiver, etherAmount)
+      // console.log("messagehash", messageHash)
+  
+      const recoveredSigner = ethers.utils.verifyMessage(
+        ethers.utils.arrayify(messageHash),
+        userSignature
+      );
+  
+      // console.log("recoveredSigner is", recoveredSigner)
+      // console.log("sender is", sender)
+  
+      if (recoveredSigner.toLowerCase() !== sender.toLowerCase()) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Invalid transaction signature" });
+      }
+  
+      // Execute sendMoney after permit
+      const sendTx = await phoneLinkContract.sendMoney(
+        etherAmount,
+        token,
+        receiver,
+        sender,
+        userSignature
+      );
+      await sendTx.wait();
+  
+      // console.log("success")
+      res.json({ success: true, txHash: sendTx.hash });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+    
+
 // Save personal details from step 1 registration for creator
 router.post('/personal-details-creator', async (req, res) => {
     const { name, username, email, phone, nationality, profilePicture, passion, existingOnlineStoreLink, paymentPreference, businessDescription, businessPhotos, businessVideo } = req.body;

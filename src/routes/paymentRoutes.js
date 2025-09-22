@@ -10,6 +10,7 @@ const prisma = require("../config/db");
 const fs = require("fs");
 const path = require("path");
 const { getMyBalance } = require("../config/blockchain");
+const { json } = require("stream/consumers");
 
 const router = express.Router();
 
@@ -2039,6 +2040,50 @@ router.get("/wallet/:walletId", async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+
+router.get("/getLiveGLLData", async (req, res) => {
+  try {
+
+    const payload = {"query":"query MyQuery {\n  pools(where: {id_in: [\"0xbc4dcf7539d9261731888a7d95994cbedf07ab52\",\"0x5854b550482dc2785c9c4ecdb235076b5e1d75b7\"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}","operationName":"MyQuery"}
+    const payloadYesterday = {"query":"query MyQuery {\n  tokenDayDatas(first: 1, orderBy: \"id\", orderDirection: \"desc\", where: {token:\"0xc6126ebfa8b5ffd41561c086979c97416969cebf\"}) {\n    id\n    priceUSD\n  }\n}","operationName":"MyQuery"}
+
+    const reso = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const resoYesterday = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(payloadYesterday),
+    });
+
+    const json1 = await reso.json();
+    const json1YesterDay = await resoYesterday.json();
+    const output = {"gll/xdc": Number(json1.data.pools[1].token1Price).toFixed(6),
+      "gll/usd": (Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)).toFixed(7),
+      "gll/usd Yesterday": Number(json1YesterDay.data.tokenDayDatas[0].priceUSD).toFixed(7),
+      "change": ((((Number(json1.data.pools[0].token1Price)/Number(json1.data.pools[1].token1Price)) - Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))/Number(json1YesterDay.data.tokenDayDatas[0].priceUSD))*100).toFixed(2) + " %"
+    }
+    res.send(JSON.stringify(output, null, 2));
+
+  } catch (error) {
+    console.error("Live GLL price query error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve live GLL price",
+      details: error.message,
+    });
+  }
+})
+
 router.get("/balance/:email", async (req, res) => {
   try {
     const { email } = req.params;
