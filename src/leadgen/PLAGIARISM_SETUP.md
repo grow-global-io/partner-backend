@@ -12,6 +12,7 @@ To use the plagiarism checker functionality, you need to install the following a
 npm install jsdom
 ```
 
+
 ## Environment Variables
 
 Copy the `.env.plagiarism.example` file to your `.env` file and configure the following variables:
