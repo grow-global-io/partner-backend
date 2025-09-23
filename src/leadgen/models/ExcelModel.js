@@ -2052,6 +2052,122 @@ class ExcelModel {
       throw error;
     }
   }
+
+  /**
+   * @description Get people from leads-campaign collection by campaign ID
+   * @param {string} campaignId - Campaign ID to filter by
+   * @param {Object} options - Query options
+   * @param {number} options.page - Page number
+   * @param {number} options.limit - Items per page
+   * @param {string} options.sortBy - Field to sort by
+   * @param {string} options.sortOrder - Sort order (asc/desc)
+   * @returns {Promise<Object>} Campaign people data with pagination
+   */
+  async getCampaignPeople(campaignId, options = {}) {
+    try {
+      const {
+        page = 1,
+        limit = 50,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+      } = options;
+      const skip = (page - 1) * limit;
+
+      // Find documents with matching campaign_id
+      // Handle nullable DateTime fields more defensively
+      let whereClause = { campaignId: campaignId };
+      let orderByClause = { id: sortOrder }; // Default fallback to id sorting
+
+      // If sorting by a DateTime field, add a filter to exclude null values
+      if (sortBy === "createdAt" || sortBy === "updatedAt") {
+        whereClause[sortBy] = { not: null };
+        orderByClause = { [sortBy]: sortOrder };
+      } else if (sortBy !== "id") {
+        orderByClause = { [sortBy]: sortOrder };
+      }
+
+      const campaigns = await this.prisma.leadsCampaign.findMany({
+        where: whereClause,
+        orderBy: orderByClause,
+        skip: skip,
+        take: limit,
+      });
+
+      // Get total count for pagination using the same where clause
+      const totalCount = await this.prisma.leadsCampaign.count({
+        where: whereClause,
+      });
+
+      // Extract all people from all matching campaigns
+      let allPeople = [];
+      campaigns.forEach((campaign) => {
+        if (campaign.people && Array.isArray(campaign.people)) {
+          allPeople = allPeople.concat(campaign.people);
+        }
+      });
+
+      const totalPages = Math.ceil(totalCount / limit);
+      const hasNext = page < totalPages;
+      const hasPrev = page > 1;
+
+      return {
+        people: allPeople,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalCount,
+          hasNext,
+          hasPrev,
+        },
+        metadata: {
+          campaignId,
+          totalPeople: allPeople.length,
+          filters: {
+            sortBy,
+            sortOrder,
+          },
+        },
+      };
+    } catch (error) {
+      console.error("ExcelModel: Error getting campaign people:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all people from a campaign without pagination, filtering, or sorting
+   * @param {string} campaignId - Campaign ID to get people for
+   * @returns {Promise<Object>} All campaign people data
+   */
+  async getAllCampaignPeople(campaignId) {
+    try {
+      console.log(`📋 Getting all people for campaign: ${campaignId}`);
+
+      // Find all documents with matching campaign_id
+      const campaigns = await this.prisma.leadsCampaign.findMany({
+        where: {
+          campaignId: campaignId,
+        },
+      });
+
+      // Extract all people from all matching campaigns
+      let allPeople = [];
+      campaigns.forEach((campaign) => {
+        if (campaign.people && Array.isArray(campaign.people)) {
+          allPeople = allPeople.concat(campaign.people);
+        }
+      });
+
+      return {
+        campaignId,
+        people: allPeople,
+        totalPeople: allPeople.length,
+      };
+    } catch (error) {
+      console.error("ExcelModel: Error getting all campaign people:", error);
+      throw error;
+    }
+  }
 }
 
 module.exports = ExcelModel;

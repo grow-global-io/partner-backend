@@ -745,3 +745,15 @@ model Order {
   @@index([createdAt])
   @@map("orders")
 }
+
+// Campaign Leads model
+model LeadsCampaign {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  campaignId String    @map("campaign_id")
+  people     Json[]    @default([]) // Array of people objects
+  createdAt  DateTime? // Made optional to handle existing data
+  updatedAt  DateTime? // Made optional to handle existing data
+
+  @@index([campaignId])
+  @@map("leads-campaign")
+}
