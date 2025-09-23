@@ -7090,6 +7090,425 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
     }
 });
 
+// ==================== ORDER TRACKING ROUTES ====================
+
+/**
+ * @swagger
+ * /api/users/orders/{userEmail}:
+ *   get:
+ *     summary: Get user's orders (both bought and sold)
+ *     description: Retrieves purchase and sale history for a user
+ *     tags:
+ *       - Order Management
+ *     parameters:
+ *       - name: userEmail
+ *         in: path
+ *         required: true
+ *         description: User's email address
+ *         schema:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *       - name: type
+ *         in: query
+ *         required: false
+ *         description: Filter by order type
+ *         schema:
+ *           type: string
+ *           enum: [bought, sold]
+ *           example: "bought"
+ *       - name: status
+ *         in: query
+ *         required: false
+ *         description: Filter by order status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, COMPLETED, CANCELLED, REFUNDED]
+ *           example: "COMPLETED"
+ *       - name: limit
+ *         in: query
+ *         required: false
+ *         description: Number of orders to return
+ *         schema:
+ *           type: integer
+ *           default: 50
+ *           example: 20
+ *       - name: offset
+ *         in: query
+ *         required: false
+ *         description: Number of orders to skip
+ *         schema:
+ *           type: integer
+ *           default: 0
+ *           example: 0
+ *     responses:
+ *       200:
+ *         description: Orders retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         example: "60f7b3b3b3b3b3b3b3b3b3b3"
+ *                       orderId:
+ *                         type: string
+ *                         example: "ORD-1234567890-abc123"
+ *                       sessionId:
+ *                         type: string
+ *                         example: "cs_test_1234567890"
+ *                       itemTitle:
+ *                         type: string
+ *                         example: "Jute Saree"
+ *                       itemPrice:
+ *                         type: number
+ *                         example: 25.00
+ *                       quantity:
+ *                         type: integer
+ *                         example: 1
+ *                       totalAmount:
+ *                         type: number
+ *                         example: 25.00
+ *                       status:
+ *                         type: string
+ *                         example: "COMPLETED"
+ *                       orderType:
+ *                         type: string
+ *                         example: "bought"
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                 total:
+ *                   type: integer
+ *                   example: 5
+ *       400:
+ *         description: Invalid request parameters
+ *       500:
+ *         description: Error retrieving orders
+ */
+router.get("/orders/:userEmail", async (req, res) => {
+  try {
+    const { userEmail } = req.params;
+    const { type, status, limit = 50, offset = 0 } = req.query;
+
+    console.log("📋 Fetching orders for user:", userEmail);
+    console.log("🔍 Query parameters:", { type, status, limit, offset });
+
+    // Validate email format
+    if (!isValidEmail(userEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email format"
+      });
+    }
+
+    let whereClause = {
+      OR: [
+        { buyerEmail: userEmail },
+        { sellerEmail: userEmail }
+      ]
+    };
+
+    // Filter by type (bought/sold)
+    if (type === 'bought') {
+      whereClause = { buyerEmail: userEmail };
+    } else if (type === 'sold') {
+      whereClause = { sellerEmail: userEmail };
+    }
+
+    // Filter by status
+    if (status) {
+      whereClause.status = status;
+    }
+
+    console.log("🔍 Where clause:", JSON.stringify(whereClause, null, 2));
+
+    const orders = await prisma.order.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      take: parseInt(limit),
+      skip: parseInt(offset),
+      include: {
+        // You can add relations here if needed
+      }
+    });
+
+    console.log(`📊 Found ${orders.length} orders`);
+
+    // Transform orders to include orderType (bought/sold)
+    const transformedOrders = orders.map(order => ({
+      ...order,
+      orderType: order.buyerEmail === userEmail ? 'bought' : 'sold'
+    }));
+
+    res.json({
+      success: true,
+      data: transformedOrders,
+      total: transformedOrders.length,
+      pagination: {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        hasMore: orders.length === parseInt(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching orders:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch orders",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/users/orders/details/{orderId}:
+ *   get:
+ *     summary: Get specific order details
+ *     description: Retrieves detailed information about a specific order
+ *     tags:
+ *       - Order Management
+ *     parameters:
+ *       - name: orderId
+ *         in: path
+ *         required: true
+ *         description: Unique order identifier
+ *         schema:
+ *           type: string
+ *           example: "ORD-1234567890-abc123"
+ *     responses:
+ *       200:
+ *         description: Order details retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       example: "60f7b3b3b3b3b3b3b3b3b3b3"
+ *                     orderId:
+ *                       type: string
+ *                       example: "ORD-1234567890-abc123"
+ *                     sessionId:
+ *                       type: string
+ *                       example: "cs_test_1234567890"
+ *                     itemTitle:
+ *                       type: string
+ *                       example: "Jute Saree"
+ *                     itemDescription:
+ *                       type: string
+ *                       example: "This is my first handmade Jute Saree"
+ *                     itemPrice:
+ *                       type: number
+ *                       example: 25.00
+ *                     quantity:
+ *                       type: integer
+ *                       example: 1
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 25.00
+ *                     status:
+ *                       type: string
+ *                       example: "COMPLETED"
+ *                     buyerEmail:
+ *                       type: string
+ *                       example: "buyer@example.com"
+ *                     sellerEmail:
+ *                       type: string
+ *                       example: "seller@example.com"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     completedAt:
+ *                       type: string
+ *                       format: date-time
+ *       404:
+ *         description: Order not found
+ *       500:
+ *         description: Error retrieving order details
+ */
+router.get("/orders/details/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    console.log("🔍 Fetching order details for:", orderId);
+
+    const order = await prisma.order.findUnique({
+      where: { orderId: orderId }
+    });
+
+    if (!order) {
+      console.log("❌ Order not found:", orderId);
+      return res.status(404).json({
+        success: false,
+        error: "Order not found"
+      });
+    }
+
+    console.log("✅ Order found:", order.orderId);
+
+    res.json({
+      success: true,
+      data: order
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching order details:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch order details",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/users/orders/stats/{userEmail}:
+ *   get:
+ *     summary: Get user's order statistics
+ *     description: Retrieves order statistics for a user (total orders, revenue, etc.)
+ *     tags:
+ *       - Order Management
+ *     parameters:
+ *       - name: userEmail
+ *         in: path
+ *         required: true
+ *         description: User's email address
+ *         schema:
+ *           type: string
+ *           format: email
+ *           example: "user@example.com"
+ *     responses:
+ *       200:
+ *         description: Order statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalOrders:
+ *                       type: integer
+ *                       example: 15
+ *                     totalBought:
+ *                       type: integer
+ *                       example: 8
+ *                     totalSold:
+ *                       type: integer
+ *                       example: 7
+ *                     totalSpent:
+ *                       type: number
+ *                       example: 250.00
+ *                     totalEarned:
+ *                       type: number
+ *                       example: 175.00
+ *                     completedOrders:
+ *                       type: integer
+ *                       example: 12
+ *                     pendingOrders:
+ *                       type: integer
+ *                       example: 2
+ *                     cancelledOrders:
+ *                       type: integer
+ *                       example: 1
+ *       400:
+ *         description: Invalid email format
+ *       500:
+ *         description: Error retrieving order statistics
+ */
+router.get("/orders/stats/:userEmail", async (req, res) => {
+  try {
+    const { userEmail } = req.params;
+
+    console.log("📊 Fetching order statistics for user:", userEmail);
+
+    // Validate email format
+    if (!isValidEmail(userEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email format"
+      });
+    }
+
+    // Get all orders for the user
+    const allOrders = await prisma.order.findMany({
+      where: {
+        OR: [
+          { buyerEmail: userEmail },
+          { sellerEmail: userEmail }
+        ]
+      }
+    });
+
+    // Calculate statistics
+    const totalOrders = allOrders.length;
+    const totalBought = allOrders.filter(order => order.buyerEmail === userEmail).length;
+    const totalSold = allOrders.filter(order => order.sellerEmail === userEmail).length;
+    
+    const totalSpent = allOrders
+      .filter(order => order.buyerEmail === userEmail)
+      .reduce((sum, order) => sum + order.totalAmount, 0);
+    
+    const totalEarned = allOrders
+      .filter(order => order.sellerEmail === userEmail)
+      .reduce((sum, order) => sum + order.totalAmount, 0);
+
+    const completedOrders = allOrders.filter(order => order.status === 'COMPLETED').length;
+    const pendingOrders = allOrders.filter(order => order.status === 'PENDING').length;
+    const cancelledOrders = allOrders.filter(order => order.status === 'CANCELLED').length;
+
+    const stats = {
+      totalOrders,
+      totalBought,
+      totalSold,
+      totalSpent: parseFloat(totalSpent.toFixed(2)),
+      totalEarned: parseFloat(totalEarned.toFixed(2)),
+      completedOrders,
+      pendingOrders,
+      cancelledOrders
+    };
+
+    console.log("📊 Order statistics:", stats);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    console.error("❌ Error fetching order statistics:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch order statistics",
+      details: error.message
+    });
+  }
+});
+
 // ==================== GAME HIGH SCORES ROUTES ====================
 
 // Supported games and validation constants
