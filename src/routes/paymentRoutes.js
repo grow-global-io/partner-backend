@@ -2973,14 +2973,334 @@ router.delete("/currency/clear-cache", async (req, res) => {
   }
 });
 
+// ==================== ORDER TRACKING FUNCTIONS ====================
+
+/**
+ * @description Get transaction hash from Session table by searching metadata for email
+ * @param {string} email - User's email address
+ * @returns {Promise<string|null>} Transaction hash or null if not found
+ */
+async function getTransactionHashByEmail(email) {
+  try {
+    // console.log("🔍 Fetching transaction hash for email from Session metadata:", email);
+    
+    // Get all sessions with transaction hashes and filter by metadata in JavaScript
+    const sessions = await prisma.session.findMany({
+      where: {
+        txHash: {
+          not: null
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    // console.log(`📊 Found ${sessions.length} sessions with transaction hashes`);
+
+    // Search through sessions to find one with matching email in metadata
+    for (const session of sessions) {
+      try {
+        let metadata = session.metadata;
+        
+        // Debug: Log metadata structure for first few sessions
+        if (sessions.indexOf(session) < 3) {
+          // console.log(`🔍 Debug - Session ${session.id} metadata (raw):`, metadata);
+          // console.log(`🔍 Debug - Session ${session.id} metadata type:`, typeof metadata);
+        }
+        
+        // Parse metadata if it's a string
+        if (typeof metadata === 'string') {
+          try {
+            metadata = JSON.parse(metadata);
+            // console.log(`🔍 Debug - Parsed metadata for session ${session.id}:`, metadata);
+          } catch (parseError) {
+            // console.log(`⚠️ Error parsing metadata string for session ${session.id}:`, parseError.message);
+            continue;
+          }
+        }
+        
+        // Check if metadata contains the email in various possible fields
+        if (metadata && typeof metadata === 'object') {
+          // First priority: check for buyerEmail specifically
+          if (metadata.buyerEmail === email) {
+            // console.log(`✅ Found transaction hash in Session metadata (buyerEmail) for email:`, email, "->", session.txHash);
+            return session.txHash;
+          }
+          
+          // Second priority: check other email fields
+          const otherEmailFields = ['email', 'sellerEmail', 'userEmail', 'buyer_email', 'seller_email', 'user_email'];
+          
+          for (const field of otherEmailFields) {
+            if (metadata[field] === email) {
+              // console.log(`✅ Found transaction hash in Session metadata (field: ${field}) for email:`, email, "->", session.txHash);
+              return session.txHash;
+            }
+          }
+          
+          // Also check if any nested object contains the email
+          for (const [key, value] of Object.entries(metadata)) {
+            if (typeof value === 'object' && value !== null) {
+              // Check buyerEmail in nested objects first
+              if (value.buyerEmail === email) {
+                // console.log(`✅ Found transaction hash in Session metadata (nested: ${key}.buyerEmail) for email:`, email, "->", session.txHash);
+                return session.txHash;
+              }
+              
+              // Then check other email fields in nested objects
+              for (const nestedField of otherEmailFields) {
+                if (value[nestedField] === email) {
+                  // console.log(`✅ Found transaction hash in Session metadata (nested: ${key}.${nestedField}) for email:`, email, "->", session.txHash);
+                  return session.txHash;
+                }
+              }
+            }
+          }
+        }
+      } catch (metadataError) {
+        // console.log("⚠️ Error parsing metadata for session:", session.id, metadataError.message);
+        continue;
+      }
+    }
+
+    // console.log("⚠️ No transaction hash found in Session metadata for email:", email);
+    return null;
+    
+  } catch (error) {
+    // console.error("❌ Error fetching transaction hash by email from Session metadata:", error);
+    return null;
+  }
+}
+
+/**
+ * @description Get payment session details from our database
+ * @param {string} sessionId - Payment session ID
+ * @returns {Promise<Object>} Session details
+ */
+async function getPaymentSessionDetails(sessionId) {
+  try {
+    // console.log("🔍 Fetching session details from database for:", sessionId);
+    
+    // Look for the payment session in our database
+    const paymentSession = await prisma.paymentSession.findUnique({
+      where: { sessionId: sessionId }
+    });
+
+    if (paymentSession) {
+      // console.log("✅ Found payment session in database");
+      
+      // Update session status to COMPLETED since we're in the success handler
+      await prisma.paymentSession.update({
+        where: { sessionId: sessionId },
+        data: { status: 'COMPLETED' }
+      });
+      
+      return {
+        id: sessionId,
+        amount_total: paymentSession.amount * 100, // Convert to cents
+        currency: paymentSession.currency.toLowerCase(),
+        payment_status: 'paid',
+        payment_method_types: ['card'],
+        payment_intent: {
+          charges: {
+            data: [{
+              id: `ch_${sessionId}_${Date.now()}`
+            }]
+          }
+        },
+        metadata: paymentSession.metadata
+      };
+    }
+
+    // If no payment session found, log the issue
+    // console.log("⚠️ No payment session found in database for:", sessionId);
+    return {
+      id: sessionId,
+      amount_total: 0,
+      currency: 'usd',
+      payment_status: 'paid',
+      payment_method_types: ['card'],
+      payment_intent: {
+        charges: {
+          data: [{
+            id: `ch_${sessionId}_${Date.now()}`
+          }]
+        }
+      },
+      metadata: {
+        sessionId: sessionId,
+        error: 'Payment session not found in database'
+      }
+    };
+    
+  } catch (error) {
+    console.error("❌ Error fetching session details:", error);
+    
+    // Return minimal structure
+    return {
+      id: sessionId,
+      amount_total: 0,
+      currency: 'usd',
+      payment_status: 'paid',
+      payment_method_types: ['card'],
+      payment_intent: {
+        charges: {
+          data: [{
+            id: `ch_${sessionId}_${Date.now()}`
+          }]
+        }
+      },
+      metadata: {
+        sessionId: sessionId,
+        error: error.message
+      }
+    };
+  }
+}
+
+/**
+ * @description Record order in database after successful payment
+ * @param {string} sessionId - Payment session ID
+ * @param {number} noOfProducts - Number of products purchased
+ * @param {Object} req - Express request object
+ * @returns {Promise<Object>} Created order
+ */
+async function recordOrderInDatabase(sessionId, noOfProducts, req) {
+  try {
+    // console.log("📝 Recording order in database for session:", sessionId);
+    
+    // Get session details from payment gateway
+    const sessionDetails = await getPaymentSessionDetails(sessionId);
+    
+    // Extract buyer information from session metadata or request
+    const buyerEmail = sessionDetails.metadata?.buyerEmail || req.query.buyerEmail;
+    const buyerName = sessionDetails.metadata?.buyerName || req.query.buyerName;
+    const buyerWalletAddress = sessionDetails.metadata?.buyerWalletAddress || req.query.buyerWalletAddress;
+    
+    // 🔥 NEW: Get transaction hash from database by email
+    let transactionHash = null;
+    if (buyerEmail) {
+      // console.log("🔍 Looking up transaction hash for buyer email:", buyerEmail);
+      transactionHash = await getTransactionHashByEmail(buyerEmail);
+      
+    }
+    
+    // Fallback: Extract transaction hash from request parameters (sent by frontend)
+    if (!transactionHash) {
+      transactionHash = req.query.transaction_hash || req.query.txHash || req.query.tx_hash;
+      
+    }
+    
+    // Extract seller information
+    const sellerEmail = sessionDetails.metadata?.sellerEmail;
+    const sellerName = sessionDetails.metadata?.sellerName;
+    
+    // Get item details from session metadata
+    const itemId = sessionDetails.metadata?.itemId;
+    const itemType = sessionDetails.metadata?.itemType || 'product';
+    const itemTitle = sessionDetails.metadata?.itemTitle;
+    const itemDescription = sessionDetails.metadata?.itemDescription;
+    const itemPrice = sessionDetails.amount_total / 100; // Convert from cents
+    
+    // Validate that we have the essential data
+    if (!buyerEmail || !sellerEmail || !itemTitle) {
+      console.error("❌ Missing essential order data:", {
+        buyerEmail: !!buyerEmail,
+        sellerEmail: !!sellerEmail,
+        itemTitle: !!itemTitle,
+        sessionId: sessionId
+      });
+      
+      // If we're missing essential data, we can either:
+      // 1. Skip recording this order
+      // 2. Record with minimal data
+      // 3. Throw an error
+      
+      // For now, let's record with minimal data and log the issue
+      // console.log("⚠️ Recording order with minimal data due to missing metadata");
+    }
+    
+    // Generate unique order ID
+    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create order record with fallback values for missing data
+    const finalTransactionHash = transactionHash || sessionDetails.payment_intent?.charges?.data?.[0]?.id || `ch_${sessionId}_${Date.now()}`;
+    
+    // console.log("💾 Creating order with transaction hash:", finalTransactionHash);
+    // console.log("📊 Transaction hash source:", transactionHash ? "Database lookup" : "Fallback generated");
+    
+    const order = await prisma.order.create({
+      data: {
+        orderId: orderId,
+        sessionId: sessionId,
+        transactionHash: finalTransactionHash, // Real blockchain tx hash from database or fallback
+        
+        itemId: itemId || `item_${sessionId}`,
+        itemType: itemType,
+        itemTitle: itemTitle || `Product from Session ${sessionId}`,
+        itemDescription: itemDescription || 'Product purchased via payment gateway',
+        itemPrice: itemPrice || 0,
+        itemCurrency: sessionDetails.currency?.toUpperCase() || 'USD',
+        
+        buyerEmail: buyerEmail || 'unknown@example.com',
+        buyerName: buyerName || 'Unknown Buyer',
+        buyerWalletAddress: buyerWalletAddress,
+        
+        sellerEmail: sellerEmail || 'unknown@example.com',
+        sellerName: sellerName || 'Unknown Seller',
+        
+        quantity: parseInt(noOfProducts) || 1,
+        totalAmount: (itemPrice || 0) * (parseInt(noOfProducts) || 1),
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        
+        metadata: {
+          paymentMethod: sessionDetails.payment_method_types?.[0],
+          paymentStatus: sessionDetails.payment_status,
+          originalSessionData: sessionDetails,
+          dataSource: 'payment_gateway_api',
+          hasCompleteData: !!(buyerEmail && sellerEmail && itemTitle),
+          transactionHashSource: transactionHash ? 'database_lookup' : 'fallback_generated',
+          buyerEmail: buyerEmail,
+          transactionHashRetrieved: !!transactionHash
+        }
+      }
+    });
+
+    // console.log(`✅ Order recorded successfully: ${order.orderId}`);
+    return order;
+    
+  } catch (error) {
+    console.error("❌ Error recording order:", error);
+    throw error;
+  }
+}
+
 // ==================== PRODUCT PURCHASE PAYMENT GATEWAY ====================
 
 router.post("/gateway/product-purchase", async (req, res) => {
+  let seller = null; // Declare seller variable outside try block for error handling
+  
   try {
     // console.log("🎯 Creating payment gateway session for product purchase");
     // console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
 
-    const {noOfProducts, amount, currency, cancel_url, return_url, sellerEmail} = req.body;
+    const {
+      noOfProducts, 
+      amount, 
+      currency, 
+      cancel_url, 
+      return_url, 
+      sellerEmail,
+      // 🔥 NEW: Enhanced metadata fields
+      itemId,
+      itemType = 'product',
+      itemTitle,
+      itemDescription,
+      buyerEmail,
+      buyerName,
+      buyerWalletAddress
+    } = req.body;
 
     // console.log("📋 Received product purchase payment request:", {
     //   noOfProducts,
@@ -3085,19 +3405,19 @@ router.post("/gateway/product-purchase", async (req, res) => {
         paymentType: "gateway_product_purchase",
         return_url: return_url || null,
         sellerEmail: sellerEmail,
+        
+        // 🔥 NEW: Enhanced metadata for order tracking
+        itemId: itemId,
+        itemType: itemType,
+        itemTitle: itemTitle,
+        itemDescription: itemDescription,
+        sellerName: seller.name,
+        buyerEmail: buyerEmail,
+        buyerName: buyerName,
+        buyerWalletAddress: buyerWalletAddress
       },
       apiKey: seller.apiKey,
     };
-
-    // Log the payment payload for debugging (without sensitive data)
-    // console.log("📤 Sending payment payload to gateway:", {
-    //   line_items: paymentPayload.line_items,
-    //   mode: paymentPayload.mode,
-    //   success_url: paymentPayload.success_url,
-    //   cancel_url: paymentPayload.cancel_url,
-    //   metadata: paymentPayload.metadata,
-    //   apiKey: paymentPayload.apiKey ? paymentPayload.apiKey.substring(0, 8) + "..." : "MISSING"
-    // });
 
     // Log the full success URL for debugging
     // console.log("🔗 Success URL being sent:", paymentPayload.success_url);
@@ -3155,6 +3475,43 @@ router.post("/gateway/product-purchase", async (req, res) => {
       );
     }
 
+    // 🔥 NEW: Store session data in database for later retrieval
+    try {
+      await prisma.paymentSession.create({
+        data: {
+          sessionId: response.data.id,
+          amount: amount,
+          currency: currency.toUpperCase(),
+          status: 'PENDING',
+          metadata: {
+            // Store all the metadata we sent to the payment gateway
+            noOfProducts: noOfProducts.toString(),
+            currency: "USD",
+            paymentType: "gateway_product_purchase",
+            return_url: return_url || null,
+            sellerEmail: sellerEmail,
+            
+            // Enhanced metadata for order tracking
+            itemId: itemId,
+            itemType: itemType,
+            itemTitle: itemTitle,
+            itemDescription: itemDescription,
+            sellerName: seller.name,
+            buyerEmail: buyerEmail,
+            buyerName: buyerName,
+            buyerWalletAddress: buyerWalletAddress,
+            
+            // Store the original payment payload for reference
+            originalPayload: paymentPayload
+          }
+        }
+      });
+      // console.log("✅ Payment session data stored in database:", response.data.id);
+    } catch (sessionError) {
+      console.error("❌ Error storing payment session data:", sessionError);
+      // Don't fail the entire request if session storage fails
+    }
+
     // Return success response
     res.status(200).json({
       success: true,
@@ -3182,10 +3539,10 @@ router.post("/gateway/product-purchase", async (req, res) => {
             status: error.response.status,
             statusText: error.response.statusText,
             data: error.response.data,
-            sellerEmail: sellerEmail,
+            sellerEmail: req.body.sellerEmail,
             apiKeyProvided: !!seller?.apiKey,
-            amount: amount,
-            unitAmountInCents: Math.max(1, Math.round(amount * 100))
+            amount: req.body.amount,
+            unitAmountInCents: Math.max(1, Math.round(req.body.amount * 100))
           },
         });
     }
@@ -3256,19 +3613,10 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
     // console.log("📋 Raw query string:", req.query);
     // console.log("📋 All query parameters:", JSON.stringify(req.query, null, 2));
     
-    const { session_id, noOfProducts, return_url } = req.query;
-
-    // console.log("🎉 Product purchase payment successful:");
-    // console.log("📋 Extracted parameters:", {
-    //   session_id: session_id,
-    //   session_id_type: typeof session_id,
-    //   session_id_truthy: !!session_id,
-    //   noOfProducts: noOfProducts,
-    //   noOfProducts_type: typeof noOfProducts,
-    //   noOfProducts_truthy: !!noOfProducts,
-    //   return_url: return_url
-    // });
-
+    const { session_id, noOfProducts, return_url, transaction_hash, txHash, tx_hash } = req.query;
+    
+    // Log transaction hash if provided
+    const transactionHash = transaction_hash || txHash || tx_hash;
     // Validate required parameters
     if (!session_id || !noOfProducts) {
       console.error("Missing required parameters for product purchase success:", {
@@ -3280,11 +3628,22 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
       );
     }
 
-    // Here you can add logic to:
+    // 🔥 NEW: Record the order in database
+    try {
+      // console.log("📝 Recording order in database...");
+      const order = await recordOrderInDatabase(session_id, noOfProducts, req);
+      // console.log("✅ Order recorded successfully:", order.orderId);
+    } catch (orderError) {
+      console.error("❌ Error recording order:", orderError);
+      // Don't fail the entire process if order recording fails
+      // Log the error but continue with the redirect
+    }
+
+    // Here you can add additional logic to:
     // 1. Update product inventory
-    // 2. Record the purchase in your database
-    // 3. Send confirmation emails
-    // 4. Update user's purchase history
+    // 2. Send confirmation emails
+    // 3. Update user's purchase history
+    // 4. Send notifications to seller
 
     // console.log(`Product purchase successful: Session ${session_id}, Products ${noOfProducts}`);
 
