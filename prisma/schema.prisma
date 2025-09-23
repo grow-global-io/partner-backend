@@ -676,3 +676,72 @@ model GameHighScore {
   @@index([gameName, playerEmail])
   @@map("game_high_scores")
 }
+
+// Order Status enum
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+// Payment session tracking model
+model PaymentSession {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionId String   @unique // Payment gateway session ID
+  amount    Float
+  currency  String   @default("USD")
+  status    String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  metadata  Json // Store all session metadata including item and user details
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("payment_sessions")
+}
+
+// Order tracking model for purchase/sale history
+model Order {
+  id              String  @id @default(auto()) @map("_id") @db.ObjectId
+  orderId         String  @unique // Unique order identifier
+  sessionId       String  @unique // Payment session ID
+  transactionHash String? // Blockchain transaction hash (if applicable)
+
+  // Product/Service/Course details
+  itemId          String // Product/Service/Course ID
+  itemType        String // "product", "service", or "course"
+  itemTitle       String
+  itemDescription String?
+  itemPrice       Float
+  itemCurrency    String  @default("USD")
+
+  // Buyer information
+  buyerEmail         String
+  buyerName          String?
+  buyerWalletAddress String?
+
+  // Seller information
+  sellerEmail         String
+  sellerName          String?
+  sellerWalletAddress String?
+
+  // Order details
+  quantity    Int         @default(1)
+  totalAmount Float
+  status      OrderStatus @default(PENDING)
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  // Metadata
+  metadata Json? // Store additional data like product images, etc.
+
+  @@index([buyerEmail])
+  @@index([sellerEmail])
+  @@index([status])
+  @@index([createdAt])
+  @@map("orders")
+}
