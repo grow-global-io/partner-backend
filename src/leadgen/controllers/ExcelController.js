@@ -5687,6 +5687,185 @@ Keep the response concise and actionable.`;
       });
     }
   }
+
+  /**
+   * @description Get people from leads-campaign collection by campaign ID
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with campaign people data
+   */
+  async getCampaignPeople(req, res) {
+    try {
+      const { campaignId } = req.params;
+      const {
+        page = 1,
+        limit = 50,
+        sortBy = "createdAt",
+        sortOrder = "desc",
+      } = req.query;
+
+      // Validate campaign ID
+      if (!campaignId || campaignId.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Campaign ID is required",
+          code: "INVALID_CAMPAIGN_ID",
+        });
+      }
+
+      // Validate pagination parameters
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
+
+      if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message:
+            "Invalid pagination parameters. Page must be >= 1, limit must be between 1-100",
+          code: "INVALID_PAGINATION",
+        });
+      }
+
+      // Validate sort parameters
+      const validSortFields = ["createdAt", "updatedAt"];
+      const validSortOrders = ["asc", "desc"];
+
+      if (!validSortFields.includes(sortBy)) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: `Invalid sortBy field. Valid options: ${validSortFields.join(
+            ", "
+          )}`,
+          code: "INVALID_SORT_FIELD",
+        });
+      }
+
+      if (!validSortOrders.includes(sortOrder)) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: `Invalid sortOrder. Valid options: ${validSortOrders.join(
+            ", "
+          )}`,
+          code: "INVALID_SORT_ORDER",
+        });
+      }
+
+      console.log(`📋 Getting people for campaign: ${campaignId}`);
+
+      // Get campaign people from model
+      const result = await this.excelModel.getCampaignPeople(campaignId, {
+        page: pageNum,
+        limit: limitNum,
+        sortBy,
+        sortOrder,
+      });
+
+      // Check if any people were found
+      if (!result.people || result.people.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "No data found",
+          message: "No people found for this campaign",
+          code: "NO_PEOPLE_FOUND",
+        });
+      }
+
+      console.log(
+        `✅ Found ${result.people.length} people for campaign ${campaignId}`
+      );
+
+      return res.json({
+        success: true,
+        message: "Campaign people retrieved successfully",
+        data: result,
+      });
+    } catch (error) {
+      console.error("ExcelController: Error getting campaign people:", error);
+
+      // Handle specific database errors
+      if (error.code === "P2001") {
+        return res.status(404).json({
+          success: false,
+          error: "Campaign not found",
+          message: "No campaign found with the provided ID",
+          code: "CAMPAIGN_NOT_FOUND",
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to retrieve campaign people",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
+
+  /**
+   * @description Get all people from leads-campaign collection by campaign ID (no pagination, filtering, or sorting)
+   * @param {Object} req - Express request object
+   * @param {Object} res - Express response object
+   * @returns {Object} Response with all campaign people data
+   */
+  async getAllCampaignPeople(req, res) {
+    try {
+      const { campaignId } = req.params;
+
+      // Validate campaign ID
+      if (!campaignId || campaignId.trim() === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Validation error",
+          message: "Campaign ID is required",
+          code: "MISSING_CAMPAIGN_ID",
+        });
+      }
+
+      console.log(`📋 Getting all people for campaign: ${campaignId}`);
+
+      // Get all campaign people from model
+      const result = await this.excelModel.getAllCampaignPeople(campaignId);
+
+      // Check if any people were found
+      if (!result.people || result.people.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "No people found",
+          message: `No people found for campaign ID: ${campaignId}`,
+          code: "NO_PEOPLE_FOUND",
+        });
+      }
+
+      console.log(
+        `✅ Found ${result.totalPeople} people for campaign: ${campaignId}`
+      );
+
+      // Return successful response
+      return res.status(200).json({
+        success: true,
+        message: "Campaign people retrieved successfully",
+        data: result,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error(
+        "ExcelController: Error getting all campaign people:",
+        error
+      );
+      return res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to retrieve all campaign people",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
+      });
+    }
+  }
 }
 
 module.exports = ExcelController;

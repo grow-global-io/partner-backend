@@ -13,14 +13,13 @@ const { getMyBalance } = require("../config/blockchain");
 
 const router = express.Router();
 
-
-
 // Payment Gateway Configuration
 const PAYMENT_GATEWAY_URL =
   "https://gll-gateway.growlimitless.app/api/sessions";
-const FRONTEND_URL = process.env.NODE_ENV === "production"
-  ? "https://www.gll.one"
-  : "http://localhost:3000";
+const FRONTEND_URL =
+  process.env.IS_DEVELOPMENT == true
+    ? "http://localhost:3000"
+    : "https://www.gll.one";
 const BASE_URL = process.env.BASE_URL;
 
 // Currency Cache Configuration
@@ -249,13 +248,13 @@ function getMaskedStripeKey() {
     keyType: isSecretKey
       ? "secret"
       : apiKey.startsWith("pk_")
-        ? "publishable"
-        : "unknown",
+      ? "publishable"
+      : "unknown",
     error: !isValidFormat
       ? "Stripe key must start with 'sk_' (secret) or 'pk_' (publishable)"
       : !isSecretKey
-        ? "Must use secret key (sk_) for server-side operations"
-        : null,
+      ? "Must use secret key (sk_) for server-side operations"
+      : null,
   };
 }
 
@@ -304,8 +303,8 @@ async function testStripeKey() {
         error.type === "StripeAuthenticationError"
           ? "Invalid Stripe API key - check your key is correct"
           : error.type === "StripePermissionError"
-            ? "Stripe API key lacks required permissions"
-            : "Network or API error",
+          ? "Stripe API key lacks required permissions"
+          : "Network or API error",
     };
   }
 }
@@ -432,11 +431,19 @@ function validateProductPurchasePayload(payload) {
 
   // Validate amount is a positive number
   if (typeof payload.amount !== "number") {
-    return { isValid: false, error: `amount must be a number, received: ${typeof payload.amount} (${payload.amount})` };
+    return {
+      isValid: false,
+      error: `amount must be a number, received: ${typeof payload.amount} (${
+        payload.amount
+      })`,
+    };
   }
 
   if (payload.amount <= 0) {
-    return { isValid: false, error: `amount must be greater than 0, received: ${payload.amount}` };
+    return {
+      isValid: false,
+      error: `amount must be greater than 0, received: ${payload.amount}`,
+    };
   }
 
   // Validate currency
@@ -580,8 +587,8 @@ router.post("/purchase-plan", async (req, res) => {
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-          cancel_url
-        )}`
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -643,8 +650,9 @@ router.post("/purchase-plan", async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
-          }`,
+        error: `Payment gateway error (${error.response.status}): ${
+          error.response.data?.message || error.message
+        }`,
       });
     }
 
@@ -751,8 +759,8 @@ router.post("/stripe/purchase-plan", async (req, res) => {
         : `${BASE_URL}/api/payments/success?session_id={CHECKOUT_SESSION_ID}&walletId=${walletId}&noOfDocs=${noOfDocs}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-          cancel_url
-        )}`
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         ...metadata,
@@ -979,8 +987,8 @@ router.post("/wallet-balance", async (req, res) => {
       success_url: `${BASE_URL}/api/payments/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-          cancel_url
-        )}`
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
@@ -1208,8 +1216,8 @@ router.post("/gateway/wallet-balance", async (req, res) => {
       success_url: `${BASE_URL}/api/payments/gateway/wallet-balance/success?session_id={CHECKOUT_SESSION_ID}&walletAddress=${walletAddress}&noOfIons=${noOfIons}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-          cancel_url
-        )}`
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/gateway/wallet-balance/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         walletAddress,
@@ -1289,8 +1297,9 @@ router.post("/gateway/wallet-balance", async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message
-          }`,
+        error: `Payment gateway error (${error.response.status}): ${
+          error.response.data?.message || error.message
+        }`,
         details: {
           status: error.response.status,
           data: error.response.data,
@@ -1373,8 +1382,9 @@ router.get("/success", async (req, res) => {
       : "Payment successful! Documents updated successfully.";
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/resume?status=success&sessionId=${session_id}&walletId=${walletId}&documents=${updatedWallet.noOfDocuments
-      }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/resume?status=success&sessionId=${session_id}&walletId=${walletId}&documents=${
+      updatedWallet.noOfDocuments
+    }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment success handler error:", error);
@@ -1438,8 +1448,9 @@ router.get("/cancel", async (req, res) => {
       ? "Payment was cancelled by user"
       : "Payment was cancelled";
 
-    const redirectUrl = `${FRONTEND_URL}/resume?status=cancelled&sessionId=${session_id || ""
-      }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/resume?status=cancelled&sessionId=${
+      session_id || ""
+    }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Payment cancel handler error:", error);
@@ -1565,10 +1576,11 @@ router.get("/wallet-balance/success", async (req, res) => {
     }
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${transactionResult.transactionHash
-      }&message=${encodeURIComponent(
-        "Payment successful! Ions credited to wallet."
-      )}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${
+      transactionResult.transactionHash
+    }&message=${encodeURIComponent(
+      "Payment successful! Ions credited to wallet."
+    )}`;
 
     console.log("🚀 Redirecting to frontend with success status");
     console.log("🔗 Redirect URL:", redirectUrl);
@@ -1642,8 +1654,9 @@ router.get("/wallet-balance/cancel", async (req, res) => {
       ? "Wallet balance payment was cancelled by user"
       : "Wallet balance payment was cancelled";
 
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancelled&sessionId=${session_id || ""
-      }&message=${encodeURIComponent(message)}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=cancelled&sessionId=${
+      session_id || ""
+    }&message=${encodeURIComponent(message)}`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("Wallet balance payment cancel handler error:", error);
@@ -1775,10 +1788,11 @@ router.get("/gateway/wallet-balance/success", async (req, res) => {
     }
 
     // Redirect to frontend with success parameters
-    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${transactionResult.transactionHash
-      }&gateway=true&message=${encodeURIComponent(
-        "Payment successful! Ions credited to wallet via payment gateway."
-      )}`;
+    const redirectUrl = `${FRONTEND_URL}/wallet?payment=success&sessionId=${session_id}&walletAddress=${walletAddress}&ions=${ionsToCredit}&transaction_id=${
+      transactionResult.transactionHash
+    }&gateway=true&message=${encodeURIComponent(
+      "Payment successful! Ions credited to wallet via payment gateway."
+    )}`;
 
     console.log(
       "🚀 Redirecting to frontend with payment gateway success status"
@@ -1841,7 +1855,8 @@ router.get("/gateway/wallet-balance/cancel", async (req, res) => {
     const { session_id, original_cancel_url } = req.query;
 
     console.log(
-      `Payment gateway wallet balance payment cancelled for session: ${session_id || "unknown"
+      `Payment gateway wallet balance payment cancelled for session: ${
+        session_id || "unknown"
       }`
     );
     console.log(
@@ -2915,8 +2930,9 @@ router.get("/currency/cache-stats", async (req, res) => {
         expiredEntries: expiredEntries.length,
         cacheEntries: cacheEntries,
         apiCallsSaved: `Estimated ${validEntries.length} API calls saved today`,
-        monthlySavings: `Potentially ${validEntries.length * 30
-          } API calls saved per month`,
+        monthlySavings: `Potentially ${
+          validEntries.length * 30
+        } API calls saved per month`,
         freeApiLimit: "30 calls per month",
         cacheFilePath: CACHE_FILE_PATH,
       },
@@ -2984,17 +3000,17 @@ router.delete("/currency/clear-cache", async (req, res) => {
 async function getTransactionHashByEmail(email) {
   try {
     // console.log("🔍 Fetching transaction hash for email from Session metadata:", email);
-    
+
     // Get all sessions with transaction hashes and filter by metadata in JavaScript
     const sessions = await prisma.session.findMany({
       where: {
         txHash: {
-          not: null
-        }
+          not: null,
+        },
       },
       orderBy: {
-        createdAt: 'desc'
-      }
+        createdAt: "desc",
+      },
     });
 
     // console.log(`📊 Found ${sessions.length} sessions with transaction hashes`);
@@ -3003,15 +3019,15 @@ async function getTransactionHashByEmail(email) {
     for (const session of sessions) {
       try {
         let metadata = session.metadata;
-        
+
         // Debug: Log metadata structure for first few sessions
         if (sessions.indexOf(session) < 3) {
           // console.log(`🔍 Debug - Session ${session.id} metadata (raw):`, metadata);
           // console.log(`🔍 Debug - Session ${session.id} metadata type:`, typeof metadata);
         }
-        
+
         // Parse metadata if it's a string
-        if (typeof metadata === 'string') {
+        if (typeof metadata === "string") {
           try {
             metadata = JSON.parse(metadata);
             // console.log(`🔍 Debug - Parsed metadata for session ${session.id}:`, metadata);
@@ -3020,34 +3036,41 @@ async function getTransactionHashByEmail(email) {
             continue;
           }
         }
-        
+
         // Check if metadata contains the email in various possible fields
-        if (metadata && typeof metadata === 'object') {
+        if (metadata && typeof metadata === "object") {
           // First priority: check for buyerEmail specifically
           if (metadata.buyerEmail === email) {
             // console.log(`✅ Found transaction hash in Session metadata (buyerEmail) for email:`, email, "->", session.txHash);
             return session.txHash;
           }
-          
+
           // Second priority: check other email fields
-          const otherEmailFields = ['email', 'sellerEmail', 'userEmail', 'buyer_email', 'seller_email', 'user_email'];
-          
+          const otherEmailFields = [
+            "email",
+            "sellerEmail",
+            "userEmail",
+            "buyer_email",
+            "seller_email",
+            "user_email",
+          ];
+
           for (const field of otherEmailFields) {
             if (metadata[field] === email) {
               // console.log(`✅ Found transaction hash in Session metadata (field: ${field}) for email:`, email, "->", session.txHash);
               return session.txHash;
             }
           }
-          
+
           // Also check if any nested object contains the email
           for (const [key, value] of Object.entries(metadata)) {
-            if (typeof value === 'object' && value !== null) {
+            if (typeof value === "object" && value !== null) {
               // Check buyerEmail in nested objects first
               if (value.buyerEmail === email) {
                 // console.log(`✅ Found transaction hash in Session metadata (nested: ${key}.buyerEmail) for email:`, email, "->", session.txHash);
                 return session.txHash;
               }
-              
+
               // Then check other email fields in nested objects
               for (const nestedField of otherEmailFields) {
                 if (value[nestedField] === email) {
@@ -3066,7 +3089,6 @@ async function getTransactionHashByEmail(email) {
 
     // console.log("⚠️ No transaction hash found in Session metadata for email:", email);
     return null;
-    
   } catch (error) {
     // console.error("❌ Error fetching transaction hash by email from Session metadata:", error);
     return null;
@@ -3081,35 +3103,37 @@ async function getTransactionHashByEmail(email) {
 async function getPaymentSessionDetails(sessionId) {
   try {
     // console.log("🔍 Fetching session details from database for:", sessionId);
-    
+
     // Look for the payment session in our database
     const paymentSession = await prisma.paymentSession.findUnique({
-      where: { sessionId: sessionId }
+      where: { sessionId: sessionId },
     });
 
     if (paymentSession) {
       // console.log("✅ Found payment session in database");
-      
+
       // Update session status to COMPLETED since we're in the success handler
       await prisma.paymentSession.update({
         where: { sessionId: sessionId },
-        data: { status: 'COMPLETED' }
+        data: { status: "COMPLETED" },
       });
-      
+
       return {
         id: sessionId,
         amount_total: paymentSession.amount * 100, // Convert to cents
         currency: paymentSession.currency.toLowerCase(),
-        payment_status: 'paid',
-        payment_method_types: ['card'],
+        payment_status: "paid",
+        payment_method_types: ["card"],
         payment_intent: {
           charges: {
-            data: [{
-              id: `ch_${sessionId}_${Date.now()}`
-            }]
-          }
+            data: [
+              {
+                id: `ch_${sessionId}_${Date.now()}`,
+              },
+            ],
+          },
         },
-        metadata: paymentSession.metadata
+        metadata: paymentSession.metadata,
       };
     }
 
@@ -3118,43 +3142,46 @@ async function getPaymentSessionDetails(sessionId) {
     return {
       id: sessionId,
       amount_total: 0,
-      currency: 'usd',
-      payment_status: 'paid',
-      payment_method_types: ['card'],
+      currency: "usd",
+      payment_status: "paid",
+      payment_method_types: ["card"],
       payment_intent: {
         charges: {
-          data: [{
-            id: `ch_${sessionId}_${Date.now()}`
-          }]
-        }
+          data: [
+            {
+              id: `ch_${sessionId}_${Date.now()}`,
+            },
+          ],
+        },
       },
       metadata: {
         sessionId: sessionId,
-        error: 'Payment session not found in database'
-      }
+        error: "Payment session not found in database",
+      },
     };
-    
   } catch (error) {
     console.error("❌ Error fetching session details:", error);
-    
+
     // Return minimal structure
     return {
       id: sessionId,
       amount_total: 0,
-      currency: 'usd',
-      payment_status: 'paid',
-      payment_method_types: ['card'],
+      currency: "usd",
+      payment_status: "paid",
+      payment_method_types: ["card"],
       payment_intent: {
         charges: {
-          data: [{
-            id: `ch_${sessionId}_${Date.now()}`
-          }]
-        }
+          data: [
+            {
+              id: `ch_${sessionId}_${Date.now()}`,
+            },
+          ],
+        },
       },
       metadata: {
         sessionId: sessionId,
-        error: error.message
-      }
+        error: error.message,
+      },
     };
   }
 }
@@ -3169,108 +3196,117 @@ async function getPaymentSessionDetails(sessionId) {
 async function recordOrderInDatabase(sessionId, noOfProducts, req) {
   try {
     // console.log("📝 Recording order in database for session:", sessionId);
-    
+
     // Get session details from payment gateway
     const sessionDetails = await getPaymentSessionDetails(sessionId);
-    
+
     // Extract buyer information from session metadata or request
-    const buyerEmail = sessionDetails.metadata?.buyerEmail || req.query.buyerEmail;
+    const buyerEmail =
+      sessionDetails.metadata?.buyerEmail || req.query.buyerEmail;
     const buyerName = sessionDetails.metadata?.buyerName || req.query.buyerName;
-    const buyerWalletAddress = sessionDetails.metadata?.buyerWalletAddress || req.query.buyerWalletAddress;
-    
+    const buyerWalletAddress =
+      sessionDetails.metadata?.buyerWalletAddress ||
+      req.query.buyerWalletAddress;
+
     // 🔥 NEW: Get transaction hash from database by email
     let transactionHash = null;
     if (buyerEmail) {
       // console.log("🔍 Looking up transaction hash for buyer email:", buyerEmail);
       transactionHash = await getTransactionHashByEmail(buyerEmail);
-      
     }
-    
+
     // Fallback: Extract transaction hash from request parameters (sent by frontend)
     if (!transactionHash) {
-      transactionHash = req.query.transaction_hash || req.query.txHash || req.query.tx_hash;
-      
+      transactionHash =
+        req.query.transaction_hash || req.query.txHash || req.query.tx_hash;
     }
-    
+
     // Extract seller information
     const sellerEmail = sessionDetails.metadata?.sellerEmail;
     const sellerName = sessionDetails.metadata?.sellerName;
-    
+
     // Get item details from session metadata
     const itemId = sessionDetails.metadata?.itemId;
-    const itemType = sessionDetails.metadata?.itemType || 'product';
+    const itemType = sessionDetails.metadata?.itemType || "product";
     const itemTitle = sessionDetails.metadata?.itemTitle;
     const itemDescription = sessionDetails.metadata?.itemDescription;
     const itemPrice = sessionDetails.amount_total / 100; // Convert from cents
-    
+
     // Validate that we have the essential data
     if (!buyerEmail || !sellerEmail || !itemTitle) {
       console.error("❌ Missing essential order data:", {
         buyerEmail: !!buyerEmail,
         sellerEmail: !!sellerEmail,
         itemTitle: !!itemTitle,
-        sessionId: sessionId
+        sessionId: sessionId,
       });
-      
+
       // If we're missing essential data, we can either:
       // 1. Skip recording this order
       // 2. Record with minimal data
       // 3. Throw an error
-      
+
       // For now, let's record with minimal data and log the issue
       // console.log("⚠️ Recording order with minimal data due to missing metadata");
     }
-    
+
     // Generate unique order ID
-    const orderId = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+    const orderId = `ORD-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
     // Create order record with fallback values for missing data
-    const finalTransactionHash = transactionHash || sessionDetails.payment_intent?.charges?.data?.[0]?.id || `ch_${sessionId}_${Date.now()}`;
-    
+    const finalTransactionHash =
+      transactionHash ||
+      sessionDetails.payment_intent?.charges?.data?.[0]?.id ||
+      `ch_${sessionId}_${Date.now()}`;
+
     // console.log("💾 Creating order with transaction hash:", finalTransactionHash);
     // console.log("📊 Transaction hash source:", transactionHash ? "Database lookup" : "Fallback generated");
-    
+
     const order = await prisma.order.create({
       data: {
         orderId: orderId,
         sessionId: sessionId,
         transactionHash: finalTransactionHash, // Real blockchain tx hash from database or fallback
-        
+
         itemId: itemId || `item_${sessionId}`,
         itemType: itemType,
         itemTitle: itemTitle || `Product from Session ${sessionId}`,
-        itemDescription: itemDescription || 'Product purchased via payment gateway',
+        itemDescription:
+          itemDescription || "Product purchased via payment gateway",
         itemPrice: itemPrice || 0,
-        itemCurrency: sessionDetails.currency?.toUpperCase() || 'USD',
-        
-        buyerEmail: buyerEmail || 'unknown@example.com',
-        buyerName: buyerName || 'Unknown Buyer',
+        itemCurrency: sessionDetails.currency?.toUpperCase() || "USD",
+
+        buyerEmail: buyerEmail || "unknown@example.com",
+        buyerName: buyerName || "Unknown Buyer",
         buyerWalletAddress: buyerWalletAddress,
-        
-        sellerEmail: sellerEmail || 'unknown@example.com',
-        sellerName: sellerName || 'Unknown Seller',
-        
+
+        sellerEmail: sellerEmail || "unknown@example.com",
+        sellerName: sellerName || "Unknown Seller",
+
         quantity: parseInt(noOfProducts) || 1,
         totalAmount: (itemPrice || 0) * (parseInt(noOfProducts) || 1),
-        status: 'COMPLETED',
+        status: "COMPLETED",
         completedAt: new Date(),
-        
+
         metadata: {
           paymentMethod: sessionDetails.payment_method_types?.[0],
           paymentStatus: sessionDetails.payment_status,
           originalSessionData: sessionDetails,
-          dataSource: 'payment_gateway_api',
+          dataSource: "payment_gateway_api",
           hasCompleteData: !!(buyerEmail && sellerEmail && itemTitle),
-          transactionHashSource: transactionHash ? 'database_lookup' : 'fallback_generated',
+          transactionHashSource: transactionHash
+            ? "database_lookup"
+            : "fallback_generated",
           buyerEmail: buyerEmail,
-          transactionHashRetrieved: !!transactionHash
-        }
-      }
+          transactionHashRetrieved: !!transactionHash,
+        },
+      },
     });
 
     // console.log(`✅ Order recorded successfully: ${order.orderId}`);
     return order;
-    
   } catch (error) {
     console.error("❌ Error recording order:", error);
     throw error;
@@ -3281,26 +3317,26 @@ async function recordOrderInDatabase(sessionId, noOfProducts, req) {
 
 router.post("/gateway/product-purchase", async (req, res) => {
   let seller = null; // Declare seller variable outside try block for error handling
-  
+
   try {
     // console.log("🎯 Creating payment gateway session for product purchase");
     // console.log("🔍 Raw request body:", JSON.stringify(req.body, null, 2));
 
     const {
-      noOfProducts, 
-      amount, 
-      currency, 
-      cancel_url, 
-      return_url, 
+      noOfProducts,
+      amount,
+      currency,
+      cancel_url,
+      return_url,
       sellerEmail,
       // 🔥 NEW: Enhanced metadata fields
       itemId,
-      itemType = 'product',
+      itemType = "product",
       itemTitle,
       itemDescription,
       buyerEmail,
       buyerName,
-      buyerWalletAddress
+      buyerWalletAddress,
     } = req.body;
 
     // console.log("📋 Received product purchase payment request:", {
@@ -3332,7 +3368,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
     // console.log("🔍 Fetching seller apiKey for email:", sellerEmail);
     const seller = await prisma.user.findUnique({
       where: { email: sellerEmail },
-      select: { apiKey: true, name: true }
+      select: { apiKey: true, name: true },
     });
 
     if (!seller) {
@@ -3394,11 +3430,13 @@ router.post("/gateway/product-purchase", async (req, res) => {
     const paymentPayload = {
       line_items,
       mode: "payment",
-      success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(return_url || '')}`,
+      success_url: `${BASE_URL}/api/payments/gateway/product-purchase/success?session_id={CHECKOUT_SESSION_ID}&noOfProducts=${noOfProducts}&return_url=${encodeURIComponent(
+        return_url || ""
+      )}`,
       cancel_url: cancel_url
         ? `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}&original_cancel_url=${encodeURIComponent(
-          cancel_url
-        )}`
+            cancel_url
+          )}`
         : `${BASE_URL}/api/payments/gateway/product-purchase/cancel?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         noOfProducts: noOfProducts.toString(),
@@ -3406,7 +3444,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
         paymentType: "gateway_product_purchase",
         return_url: return_url || null,
         sellerEmail: sellerEmail,
-        
+
         // 🔥 NEW: Enhanced metadata for order tracking
         itemId: itemId,
         itemType: itemType,
@@ -3415,7 +3453,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
         sellerName: seller.name,
         buyerEmail: buyerEmail,
         buyerName: buyerName,
-        buyerWalletAddress: buyerWalletAddress
+        buyerWalletAddress: buyerWalletAddress,
       },
       apiKey: seller.apiKey,
     };
@@ -3438,7 +3476,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
       // If seller's apiKey fails, try with the working apiKey
       if (firstError.response && firstError.response.status === 500) {
         paymentPayload.apiKey = "growinvoice";
-        
+
         response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
           headers: {
             "Content-Type": "application/json",
@@ -3483,7 +3521,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
           sessionId: response.data.id,
           amount: amount,
           currency: currency.toUpperCase(),
-          status: 'PENDING',
+          status: "PENDING",
           metadata: {
             // Store all the metadata we sent to the payment gateway
             noOfProducts: noOfProducts.toString(),
@@ -3491,7 +3529,7 @@ router.post("/gateway/product-purchase", async (req, res) => {
             paymentType: "gateway_product_purchase",
             return_url: return_url || null,
             sellerEmail: sellerEmail,
-            
+
             // Enhanced metadata for order tracking
             itemId: itemId,
             itemType: itemType,
@@ -3501,11 +3539,11 @@ router.post("/gateway/product-purchase", async (req, res) => {
             buyerEmail: buyerEmail,
             buyerName: buyerName,
             buyerWalletAddress: buyerWalletAddress,
-            
+
             // Store the original payment payload for reference
-            originalPayload: paymentPayload
-          }
-        }
+            originalPayload: paymentPayload,
+          },
+        },
       });
       // console.log("✅ Payment session data stored in database:", response.data.id);
     } catch (sessionError) {
@@ -3524,28 +3562,30 @@ router.post("/gateway/product-purchase", async (req, res) => {
   } catch (error) {
     console.error("❌ Payment gateway product purchase creation error:", error);
 
-      // Handle different types of errors
-      if (error.response) {
-        console.error("🚨 Payment Gateway Response Error:", {
+    // Handle different types of errors
+    if (error.response) {
+      console.error("🚨 Payment Gateway Response Error:", {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        headers: error.response.headers,
+        data: error.response.data,
+      });
+
+      return res.status(500).json({
+        success: false,
+        error: `Payment gateway error (${error.response.status}): ${
+          error.response.data?.message || error.message
+        }`,
+        details: {
           status: error.response.status,
           statusText: error.response.statusText,
-          headers: error.response.headers,
-          data: error.response.data
-        });
-        
-        return res.status(500).json({
-          success: false,
-          error: `Payment gateway error (${error.response.status}): ${error.response.data?.message || error.message}`,
-          details: {
-            status: error.response.status,
-            statusText: error.response.statusText,
-            data: error.response.data,
-            sellerEmail: req.body.sellerEmail,
-            apiKeyProvided: !!seller?.apiKey,
-            amount: req.body.amount,
-            unitAmountInCents: Math.max(1, Math.round(req.body.amount * 100))
-          },
-        });
+          data: error.response.data,
+          sellerEmail: req.body.sellerEmail,
+          apiKeyProvided: !!seller?.apiKey,
+          amount: req.body.amount,
+          unitAmountInCents: Math.max(1, Math.round(req.body.amount * 100)),
+        },
+      });
     }
 
     if (error.request) {
@@ -3613,17 +3653,27 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
     // console.log("🔗 Original URL:", req.originalUrl);
     // console.log("📋 Raw query string:", req.query);
     // console.log("📋 All query parameters:", JSON.stringify(req.query, null, 2));
-    
-    const { session_id, noOfProducts, return_url, transaction_hash, txHash, tx_hash } = req.query;
-    
+
+    const {
+      session_id,
+      noOfProducts,
+      return_url,
+      transaction_hash,
+      txHash,
+      tx_hash,
+    } = req.query;
+
     // Log transaction hash if provided
     const transactionHash = transaction_hash || txHash || tx_hash;
     // Validate required parameters
     if (!session_id || !noOfProducts) {
-      console.error("Missing required parameters for product purchase success:", {
-        session_id,
-        noOfProducts
-      });
+      console.error(
+        "Missing required parameters for product purchase success:",
+        {
+          session_id,
+          noOfProducts,
+        }
+      );
       return res.redirect(
         `${FRONTEND_URL}/payment?status=error&message=Missing required parameters`
       );
@@ -3652,22 +3702,27 @@ router.get("/gateway/product-purchase/success", async (req, res) => {
     let redirectUrl;
     if (return_url) {
       // Redirect back to the original page with success parameters
-      redirectUrl = `${return_url}&payment=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent('Purchase completed successfully!')}`;
+      redirectUrl = `${return_url}&payment=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent(
+        "Purchase completed successfully!"
+      )}`;
     } else {
       // Fallback to payment page
-      redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent('Product purchase successful!')}`;
+      redirectUrl = `${FRONTEND_URL}/payment&status=success&sessionId=${session_id}&products=${noOfProducts}&message=${encodeURIComponent(
+        "Product purchase successful!"
+      )}`;
     }
 
     // console.log(`Redirecting to: ${redirectUrl}`);
     res.redirect(redirectUrl);
-
   } catch (error) {
     console.error("Product purchase success handler error:", error);
 
     // Redirect to frontend with error
     const errorMessage = "Failed to process successful product purchase";
     res.redirect(
-      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent(errorMessage)}`
+      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent(
+        errorMessage
+      )}`
     );
   }
 });
@@ -3716,56 +3771,83 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
     if (original_cancel_url) {
       redirectUrl = decodeURIComponent(original_cancel_url);
     } else {
-      redirectUrl = `${FRONTEND_URL}/payment&status=cancelled&sessionId=${session_id || 'unknown'}&message=${encodeURIComponent('Product purchase cancelled')}`;
+      redirectUrl = `${FRONTEND_URL}/payment&status=cancelled&sessionId=${
+        session_id || "unknown"
+      }&message=${encodeURIComponent("Product purchase cancelled")}`;
     }
 
     // console.log(`Redirecting to: ${redirectUrl}`);
     res.redirect(redirectUrl);
-
   } catch (error) {
     console.error("Product purchase cancel handler error:", error);
 
     // Fallback redirect to frontend
     res.redirect(
-      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent('Failed to process cancellation')}`
+      `${FRONTEND_URL}/payment&status=error&message=${encodeURIComponent(
+        "Failed to process cancellation"
+      )}`
     );
   }
 });
 
 router.get("/getLiveGLLData", async (req, res) => {
   try {
+    const payload = {
+      query:
+        'query MyQuery {\n  pools(where: {id_in: ["0xbc4dcf7539d9261731888a7d95994cbedf07ab52","0x5854b550482dc2785c9c4ecdb235076b5e1d75b7"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}',
+      operationName: "MyQuery",
+    };
+    const payloadYesterday = {
+      query:
+        'query MyQuery {\n  tokenDayDatas(first: 1, orderBy: "id", orderDirection: "desc", where: {token:"0xc6126ebfa8b5ffd41561c086979c97416969cebf"}) {\n    id\n    priceUSD\n  }\n}',
+      operationName: "MyQuery",
+    };
 
-    const payload = { "query": "query MyQuery {\n  pools(where: {id_in: [\"0xbc4dcf7539d9261731888a7d95994cbedf07ab52\",\"0x5854b550482dc2785c9c4ecdb235076b5e1d75b7\"]}){\n    id,\n    token0Price,\n    token1Price\n  },\n}", "operationName": "MyQuery" }
-    const payloadYesterday = { "query": "query MyQuery {\n  tokenDayDatas(first: 1, orderBy: \"id\", orderDirection: \"desc\", where: {token:\"0xc6126ebfa8b5ffd41561c086979c97416969cebf\"}) {\n    id\n    priceUSD\n  }\n}", "operationName": "MyQuery" }
+    const reso = await fetch(
+      "https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
-    const reso = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const resoYesterday = await fetch("https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc", {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'application/json',
-      },
-      body: JSON.stringify(payloadYesterday),
-    });
+    const resoYesterday = await fetch(
+      "https://graph.xspswap.finance/subgraphs/name/v3/factory-usdc",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify(payloadYesterday),
+      }
+    );
 
     const json1 = await reso.json();
     const json1YesterDay = await resoYesterday.json();
     const output = {
       "gll/xdc": Number(json1.data.pools[1].token1Price).toFixed(6),
-      "gll/usd": (Number(json1.data.pools[0].token1Price) / Number(json1.data.pools[1].token1Price)).toFixed(7),
-      "gll/usd Yesterday": Number(json1YesterDay.data.tokenDayDatas[0].priceUSD).toFixed(7),
-      "change": ((((Number(json1.data.pools[0].token1Price) / Number(json1.data.pools[1].token1Price)) - Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) / Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) * 100).toFixed(2) + " %"
-    }
+      "gll/usd": (
+        Number(json1.data.pools[0].token1Price) /
+        Number(json1.data.pools[1].token1Price)
+      ).toFixed(7),
+      "gll/usd Yesterday": Number(
+        json1YesterDay.data.tokenDayDatas[0].priceUSD
+      ).toFixed(7),
+      change:
+        (
+          ((Number(json1.data.pools[0].token1Price) /
+            Number(json1.data.pools[1].token1Price) -
+            Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) /
+            Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) *
+          100
+        ).toFixed(2) + " %",
+    };
     res.send(JSON.stringify(output, null, 2));
-
   } catch (error) {
     console.error("Live GLL price query error:", error);
     res.status(500).json({
@@ -3774,6 +3856,6 @@ router.get("/getLiveGLLData", async (req, res) => {
       details: error.message,
     });
   }
-})
+});
 
 module.exports = router;

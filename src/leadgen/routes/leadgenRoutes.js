@@ -2918,4 +2918,253 @@ router.get("/ai-text/wallet/:walletAddress/transactions", async (req, res) => {
   await userWalletController.getTransactionHistory(req, res);
 });
 
+/**
+ * @swagger
+ * /api/leadgen/campaigns/{campaignId}/people:
+ *   get:
+ *     summary: Get people from leads-campaign collection by campaign ID
+ *     tags: [Campaign Management]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Campaign ID to filter leads
+ *         example: "cmp_12345"
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *         description: Number of people per page
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [createdAt, updatedAt]
+ *           default: createdAt
+ *         description: Field to sort by
+ *       - in: query
+ *         name: sortOrder
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *           default: desc
+ *         description: Sort order
+ *     responses:
+ *       200:
+ *         description: People retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Campaign people retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     people:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         description: Person object with flexible structure
+ *                         example:
+ *                           name: "John Doe"
+ *                           email: "john@example.com"
+ *                           phone: "+1234567890"
+ *                           company: "Tech Corp"
+ *                           position: "Software Engineer"
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         currentPage:
+ *                           type: integer
+ *                         totalPages:
+ *                           type: integer
+ *                         totalCount:
+ *                           type: integer
+ *                         hasNext:
+ *                           type: boolean
+ *                         hasPrev:
+ *                           type: boolean
+ *                     metadata:
+ *                       type: object
+ *                       properties:
+ *                         campaignId:
+ *                           type: string
+ *                         totalPeople:
+ *                           type: integer
+ *                         filters:
+ *                           type: object
+ *       400:
+ *         description: Invalid campaign ID or query parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Validation error"
+ *                 message:
+ *                   type: string
+ *                   example: "Campaign ID is required"
+ *                 code:
+ *                   type: string
+ *                   example: "INVALID_CAMPAIGN_ID"
+ *       404:
+ *         description: No people found for the campaign
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "No data found"
+ *                 message:
+ *                   type: string
+ *                   example: "No people found for this campaign"
+ *                 code:
+ *                   type: string
+ *                   example: "NO_PEOPLE_FOUND"
+ *       500:
+ *         description: Server error
+ */
+router.get("/campaigns/:campaignId/people", async (req, res) => {
+  await excelController.getCampaignPeople(req, res);
+});
+
+/**
+ * @swagger
+ * /api/leadgen/campaigns/{campaignId}/all-people:
+ *   get:
+ *     summary: Get all people from a campaign (no pagination, filtering, or sorting)
+ *     tags: [Campaign Management]
+ *     parameters:
+ *       - in: path
+ *         name: campaignId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Campaign ID to get all people from
+ *         example: "cmp_12345"
+ *     responses:
+ *       200:
+ *         description: All people retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Campaign people retrieved successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     campaignId:
+ *                       type: string
+ *                       example: "cmp_12345"
+ *                     people:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         description: Person object with flexible structure
+ *                         example:
+ *                           name: "John Doe"
+ *                           email: "john@example.com"
+ *                           phone: "+1234567890"
+ *                           company: "Tech Corp"
+ *                           position: "Software Engineer"
+ *                     totalPeople:
+ *                       type: integer
+ *                       example: 150
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *       400:
+ *         description: Invalid campaign ID
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Validation error"
+ *                 message:
+ *                   type: string
+ *                   example: "Campaign ID is required"
+ *                 code:
+ *                   type: string
+ *                   example: "MISSING_CAMPAIGN_ID"
+ *       404:
+ *         description: No people found for the campaign
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "No people found"
+ *                 message:
+ *                   type: string
+ *                   example: "No people found for campaign ID: cmp_12345"
+ *                 code:
+ *                   type: string
+ *                   example: "NO_PEOPLE_FOUND"
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: string
+ *                   example: "Internal server error"
+ *                 message:
+ *                   type: string
+ *                   example: "Failed to retrieve all campaign people"
+ */
+// Get all people from a campaign (no pagination, filtering, or sorting)
+router.get("/campaigns/:campaignId/all-people", async (req, res) => {
+  await excelController.getAllCampaignPeople(req, res);
+});
+
 module.exports = router;
