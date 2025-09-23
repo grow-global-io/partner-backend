@@ -7184,6 +7184,16 @@ router.get('/creator-complete-data/:email', generalPostLimiter, async (req, res)
  *                       orderType:
  *                         type: string
  *                         example: "bought"
+ *                       buyerUsername:
+ *                         type: string
+ *                         nullable: true
+ *                         description: "Buyer's username from creator database"
+ *                         example: "john_creator"
+ *                       sellerUsername:
+ *                         type: string
+ *                         nullable: true
+ *                         description: "Seller's username from creator database"
+ *                         example: "jane_seller"
  *                       createdAt:
  *                         type: string
  *                         format: date-time
@@ -7244,10 +7254,43 @@ router.get("/orders/:userEmail", async (req, res) => {
 
     console.log(`📊 Found ${orders.length} orders`);
 
-    // Transform orders to include orderType (bought/sold)
+    // Get unique emails to fetch usernames
+    const uniqueEmails = new Set();
+    orders.forEach(order => {
+      if (order.buyerEmail) uniqueEmails.add(order.buyerEmail);
+      if (order.sellerEmail) uniqueEmails.add(order.sellerEmail);
+    });
+
+    console.log(`🔍 Fetching usernames for ${uniqueEmails.size} unique emails`);
+
+    // Fetch usernames from creator database
+    const emailToUsernameMap = new Map();
+    for (const email of uniqueEmails) {
+      try {
+        const creator = await prisma.creator.findUnique({
+          where: { email: email },
+          select: { username: true, email: true }
+        });
+        
+        if (creator && creator.username) {
+          emailToUsernameMap.set(email, creator.username);
+          console.log(`✅ Found username for ${email}: ${creator.username}`);
+        } else {
+          console.log(`⚠️ No username found for email: ${email}`);
+          emailToUsernameMap.set(email, null);
+        }
+      } catch (error) {
+        console.error(`❌ Error fetching username for ${email}:`, error.message);
+        emailToUsernameMap.set(email, null);
+      }
+    }
+
+    // Transform orders to include orderType (bought/sold) and usernames
     const transformedOrders = orders.map(order => ({
       ...order,
-      orderType: order.buyerEmail === userEmail ? 'bought' : 'sold'
+      orderType: order.buyerEmail === userEmail ? 'bought' : 'sold',
+      buyerUsername: emailToUsernameMap.get(order.buyerEmail) || null,
+      sellerUsername: emailToUsernameMap.get(order.sellerEmail) || null
     }));
 
     res.json({
