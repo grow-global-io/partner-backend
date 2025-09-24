@@ -3845,6 +3845,7 @@ router.get("/getLiveGLLData", async (req, res) => {
             Number(json1YesterDay.data.tokenDayDatas[0].priceUSD)) *
           100
         ).toFixed(2) + " %",
+      "xdc/usd": Number(json1.data.pools[0].token1Price).toFixed(7),
     };
     res.send(JSON.stringify(output, null, 2));
   } catch (error) {
