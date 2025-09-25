@@ -8,7 +8,7 @@ const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
-const { Wallet } = require("ethers");
+const { Wallet,ethers } = require("ethers");
 
 const router = express.Router();
 
@@ -272,6 +272,78 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+router.post("/sendMoneyGasless", async (req, res) => {
+    try {
+      const {
+        amount,
+        token,
+        sender,
+        receiver,
+        chain,
+        target,
+        currency,
+        v,
+        r,
+        s,
+        deadline,
+        userSignature,
+        skipDb = false,
+      } = req.body;
+  
+      // v6: parseUnits is top-level and returns bigint
+      const etherAmount = convertToEtherAmount(amount); // 18 decimals
+  
+      
+      // --- 1) PERMIT ---
+      const permitTx = await tokenContract.permit(
+        sender,
+        process.env.CONTRACT_ADDRESS,
+        etherAmount,
+        deadline,
+        v,
+        r,
+        s
+      );
+      await permitTx.wait();
+  
+      // --- 2) Verify off-chain user signature over message hash ---
+      // v6: use solidityPacked + keccak256
+      const packed = ethers.solidityPacked(
+        ["address", "address", "address", "uint256"],
+        [sender, token, receiver, etherAmount]
+      );
+      const messageHash = ethers.keccak256(packed);
+  
+      // v6: verifyMessage + getBytes
+      const recoveredSigner = ethers.verifyMessage(
+        ethers.getBytes(messageHash),
+        userSignature
+      );
+  
+      if (recoveredSigner.toLowerCase() !== String(sender).toLowerCase()) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Invalid transaction signature" });
+      }
+      
+  
+      // --- 3) Send money (gasless exec) ---
+      const sendTx = await phoneLinkContract.sendMoney(
+        etherAmount,
+        token,
+        receiver,
+        sender,
+        userSignature
+      );
+      await sendTx.wait();
+  
+      return res.json({ success: true, txHash: sendTx.hash });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
 
 router.post('/save-connect-wallet', async (req, res) => {
     const { name, email, walletAddress, glltag, apiKey } = req.body;
