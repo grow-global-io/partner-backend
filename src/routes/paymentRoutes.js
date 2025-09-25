@@ -593,10 +593,11 @@ router.post("/purchase-plan", async (req, res) => {
         ...metadata,
         walletId,
         noOfDocs: noOfDocs.toString(),
+        currency: "USD",
       },
       apiKey: "growinvoice",
     };
-
+    console.log("paymentPayload", paymentPayload);
     // Call payment gateway with proper headers
     const response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
       headers: {
