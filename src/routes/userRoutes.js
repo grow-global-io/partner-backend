@@ -12,6 +12,15 @@ const { Wallet,ethers } = require("ethers");
 
 const router = express.Router();
 
+
+const sendMoneyLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 1000, // limit each IP to 1000 requests per windowMs
+    message: {
+        success: false,
+        message: "Too many send money requests, please try again later."
+    },
+});
 // Rate limiters for creator posts endpoints
 const createPostLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -273,7 +282,7 @@ router.post('/save-connect-wallet-creator', async (req, res) => {
     }
 });
 
-router.post("/sendMoneyGasless", async (req, res) => {
+router.post("/sendMoneyGasless",sendMoneyLimiter, async (req, res) => {
     try {
       const {
         amount,
