@@ -8084,4 +8084,317 @@ router.post('/game-scores/bulk-submit', gameScoreLimiter, async (req, res) => {
     }
 });
 
+// ==================== PAYOUT ROUTES ====================
+
+// POST /payouts - Create new payout record
+router.post('/payouts', async (req, res) => {
+    try {
+        const {
+            amount,
+            token,
+            sender,
+            receiver,
+            chain,
+            target,
+            currency,
+            v,
+            r,
+            s,
+            deadline,
+            userSignature,
+            txHash
+        } = req.body;
+
+        // Validate required fields
+        if (!amount || !sender || !receiver || !txHash) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: amount, sender, receiver, txHash'
+            });
+        }
+
+        // Look up sender and receiver emails from User table
+        let senderEmail = null;
+        let receiverEmail = null;
+
+        try {
+            // Find sender user by wallet address
+            const senderUser = await prisma.user.findFirst({
+                where: { walletAddress: sender },
+                select: { email: true }
+            });
+            if (senderUser) {
+                senderEmail = senderUser.email;
+            }
+
+            // Find receiver user by wallet address
+            const receiverUser = await prisma.user.findFirst({
+                where: { walletAddress: receiver },
+                select: { email: true }
+            });
+            if (receiverUser) {
+                receiverEmail = receiverUser.email;
+            }
+        } catch (emailLookupError) {
+            console.warn('Email lookup failed:', emailLookupError.message);
+            // Continue without failing the payout creation
+        }
+
+        // Create payout record
+        const payout = await prisma.payout.create({
+            data: {
+                amount: parseFloat(amount),
+                tokenAddress: token || '0x0000000000000000000000000000000000000000', // Default to native token
+                senderAddress: sender,
+                receiverAddress: receiver,
+                chainId: parseInt(chain) || 50, // Default to XDC chain
+                targetAddress: target || receiver,
+                currency: currency || 'XDC',
+                senderEmail: senderEmail,
+                receiverEmail: receiverEmail,
+                v: v ? parseInt(v) : null,
+                r: r || null,
+                s: s || null,
+                deadline: deadline || null,
+                userSignature: userSignature || null,
+                transactionHash: txHash,
+                status: 'completed'
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Payout recorded successfully',
+            data: payout
+        });
+
+    } catch (error) {
+        console.error('Error creating payout:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /payouts - Fetch payouts with filtering
+router.get('/payouts', async (req, res) => {
+    try {
+        const { email, type, page = 1, limit = 10 } = req.query;
+        
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const take = parseInt(limit);
+
+        // Build where clause based on type and email
+        let whereClause = {};
+        
+        if (email) {
+            if (type === 'sent') {
+                whereClause.senderEmail = email;
+            } else if (type === 'received') {
+                whereClause.receiverEmail = email;
+            } else {
+                // If no type specified, show both sent and received
+                whereClause.OR = [
+                    { senderEmail: email },
+                    { receiverEmail: email }
+                ];
+            }
+        }
+
+        // Fetch payouts
+        const [payouts, total] = await Promise.all([
+            prisma.payout.findMany({
+                where: whereClause,
+                skip: skip,
+                take: take,
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            prisma.payout.count({
+                where: whereClause
+            })
+        ]);
+
+        res.json({
+            success: true,
+            data: payouts,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching payouts:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /payouts/:id - Get specific payout by ID
+router.get('/payouts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const payout = await prisma.payout.findUnique({
+            where: { id: id }
+        });
+
+        if (!payout) {
+            return res.status(404).json({
+                success: false,
+                message: 'Payout not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: payout
+        });
+
+    } catch (error) {
+        console.error('Error fetching payout:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /payouts/transaction/:txHash - Get payout by transaction hash
+router.get('/payouts/transaction/:txHash', async (req, res) => {
+    try {
+        const { txHash } = req.params;
+
+        const payout = await prisma.payout.findUnique({
+            where: { transactionHash: txHash }
+        });
+
+        if (!payout) {
+            return res.status(404).json({
+                success: false,
+                message: 'Payout not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: payout
+        });
+
+    } catch (error) {
+        console.error('Error fetching payout by transaction hash:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /payouts/email/:email - Get all payouts for a specific email
+router.get('/payouts/email/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const { type, page = 1, limit = 10 } = req.query;
+
+        // Validate email parameter
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email parameter is required'
+            });
+        }
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const take = parseInt(limit);
+
+        // Build where clause based on type
+        let whereClause = {};
+        
+        if (type === 'sent') {
+            whereClause.senderEmail = email;
+        } else if (type === 'received') {
+            whereClause.receiverEmail = email;
+        } else {
+            // If no type specified, show both sent and received
+            whereClause.OR = [
+                { senderEmail: email },
+                { receiverEmail: email }
+            ];
+        }
+
+        // Fetch payouts for the email
+        const [payouts, total] = await Promise.all([
+            prisma.payout.findMany({
+                where: whereClause,
+                skip: skip,
+                take: take,
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            prisma.payout.count({
+                where: whereClause
+            })
+        ]);
+
+        // Calculate summary statistics
+        const sentPayouts = await prisma.payout.count({
+            where: { senderEmail: email }
+        });
+
+        const receivedPayouts = await prisma.payout.count({
+            where: { receiverEmail: email }
+        });
+
+        const totalSentAmount = await prisma.payout.aggregate({
+            where: { senderEmail: email },
+            _sum: { amount: true }
+        });
+
+        const totalReceivedAmount = await prisma.payout.aggregate({
+            where: { receiverEmail: email },
+            _sum: { amount: true }
+        });
+
+        res.json({
+            success: true,
+            data: payouts,
+            summary: {
+                totalSent: sentPayouts,
+                totalReceived: receivedPayouts,
+                totalSentAmount: totalSentAmount._sum.amount || 0,
+                totalReceivedAmount: totalReceivedAmount._sum.amount || 0,
+                netAmount: (totalReceivedAmount._sum.amount || 0) - (totalSentAmount._sum.amount || 0)
+            },
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching payouts by email:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;

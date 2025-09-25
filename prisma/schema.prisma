@@ -757,3 +757,43 @@ model LeadsCampaign {
   @@index([campaignId])
   @@map("leads-campaign")
 }
+
+// Payout model for tracking all transactions
+model Payout {
+  id              String @id @default(auto()) @map("_id") @db.ObjectId
+  amount          Float // Transaction amount
+  tokenAddress    String // Token contract address (0x0000... for native)
+  senderAddress   String // Sender wallet address
+  receiverAddress String // Receiver wallet address
+  chainId         Int // Blockchain chain ID (50 for XDC)
+  targetAddress   String // Target address (usually same as receiver)
+  currency        String // Currency symbol (GLL, XDC, etc.)
+
+  // Email fields for sender and receiver
+  senderEmail   String? // Email of the sender (looked up from User table)
+  receiverEmail String? // Email of the receiver (looked up from User table)
+
+  // Permit signature fields (for ERC20 transactions)
+  v        Int? // Signature v component
+  r        String? // Signature r component
+  s        String? // Signature s component
+  deadline String? // Permit deadline
+
+  // Transaction details
+  userSignature   String? // User signature
+  transactionHash String  @unique // Blockchain transaction hash
+  status          String  @default("completed") // Transaction status
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes for better query performance
+  @@index([senderAddress])
+  @@index([receiverAddress])
+  @@index([createdAt])
+  @@index([chainId])
+  @@index([senderEmail])
+  @@index([receiverEmail])
+  @@map("payouts")
+}
