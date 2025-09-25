@@ -7636,7 +7636,7 @@ router.get("/orders/stats/:userEmail", async (req, res) => {
 // ==================== GAME HIGH SCORES ROUTES ====================
 
 // Supported games and validation constants
-const SUPPORTED_GAMES = ["flappy-bird", "chrome-dinosaur"];
+const SUPPORTED_GAMES = ["flappy-bird", "chrome-dinosaur", "car-racing"];
 const MAX_SCORE = 999999;
 
 // Secure email validation function to prevent ReDoS attacks
