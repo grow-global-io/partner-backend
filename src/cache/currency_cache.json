@@ -1,17 +1,1 @@
-{
-  "USD_INR": {
-    "from": "USD",
-    "to": "INR",
-    "exchangeRate": 88.7745,
-    "timestamp": "2025-09-23T18:57:36.340Z",
-    "rawResponse": {
-      "base": "USD",
-      "to": "INR",
-      "amount": 1,
-      "converted": 88.7745,
-      "rate": 88.7745,
-      "lastUpdate": 1758585600
-    },
-    "cached": true
-  }
-}
+{}
