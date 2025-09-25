@@ -8397,4 +8397,398 @@ router.get('/payouts/email/:email', async (req, res) => {
     }
 });
 
+// ==================== REDEEM GLL ROUTES ====================
+
+// POST /redeem-gll-requests - Create new redeem request
+router.post('/redeem-gll-requests', async (req, res) => {
+    try {
+        const { 
+            contactNumber, 
+            upiAddress, 
+            redeemAmount, 
+            userEmail,
+            userWalletAddress,
+            timestamp 
+        } = req.body;
+
+        // Validation
+        if (!contactNumber || !redeemAmount) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required fields: contactNumber, redeemAmount'
+            });
+        }
+
+        if (redeemAmount < 500) {
+            return res.status(400).json({
+                success: false,
+                message: 'Minimum redeem amount is 500 GLL'
+            });
+        }
+
+        // Validate UPI address format if provided (basic validation)
+        if (upiAddress && !upiAddress.includes('@') && !upiAddress.includes('.')) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid UPI address format'
+            });
+        }
+
+        // Validate contact number (basic validation)
+        if (contactNumber.length < 10) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid contact number'
+            });
+        }
+
+        // Validate wallet address format if provided (basic validation)
+        if (userWalletAddress && !userWalletAddress.startsWith('0x') && userWalletAddress.length !== 42) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid wallet address format'
+            });
+        }
+
+        // Create redeem request
+        const redeemRequest = await prisma.redeemGllRequest.create({
+            data: {
+                contactNumber,
+                upiAddress: upiAddress || null,
+                redeemAmount: parseFloat(redeemAmount),
+                status: 'pending',
+                userEmail: userEmail || null,
+                userWalletAddress: userWalletAddress || null,
+                createdAt: timestamp ? new Date(timestamp) : new Date()
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Redeem request submitted successfully',
+            data: {
+                id: redeemRequest.id,
+                status: redeemRequest.status,
+                redeemAmount: redeemRequest.redeemAmount,
+                createdAt: redeemRequest.createdAt
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating redeem request:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /redeem-gll-requests - Get redeem requests (with filtering)
+router.get('/redeem-gll-requests', async (req, res) => {
+    try {
+        const { 
+            userEmail, 
+            userWalletAddress,
+            status, 
+            page = 1, 
+            limit = 10 
+        } = req.query;
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const take = parseInt(limit);
+
+        // Build where clause
+        let whereClause = {};
+        
+        if (userEmail) {
+            whereClause.userEmail = userEmail;
+        }
+        
+        if (userWalletAddress) {
+            whereClause.userWalletAddress = userWalletAddress;
+        }
+        
+        if (status) {
+            whereClause.status = status;
+        }
+
+        // Fetch redeem requests
+        const [requests, total] = await Promise.all([
+            prisma.redeemGllRequest.findMany({
+                where: whereClause,
+                skip: skip,
+                take: take,
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            prisma.redeemGllRequest.count({
+                where: whereClause
+            })
+        ]);
+
+        res.json({
+            success: true,
+            data: requests,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching redeem requests:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /redeem-gll-requests/:id - Get specific redeem request by ID
+router.get('/redeem-gll-requests/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const request = await prisma.redeemGllRequest.findUnique({
+            where: { id: id }
+        });
+
+        if (!request) {
+            return res.status(404).json({
+                success: false,
+                message: 'Redeem request not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: request
+        });
+
+    } catch (error) {
+        console.error('Error fetching redeem request:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// PUT /redeem-gll-requests/:id/status - Update redeem request status (Admin)
+router.put('/redeem-gll-requests/:id/status', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+
+        // Validate status
+        const validStatuses = ['pending', 'processing', 'completed', 'rejected'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid status. Must be one of: ' + validStatuses.join(', ')
+            });
+        }
+
+        // Check if request exists
+        const existingRequest = await prisma.redeemGllRequest.findUnique({
+            where: { id: id }
+        });
+
+        if (!existingRequest) {
+            return res.status(404).json({
+                success: false,
+                message: 'Redeem request not found'
+            });
+        }
+
+        // Update request
+        const updatedRequest = await prisma.redeemGllRequest.update({
+            where: { id: id },
+            data: {
+                status: status,
+                notes: notes || existingRequest.notes,
+                processedAt: status === 'completed' || status === 'rejected' ? new Date() : existingRequest.processedAt
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Redeem request status updated successfully',
+            data: updatedRequest
+        });
+
+    } catch (error) {
+        console.error('Error updating redeem request status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /redeem-gll-requests/wallet/:walletAddress - Get redeem requests by wallet address
+router.get('/redeem-gll-requests/wallet/:walletAddress', async (req, res) => {
+    try {
+        const { walletAddress } = req.params;
+        const { status, page = 1, limit = 10 } = req.query;
+
+        // Validate wallet address parameter
+        if (!walletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Wallet address parameter is required'
+            });
+        }
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const take = parseInt(limit);
+
+        // Build where clause
+        let whereClause = {
+            userWalletAddress: walletAddress
+        };
+        
+        if (status) {
+            whereClause.status = status;
+        }
+
+        // Fetch redeem requests for the wallet address
+        const [requests, total] = await Promise.all([
+            prisma.redeemGllRequest.findMany({
+                where: whereClause,
+                skip: skip,
+                take: take,
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }),
+            prisma.redeemGllRequest.count({
+                where: whereClause
+            })
+        ]);
+
+        // Calculate summary statistics for this wallet
+        const [
+            totalRequests,
+            pendingRequests,
+            completedRequests,
+            totalAmount,
+            completedAmount
+        ] = await Promise.all([
+            prisma.redeemGllRequest.count({
+                where: { userWalletAddress: walletAddress }
+            }),
+            prisma.redeemGllRequest.count({
+                where: { 
+                    userWalletAddress: walletAddress,
+                    status: 'pending'
+                }
+            }),
+            prisma.redeemGllRequest.count({
+                where: { 
+                    userWalletAddress: walletAddress,
+                    status: 'completed'
+                }
+            }),
+            prisma.redeemGllRequest.aggregate({
+                where: { userWalletAddress: walletAddress },
+                _sum: { redeemAmount: true }
+            }),
+            prisma.redeemGllRequest.aggregate({
+                where: { 
+                    userWalletAddress: walletAddress,
+                    status: 'completed'
+                },
+                _sum: { redeemAmount: true }
+            })
+        ]);
+
+        res.json({
+            success: true,
+            data: requests,
+            summary: {
+                totalRequests,
+                pendingRequests,
+                completedRequests,
+                totalAmount: totalAmount._sum.redeemAmount || 0,
+                completedAmount: completedAmount._sum.redeemAmount || 0,
+                pendingAmount: (totalAmount._sum.redeemAmount || 0) - (completedAmount._sum.redeemAmount || 0)
+            },
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching redeem requests by wallet address:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// GET /redeem-gll-requests/stats - Get redeem request statistics (Admin)
+router.get('/redeem-gll-requests/stats', async (req, res) => {
+    try {
+        const [
+            totalRequests,
+            pendingRequests,
+            processingRequests,
+            completedRequests,
+            rejectedRequests,
+            totalAmount,
+            completedAmount
+        ] = await Promise.all([
+            prisma.redeemGllRequest.count(),
+            prisma.redeemGllRequest.count({ where: { status: 'pending' } }),
+            prisma.redeemGllRequest.count({ where: { status: 'processing' } }),
+            prisma.redeemGllRequest.count({ where: { status: 'completed' } }),
+            prisma.redeemGllRequest.count({ where: { status: 'rejected' } }),
+            prisma.redeemGllRequest.aggregate({
+                _sum: { redeemAmount: true }
+            }),
+            prisma.redeemGllRequest.aggregate({
+                where: { status: 'completed' },
+                _sum: { redeemAmount: true }
+            })
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                totalRequests,
+                pendingRequests,
+                processingRequests,
+                completedRequests,
+                rejectedRequests,
+                totalAmount: totalAmount._sum.redeemAmount || 0,
+                completedAmount: completedAmount._sum.redeemAmount || 0,
+                pendingAmount: (totalAmount._sum.redeemAmount || 0) - (completedAmount._sum.redeemAmount || 0)
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching redeem request stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
