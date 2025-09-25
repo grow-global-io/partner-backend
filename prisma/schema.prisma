@@ -797,3 +797,26 @@ model Payout {
   @@index([receiverEmail])
   @@map("payouts")
 }
+
+// Redeem GLL Request model
+model RedeemGllRequest {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  contactNumber     String    @map("contact_number")
+  upiAddress        String?   @map("upi_address")
+  redeemAmount      Float     @map("redeem_amount")
+  userEmail         String?   @map("user_email")
+  userWalletAddress String?   @map("user_wallet_address")
+  status            String    @default("pending") // pending, processing, completed, rejected
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  processedAt       DateTime? @map("processed_at")
+  notes             String? // Admin notes
+
+  // Indexes for better query performance
+  @@index([status])
+  @@index([userEmail])
+  @@index([userWalletAddress])
+  @@index([createdAt])
+  @@index([contactNumber])
+  @@map("redeem_gll_requests")
+}
