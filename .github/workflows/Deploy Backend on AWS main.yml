@@ -84,7 +84,6 @@ jobs:
             --build-arg CREATOR_TASK5_REWARD=$CREATOR_TASK5_REWARD \
             --build-arg BASE_URL=$BASE_URL \
             --build-arg GAME_SWITCH=$GAME_SWITCH \
-            --build-arg GOOGLE_SERVICE_ACCOUNT_KEY=$GOOGLE_SERVICE_ACCOUNT_KEY \
             --build-arg GOOGLE_SHEETS_REWARDS_ID=$GOOGLE_SHEETS_REWARDS_ID \
             -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
 
@@ -127,7 +126,6 @@ jobs:
           CREATOR_TASK5_REWARD: ${{ secrets.CREATOR_TASK5_REWARD }}
           BASE_URL: ${{ secrets.BASE_URL }}
           GAME_SWITCH: ${{ secrets.GAME_SWITCH }}
-          GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GOOGLE_SHEETS_REWARDS_ID: ${{ secrets.GOOGLE_SHEETS_REWARDS_ID }}
       - name: Docker Tag
         run: docker tag ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} ${{ env.REPOSITORY_URI }}:${{ env.IMAGE_TAG }}
