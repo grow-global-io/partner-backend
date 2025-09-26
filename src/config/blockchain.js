@@ -62,11 +62,20 @@ const getContractBalance = async () => {
         throw new Error(`Error getting contract balance: ${error.message}`);
     }
 };
+const getContractXDCBalance = async () => {
+    try {
+        const balance = await provider.getBalance(process.env.CONTRACT_ADDRESS);
+        return formatUnits(balance, 'ether');
+    } catch (error) {
+        throw new Error(`Error getting contract XDC balance: ${error.message}`);
+    }
+};
 
 module.exports = {
     tokenContract,
     phoneLinkContract,
     convertToEtherAmount,
     getMyBalance,
-    getContractBalance
+    getContractBalance,
+    getContractXDCBalance
 }

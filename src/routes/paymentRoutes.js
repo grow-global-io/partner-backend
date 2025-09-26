@@ -9,7 +9,7 @@ const axios = require("axios");
 const prisma = require("../config/db");
 const fs = require("fs");
 const path = require("path");
-const { getMyBalance } = require("../config/blockchain");
+const { getMyBalance, getContractBalance, getContractXDCBalance } = require("../config/blockchain");
 
 const router = express.Router();
 
@@ -593,11 +593,10 @@ router.post("/purchase-plan", async (req, res) => {
         ...metadata,
         walletId,
         noOfDocs: noOfDocs.toString(),
-        currency: "usd",
       },
       apiKey: "growinvoice",
     };
-    console.log("paymentPayload", paymentPayload);
+
     // Call payment gateway with proper headers
     const response = await axios.post(PAYMENT_GATEWAY_URL, paymentPayload, {
       headers: {
@@ -3457,10 +3456,9 @@ router.post("/gateway/product-purchase", async (req, res) => {
       },
       apiKey: seller.apiKey,
     };
-    // console.log("paymentPayload", paymentPayload.line_items[0].price_data);
 
     // Log the full success URL for debugging
-    // console.log("🔗 Success URL being sent:", paymentPayload);
+    // console.log("🔗 Success URL being sent:", paymentPayload.success_url);
 
     // Try with seller's apiKey first, fallback to working apiKey if it fails
     let response;
@@ -3790,6 +3788,20 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
     );
   }
 });
+
+router.get("/geContractBalance", async (req, res) => {
+  try {
+    const balanceGLL = await getContractBalance();
+    const balanceXDC = await getContractXDCBalance();
+    res.send({balanceGLL, balanceXDC});
+  } catch (error) {
+    console.error("Contract balance query error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to retrieve contract balance",
+    });
+  }
+})
 
 router.get("/getLiveGLLData", async (req, res) => {
   try {
