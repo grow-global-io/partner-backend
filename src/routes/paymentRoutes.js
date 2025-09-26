@@ -593,7 +593,7 @@ router.post("/purchase-plan", async (req, res) => {
         ...metadata,
         walletId,
         noOfDocs: noOfDocs.toString(),
-        currency: "USD",
+        currency: "usd",
       },
       apiKey: "growinvoice",
     };
@@ -3457,9 +3457,10 @@ router.post("/gateway/product-purchase", async (req, res) => {
       },
       apiKey: seller.apiKey,
     };
+    // console.log("paymentPayload", paymentPayload.line_items[0].price_data);
 
     // Log the full success URL for debugging
-    // console.log("🔗 Success URL being sent:", paymentPayload.success_url);
+    // console.log("🔗 Success URL being sent:", paymentPayload);
 
     // Try with seller's apiKey first, fallback to working apiKey if it fails
     let response;
