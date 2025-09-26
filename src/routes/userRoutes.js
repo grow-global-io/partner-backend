@@ -9,6 +9,8 @@ const rateLimit = require('express-rate-limit');
 const { phoneLinkContract, tokenContract, convertToEtherAmount, getMyBalance } = require('../config/blockchain');
 const { encryptJSON} = require('../config/encrypt')
 const { Wallet,ethers } = require("ethers");
+const { google } = require('googleapis');
+const cron = require('node-cron');
 
 const router = express.Router();
 
@@ -8786,6 +8788,543 @@ router.get('/redeem-gll-requests/stats', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Internal server error',
+            error: error.message
+        });
+    }
+});
+
+// ==================== WEEKLY GAME REWARDS SYSTEM ====================
+
+// Google Sheets configuration for weekly rewards
+const GOOGLE_SHEETS_REWARDS_ID = '1kJTEP0ahWee4RMBP4Ji0JnJLHm9jy_sJRkqjakF1FkE';
+const WEEKLY_REWARD_AMOUNT = 1000; // 1000 GLL tokens
+const GAME_SWITCH = process.env.GAME_SWITCH === 'true'; // Controls if GLL is actually sent
+
+// Initialize Google Sheets API
+async function initializeGoogleSheets() {
+    try {
+        const auth = new google.auth.GoogleAuth({
+            keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, // Path to service account key file
+            scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+
+        const sheets = google.sheets({ version: 'v4', auth });
+        return sheets;
+    } catch (error) {
+        console.error('Error initializing Google Sheets:', error);
+        throw error;
+    }
+}
+
+// Function to get weekly leaderboard winners for all games
+async function getWeeklyLeaderboardWinners() {
+    try {
+        const winners = [];
+        
+        for (const gameName of SUPPORTED_GAMES) {
+            // Get the top player for this game
+            const leaderboard = await getGameLeaderboard(gameName, 1);
+            
+            if (leaderboard.success && leaderboard.data.leaderboard.length > 0) {
+                const winner = leaderboard.data.leaderboard[0];
+                
+                // Get user details from database
+                const user = await prisma.user.findUnique({
+                    where: { email: winner.playerEmail },
+                    select: {
+                        email: true,
+                        walletAddress: true,
+                        name: true
+                    }
+                });
+
+                if (user && user.walletAddress) {
+                    winners.push({
+                        gameName: gameName,
+                        playerEmail: winner.playerEmail,
+                        playerName: winner.playerName,
+                        highScore: winner.score,
+                        walletAddress: user.walletAddress,
+                        name: user.name,
+                        timestamp: winner.timestamp,
+                        date: winner.date
+                    });
+                }
+            }
+        }
+        
+        return winners;
+    } catch (error) {
+        console.error('Error getting weekly leaderboard winners:', error);
+        throw error;
+    }
+}
+
+// Function to transfer GLL tokens to winners
+async function transferGLLToWinners(winners) {
+    const transferResults = [];
+    const currentWeekStart = getWeekStartDate(new Date());
+    
+    for (const winner of winners) {
+        try {
+            let transactionHash = null;
+            let transferSuccess = false;
+            let transferError = null;
+            
+            if (GAME_SWITCH && process.env.SWITCH === 'true') {
+                // Transfer GLL tokens via blockchain (GAME_SWITCH is true)
+                const sendTx = await phoneLinkContract.getGLL(
+                    convertToEtherAmount(WEEKLY_REWARD_AMOUNT.toString()),
+                    winner.walletAddress
+                );
+                
+                await sendTx.wait();
+                transactionHash = sendTx.hash;
+                transferSuccess = true;
+                
+                // Update user's GLL balance in database
+                await prisma.user.update({
+                    where: { email: winner.playerEmail },
+                    data: {
+                        gllBalance: {
+                            increment: WEEKLY_REWARD_AMOUNT
+                        }
+                    }
+                });
+                
+                console.log(`✅ Weekly reward sent to ${winner.playerEmail} for ${winner.gameName}: ${sendTx.hash}`);
+            } else if (GAME_SWITCH && process.env.SWITCH !== 'true') {
+                // GAME_SWITCH is true but blockchain is disabled
+                await prisma.user.update({
+                    where: { email: winner.playerEmail },
+                    data: {
+                        gllBalance: {
+                            increment: WEEKLY_REWARD_AMOUNT
+                        }
+                    }
+                });
+                
+                transactionHash = 'BLOCKCHAIN_DISABLED';
+                transferSuccess = true;
+                
+                console.log(`✅ Weekly reward (database only) sent to ${winner.playerEmail} for ${winner.gameName}`);
+            } else {
+                // GAME_SWITCH is false - record with 0 GLL
+                transactionHash = 'GAME_SWITCH_DISABLED';
+                transferSuccess = true;
+                
+                console.log(`📝 Weekly reward recorded (0 GLL) for ${winner.playerEmail} for ${winner.gameName} - GAME_SWITCH disabled`);
+            }
+            
+            // Determine actual reward amount based on GAME_SWITCH
+            const actualRewardAmount = GAME_SWITCH ? WEEKLY_REWARD_AMOUNT : 0;
+            
+            // Save reward record to database
+            const rewardRecord = await prisma.weeklyGameReward.create({
+                data: {
+                    playerEmail: winner.playerEmail,
+                    playerName: winner.playerName,
+                    walletAddress: winner.walletAddress,
+                    gameName: winner.gameName,
+                    highScore: winner.highScore,
+                    rewardAmount: actualRewardAmount,
+                    transactionHash: transactionHash,
+                    transferSuccess: transferSuccess,
+                    transferError: transferError,
+                    weekStartDate: currentWeekStart
+                }
+            });
+            
+            transferResults.push({
+                ...winner,
+                rewardId: rewardRecord.id,
+                transactionHash: transactionHash,
+                rewardAmount: actualRewardAmount,
+                transferSuccess: transferSuccess,
+                transferError: transferError,
+                transferTime: new Date().toISOString()
+            });
+            
+        } catch (error) {
+            console.error(`❌ Failed to transfer GLL to ${winner.playerEmail} for ${winner.gameName}:`, error);
+            
+            // Save failed reward record to database
+            try {
+                const actualRewardAmount = GAME_SWITCH ? WEEKLY_REWARD_AMOUNT : 0;
+                
+                const rewardRecord = await prisma.weeklyGameReward.create({
+                    data: {
+                        playerEmail: winner.playerEmail,
+                        playerName: winner.playerName,
+                        walletAddress: winner.walletAddress,
+                        gameName: winner.gameName,
+                        highScore: winner.highScore,
+                        rewardAmount: actualRewardAmount,
+                        transactionHash: null,
+                        transferSuccess: false,
+                        transferError: error.message,
+                        weekStartDate: currentWeekStart
+                    }
+                });
+                
+                transferResults.push({
+                    ...winner,
+                    rewardId: rewardRecord.id,
+                    transactionHash: null,
+                    rewardAmount: actualRewardAmount,
+                    transferSuccess: false,
+                    transferError: error.message,
+                    transferTime: new Date().toISOString()
+                });
+            } catch (dbError) {
+                console.error('❌ Failed to save reward record to database:', dbError);
+                const actualRewardAmount = GAME_SWITCH ? WEEKLY_REWARD_AMOUNT : 0;
+                
+                transferResults.push({
+                    ...winner,
+                    rewardId: null,
+                    transactionHash: null,
+                    rewardAmount: actualRewardAmount,
+                    transferSuccess: false,
+                    transferError: error.message,
+                    transferTime: new Date().toISOString()
+                });
+            }
+        }
+    }
+    
+    return transferResults;
+}
+
+// Helper function to get the start date of the current week (Monday)
+function getWeekStartDate(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+    const monday = new Date(d.setDate(diff));
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+}
+
+// Function to record rewards in Google Sheets
+async function recordRewardsInGoogleSheets(rewardResults) {
+    try {
+        const sheets = await initializeGoogleSheets();
+        
+        // Prepare data for Google Sheets
+        const values = rewardResults.map(result => [
+            result.playerEmail,
+            result.walletAddress,
+            result.transactionHash || 'FAILED',
+            result.name || result.playerName,
+            '', // username field (not available in User model)
+            result.transferTime,
+            new Date().toLocaleDateString(),
+            result.gameName,
+            result.highScore,
+            result.rewardAmount,
+            result.transferSuccess ? 'SUCCESS' : 'FAILED',
+            result.transferError || ''
+        ]);
+        
+        // Add header row if this is the first entry
+        const headerRow = [
+            'Email',
+            'Wallet Address',
+            'Transaction Hash',
+            'Name',
+            'Username',
+            'Time',
+            'Date',
+            'Game Name',
+            'High Score',
+            'Reward Amount (GLL)',
+            'Status',
+            'Error Message'
+        ];
+        
+        // Check if sheet has data, if not add header
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: GOOGLE_SHEETS_REWARDS_ID,
+            range: 'A1:L1'
+        });
+        
+        if (!response.data.values || response.data.values.length === 0) {
+            // Add header row
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: GOOGLE_SHEETS_REWARDS_ID,
+                range: 'A1:L1',
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [headerRow]
+                }
+            });
+        }
+        
+        // Append reward data
+        await sheets.spreadsheets.values.append({
+            spreadsheetId: GOOGLE_SHEETS_REWARDS_ID,
+            range: 'A:L',
+            valueInputOption: 'RAW',
+            resource: {
+                values: values
+            }
+        });
+        
+        console.log(`✅ Recorded ${rewardResults.length} weekly rewards in Google Sheets`);
+        return true;
+    } catch (error) {
+        console.error('❌ Error recording rewards in Google Sheets:', error);
+        return false;
+    }
+}
+
+// Main function to process weekly rewards
+async function processWeeklyRewards() {
+    try {
+        console.log('🎮 Starting weekly game rewards process...');
+        console.log(`🔧 GAME_SWITCH: ${GAME_SWITCH ? 'ENABLED' : 'DISABLED'} (${GAME_SWITCH ? 'GLL will be sent' : '0 GLL will be recorded'})`);
+        console.log(`🔧 BLOCKCHAIN_SWITCH: ${process.env.SWITCH === 'true' ? 'ENABLED' : 'DISABLED'}`);
+        
+        // Get current week's winners
+        const winners = await getWeeklyLeaderboardWinners();
+        
+        if (winners.length === 0) {
+            console.log('ℹ️ No winners found for this week');
+            return {
+                success: true,
+                message: 'No winners found for this week',
+                winners: []
+            };
+        }
+        
+        console.log(`🏆 Found ${winners.length} weekly winners:`, winners.map(w => `${w.playerEmail} (${w.gameName})`));
+        
+        // Transfer GLL tokens to winners
+        const transferResults = await transferGLLToWinners(winners);
+        
+        // Record in Google Sheets
+        const sheetRecorded = await recordRewardsInGoogleSheets(transferResults);
+        
+        const successCount = transferResults.filter(r => r.transferSuccess).length;
+        const failCount = transferResults.filter(r => !r.transferSuccess).length;
+        
+        console.log(`✅ Weekly rewards completed: ${successCount} successful, ${failCount} failed`);
+        
+        return {
+            success: true,
+            message: `Weekly rewards processed: ${successCount} successful, ${failCount} failed`,
+            winners: transferResults,
+            sheetRecorded: sheetRecorded
+        };
+    } catch (error) {
+        console.error('❌ Error processing weekly rewards:', error);
+        return {
+            success: false,
+            message: 'Failed to process weekly rewards',
+            error: error.message
+        };
+    }
+}
+
+// Schedule weekly rewards to run every Monday at 9:00 AM
+cron.schedule('0 9 * * 1', async () => {
+    console.log('⏰ Weekly rewards cron job triggered');
+    const result = await processWeeklyRewards();
+    console.log('📊 Weekly rewards result:', result);
+}, {
+    timezone: "UTC"
+});
+
+// Manual trigger endpoint for testing
+router.post('/weekly-rewards/trigger', async (req, res) => {
+    try {
+        console.log('🎮 Manual weekly rewards trigger requested');
+        const result = await processWeeklyRewards();
+        
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: {
+                winners: result.winners,
+                sheetRecorded: result.sheetRecorded,
+                timestamp: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('Error in manual weekly rewards trigger:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to process weekly rewards',
+            error: error.message
+        });
+    }
+});
+
+// Get weekly rewards history
+router.get('/weekly-rewards/history', async (req, res) => {
+    try {
+        const { page = 1, limit = 10, gameName, playerEmail, weekStartDate } = req.query;
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const take = parseInt(limit);
+        
+        // Build where clause for filtering
+        const whereClause = {};
+        
+        if (gameName) {
+            whereClause.gameName = gameName;
+        }
+        
+        if (playerEmail) {
+            whereClause.playerEmail = playerEmail;
+        }
+        
+        if (weekStartDate) {
+            whereClause.weekStartDate = new Date(weekStartDate);
+        }
+        
+        // Get total count
+        const total = await prisma.weeklyGameReward.count({
+            where: whereClause
+        });
+        
+        // Get rewards with pagination
+        const rewards = await prisma.weeklyGameReward.findMany({
+            where: whereClause,
+            orderBy: { createdAt: 'desc' },
+            skip: skip,
+            take: take
+        });
+        
+        // Format dates and serialize BigInt values
+        const serializedRewards = rewards.map(reward => {
+            const createdAt = new Date(reward.createdAt);
+            const weekStartDate = new Date(reward.weekStartDate);
+            
+            return {
+                ...serializeBigInt(reward),
+                formattedDate: createdAt.toLocaleDateString(),
+                formattedTime: createdAt.toLocaleTimeString(),
+                formattedDateTime: createdAt.toLocaleString(),
+                weekStartDateFormatted: weekStartDate.toLocaleDateString(),
+                createdAtISO: createdAt.toISOString(),
+                weekStartDateISO: weekStartDate.toISOString()
+            };
+        });
+        
+        res.json({
+            success: true,
+            message: 'Weekly rewards history retrieved successfully',
+            data: {
+                page: parseInt(page),
+                limit: take,
+                total: total,
+                totalPages: Math.ceil(total / take),
+                rewards: serializedRewards
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching weekly rewards history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch weekly rewards history',
+            error: error.message
+        });
+    }
+});
+
+// Get weekly rewards statistics
+router.get('/weekly-rewards/stats', async (req, res) => {
+    try {
+        const { gameName, weekStartDate } = req.query;
+        
+        // Build where clause for filtering
+        const whereClause = {};
+        
+        if (gameName) {
+            whereClause.gameName = gameName;
+        }
+        
+        if (weekStartDate) {
+            whereClause.weekStartDate = new Date(weekStartDate);
+        }
+        
+        // Get statistics
+        const [
+            totalRewards,
+            successfulRewards,
+            failedRewards,
+            totalAmountDistributed,
+            gameStats,
+            recentWeeks
+        ] = await Promise.all([
+            // Total rewards count
+            prisma.weeklyGameReward.count({ where: whereClause }),
+            
+            // Successful rewards count
+            prisma.weeklyGameReward.count({ 
+                where: { ...whereClause, transferSuccess: true } 
+            }),
+            
+            // Failed rewards count
+            prisma.weeklyGameReward.count({ 
+                where: { ...whereClause, transferSuccess: false } 
+            }),
+            
+            // Total amount distributed
+            prisma.weeklyGameReward.aggregate({
+                where: { ...whereClause, transferSuccess: true },
+                _sum: { rewardAmount: true }
+            }),
+            
+            // Stats by game
+            prisma.weeklyGameReward.groupBy({
+                by: ['gameName'],
+                where: whereClause,
+                _count: { id: true },
+                _sum: { rewardAmount: true }
+            }),
+            
+            // Recent weeks (last 8 weeks)
+            prisma.weeklyGameReward.groupBy({
+                by: ['weekStartDate'],
+                where: whereClause,
+                _count: { id: true },
+                _sum: { rewardAmount: true },
+                orderBy: { weekStartDate: 'desc' },
+                take: 8
+            })
+        ]);
+        
+        res.json({
+            success: true,
+            message: 'Weekly rewards statistics retrieved successfully',
+            data: {
+                overview: {
+                    totalRewards,
+                    successfulRewards,
+                    failedRewards,
+                    successRate: totalRewards > 0 ? (successfulRewards / totalRewards * 100).toFixed(2) : 0,
+                    totalAmountDistributed: totalAmountDistributed._sum.rewardAmount || 0
+                },
+                gameStats: gameStats.map(stat => ({
+                    gameName: stat.gameName,
+                    totalRewards: stat._count.id,
+                    totalAmount: stat._sum.rewardAmount || 0
+                })),
+                recentWeeks: recentWeeks.map(week => ({
+                    weekStartDate: week.weekStartDate,
+                    weekStartDateFormatted: new Date(week.weekStartDate).toLocaleDateString(),
+                    totalRewards: week._count.id,
+                    totalAmount: week._sum.rewardAmount || 0
+                }))
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching weekly rewards statistics:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch weekly rewards statistics',
             error: error.message
         });
     }
