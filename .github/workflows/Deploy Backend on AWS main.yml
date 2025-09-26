@@ -86,8 +86,7 @@ jobs:
             --build-arg GAME_SWITCH=$GAME_SWITCH \
             --build-arg GOOGLE_SERVICE_ACCOUNT_KEY=$GOOGLE_SERVICE_ACCOUNT_KEY \
             --build-arg GOOGLE_SHEETS_REWARDS_ID=$GOOGLE_SHEETS_REWARDS_ID \
-            -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} \
-            .
+            -t ${{ env.IMAGE_REPO_NAME }}:${{ env.IMAGE_TAG }} .
 
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
