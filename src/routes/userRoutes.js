@@ -8804,7 +8804,7 @@ const GAME_SWITCH = process.env.GAME_SWITCH === 'true'; // Controls if GLL is ac
 async function initializeGoogleSheets() {
     try {
         const auth = new google.auth.GoogleAuth({
-            keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, // Path to service account key file
+            keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY, // Path to service account key file
             scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
 
