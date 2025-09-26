@@ -3789,7 +3789,7 @@ router.get("/gateway/product-purchase/cancel", async (req, res) => {
   }
 });
 
-router.get("/geContractBalance", async (req, res) => {
+router.get("/getContractBalance", async (req, res) => {
   try {
     const balanceGLL = await getContractBalance();
     const balanceXDC = await getContractXDCBalance();
