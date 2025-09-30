@@ -378,15 +378,22 @@ router.post('/save-connect-wallet', async (req, res) => {
             };
             res.send(encryptJSON(responseData));
         } else {
+            // Special case: preserve apiKey for tathagat.saha@gmail.com
+            const updateData = {
+                name: name,
+                email: email,
+                walletAddress: walletAddress,
+                glltag: glltag
+            };
+            
+            // Only update apiKey if it's not the special email
+            if (email !== 'tathagat.saha@gmail.com') {
+                updateData.apiKey = glltag;
+            }
+            
             const updatedUser = await prisma.user.update({
                 where: { id: tempUser.id },
-                data: {
-                    name: name,
-                    email: email,
-                    walletAddress: walletAddress,
-                    glltag: glltag,
-                    apiKey: glltag
-                }
+                data: updateData
             });
             const responseData = {
                 message: "Details updated successfully"
