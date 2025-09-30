@@ -9,11 +9,8 @@ const axios = require("axios");
 const prisma = require("../config/db");
 const fs = require("fs");
 const path = require("path");
-const {
-  getMyBalance,
-  getContractBalance,
-  getContractXDCBalance,
-} = require("../config/blockchain");
+
+const { getMyBalance, getContractBalance, getContractXDCBalance } = require("../config/blockchain");
 
 const router = express.Router();
 
@@ -597,7 +594,6 @@ router.post("/purchase-plan", async (req, res) => {
         ...metadata,
         walletId,
         noOfDocs: noOfDocs.toString(),
-        currency: "usd",
       },
       apiKey: "growinvoice",
     };
@@ -3798,7 +3794,9 @@ router.get("/getContractBalance", async (req, res) => {
   try {
     const balanceGLL = await getContractBalance();
     const balanceXDC = await getContractXDCBalance();
+
     res.send({ balanceGLL, balanceXDC });
+
   } catch (error) {
     console.error("Contract balance query error:", error);
     res.status(500).json({
@@ -3807,6 +3805,7 @@ router.get("/getContractBalance", async (req, res) => {
     });
   }
 });
+
 
 router.get("/getLiveGLLData", async (req, res) => {
   try {
