@@ -820,3 +820,29 @@ model RedeemGllRequest {
   @@index([contactNumber])
   @@map("redeem_gll_requests")
 }
+
+// Weekly Game Rewards model
+model WeeklyGameReward {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  playerEmail     String   @map("player_email")
+  playerName      String   @map("player_name")
+  walletAddress   String   @map("wallet_address")
+  gameName        String   @map("game_name")
+  highScore       Int      @map("high_score")
+  rewardAmount    Float    @map("reward_amount")
+  transactionHash String?  @map("transaction_hash")
+  transferSuccess Boolean  @default(false) @map("transfer_success")
+  transferError   String?  @map("transfer_error")
+  sheetRecorded   Boolean  @default(false) @map("sheet_recorded")
+  weekStartDate   DateTime @map("week_start_date") // Monday of the reward week
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Indexes for better query performance
+  @@index([playerEmail])
+  @@index([gameName])
+  @@index([weekStartDate])
+  @@index([transferSuccess])
+  @@index([createdAt])
+  @@map("weekly_game_rewards")
+}
